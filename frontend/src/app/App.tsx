@@ -16,8 +16,8 @@ import { clsx } from "clsx";
 type Role = "admin" | "teacher" | "student";
 type View =
   | "admin-dashboard" | "admin-users" | "admin-jobs" | "admin-audit"
-  | "teacher-assessments" | "teacher-queue" | "teacher-review" | "teacher-wizard"
-  | "student-assessments" | "student-upload" | "student-status" | "student-results";
+  | "teacher-courses" | "teacher-course" | "teacher-course-editor" | "teacher-assignment-editor" | "teacher-queue" | "teacher-review"
+  | "student-assignments" | "student-upload" | "student-status" | "student-results";
 
 type Status =
   | "received" | "checking" | "waiting" | "evaluating"
@@ -26,16 +26,16 @@ type Status =
 
 // ---- Status Config ----
 const STATUS: Record<Status, { label: string; cls: string; dot: string }> = {
-  received:           { label: "Đã nhận",          cls: "bg-gray-100 text-gray-600",      dot: "bg-gray-400" },
-  checking:           { label: "Kiểm tra PDF",      cls: "bg-sky-50 text-sky-700",         dot: "bg-sky-400" },
-  waiting:            { label: "Chờ xử lý",         cls: "bg-amber-50 text-amber-700",     dot: "bg-amber-400" },
-  evaluating:         { label: "Đang đánh giá",     cls: "bg-violet-50 text-violet-700",   dot: "bg-violet-400" },
-  "needs-review":     { label: "Cần xem xét",       cls: "bg-orange-50 text-orange-700",   dot: "bg-orange-400" },
-  "pending-approval": { label: "Chờ duyệt",         cls: "bg-blue-50 text-blue-700",       dot: "bg-blue-400" },
-  approved:           { label: "Đã duyệt",          cls: "bg-green-50 text-green-700",     dot: "bg-green-500" },
-  published:          { label: "Đã công bố",        cls: "bg-green-100 text-green-800",    dot: "bg-green-600" },
-  error:              { label: "Xử lý lỗi",         cls: "bg-red-50 text-red-700",         dot: "bg-red-500" },
-  resubmit:           { label: "Yêu cầu nộp lại",   cls: "bg-red-50 text-red-700",         dot: "bg-red-400" },
+  received:           { label: "Received",          cls: "bg-gray-100 text-gray-600",      dot: "bg-gray-400" },
+  checking:           { label: "Checking PDF",      cls: "bg-sky-50 text-sky-700",         dot: "bg-sky-400" },
+  waiting:            { label: "Queued",            cls: "bg-amber-50 text-amber-700",     dot: "bg-amber-400" },
+  evaluating:         { label: "Evaluating",        cls: "bg-violet-50 text-violet-700",   dot: "bg-violet-400" },
+  "needs-review":     { label: "Needs review",      cls: "bg-orange-50 text-orange-700",   dot: "bg-orange-400" },
+  "pending-approval": { label: "Pending approval",  cls: "bg-blue-50 text-blue-700",       dot: "bg-blue-400" },
+  approved:           { label: "Approved",          cls: "bg-green-50 text-green-700",     dot: "bg-green-500" },
+  published:          { label: "Published",         cls: "bg-green-100 text-green-800",    dot: "bg-green-600" },
+  error:              { label: "Processing failed", cls: "bg-red-50 text-red-700",         dot: "bg-red-500" },
+  resubmit:           { label: "Resubmission needed", cls: "bg-red-50 text-red-700",        dot: "bg-red-400" },
 };
 
 function StatusBadge({ status }: { status: Status }) {
@@ -50,29 +50,66 @@ function StatusBadge({ status }: { status: Status }) {
 
 // ---- Mock Data ----
 const SUBMISSIONS = [
-  { id: "SUB-001", student: "Nguyễn Văn A", studentId: "20210001", assessment: "Báo cáo CNPM K21", version: 1, status: "needs-review" as Status, submittedAt: "15/07 14:32", confidence: 0.87, suggestedScore: 7.4, reviewer: null, pages: 48 },
-  { id: "SUB-002", student: "Trần Thị B",   studentId: "20210002", assessment: "Báo cáo CNPM K21", version: 2, status: "pending-approval" as Status, submittedAt: "15/07 13:15", confidence: 0.92, suggestedScore: 8.1, reviewer: "GV. Minh", pages: 62 },
-  { id: "SUB-003", student: "Lê Văn C",     studentId: "20210003", assessment: "Báo cáo CNPM K21", version: 1, status: "evaluating" as Status,  submittedAt: "15/07 12:00", confidence: null, suggestedScore: null, reviewer: null, pages: 35 },
-  { id: "SUB-004", student: "Phạm Thị D",   studentId: "20210004", assessment: "Báo cáo CNPM K21", version: 1, status: "error" as Status,         submittedAt: "15/07 11:30", confidence: null, suggestedScore: null, reviewer: null, pages: null },
-  { id: "SUB-005", student: "Hoàng Văn E",  studentId: "20210005", assessment: "Báo cáo CNPM K21", version: 1, status: "approved" as Status,      submittedAt: "14/07 16:45", confidence: 0.89, suggestedScore: 6.8, reviewer: "GV. Hà", pages: 51 },
-  { id: "SUB-006", student: "Vũ Thị F",     studentId: "20210006", assessment: "Báo cáo CNPM K21", version: 3, status: "published" as Status,     submittedAt: "14/07 15:20", confidence: 0.95, suggestedScore: 9.2, reviewer: "GV. Minh", pages: 78 },
+  { id: "SUB-001", student: "Nguyễn Văn A", studentId: "20210001", assignment: "Software Requirements Specification", version: 1, status: "needs-review" as Status, submittedAt: "15/07 14:32", confidence: 0.87, suggestedScore: 7.4, reviewer: null, pages: 48 },
+  { id: "SUB-002", student: "Trần Thị B",   studentId: "20210002", assignment: "Software Requirements Specification", version: 2, status: "pending-approval" as Status, submittedAt: "15/07 13:15", confidence: 0.92, suggestedScore: 8.1, reviewer: "Minh", pages: 62 },
+  { id: "SUB-003", student: "Lê Văn C",     studentId: "20210003", assignment: "Software Requirements Specification", version: 1, status: "evaluating" as Status,  submittedAt: "15/07 12:00", confidence: null, suggestedScore: null, reviewer: null, pages: 35 },
+  { id: "SUB-004", student: "Phạm Thị D",   studentId: "20210004", assignment: "Software Requirements Specification", version: 1, status: "error" as Status,         submittedAt: "15/07 11:30", confidence: null, suggestedScore: null, reviewer: null, pages: null },
+  { id: "SUB-005", student: "Hoàng Văn E",  studentId: "20210005", assignment: "Software Requirements Specification", version: 1, status: "approved" as Status,      submittedAt: "14/07 16:45", confidence: 0.89, suggestedScore: 6.8, reviewer: "Hà", pages: 51 },
+  { id: "SUB-006", student: "Vũ Thị F",     studentId: "20210006", assignment: "Software Requirements Specification", version: 3, status: "published" as Status,     submittedAt: "14/07 15:20", confidence: 0.95, suggestedScore: 9.2, reviewer: "Minh", pages: 78 },
 ];
 
 const CRITERIA = [
-  { id: "C1", name: "Cấu trúc tài liệu",  weight: 15, suggestedScore: 13, confidence: 0.91, status: "accepted" as const, findings: 0 },
-  { id: "C2", name: "Phân tích yêu cầu",  weight: 25, suggestedScore: 18, confidence: 0.85, status: "pending"  as const, findings: 2 },
+  { id: "C1", name: "Document structure",  weight: 15, suggestedScore: 13, confidence: 0.91, status: "accepted" as const, findings: 0 },
+  { id: "C2", name: "Requirements analysis", weight: 25, suggestedScore: 18, confidence: 0.85, status: "pending"  as const, findings: 2 },
   { id: "C3", name: "Use Case Diagram",   weight: 20, suggestedScore: 14, confidence: 0.78, status: "pending"  as const, findings: 1 },
-  { id: "C4", name: "Thiết kế hệ thống", weight: 25, suggestedScore: 20, confidence: 0.93, status: "accepted" as const, findings: 1 },
-  { id: "C5", name: "Tính nhất quán",    weight: 15, suggestedScore: 10, confidence: 0.72, status: "pending"  as const, findings: 2 },
+  { id: "C4", name: "System design",      weight: 25, suggestedScore: 20, confidence: 0.93, status: "accepted" as const, findings: 1 },
+  { id: "C5", name: "Consistency",        weight: 15, suggestedScore: 10, confidence: 0.72, status: "pending"  as const, findings: 2 },
 ];
 
 const FINDINGS = [
-  { id: "F1", criterionId: "C2", severity: "major"    as const, page: 12, description: "Bảng use case thiếu actor 'Hệ thống thanh toán'.",           suggestion: "Bổ sung actor và các use case liên quan đến thanh toán." },
-  { id: "F2", criterionId: "C2", severity: "minor"    as const, page: 18, description: "Mô tả kịch bản thay thế của UC-04 chưa đầy đủ.",             suggestion: "Bổ sung ít nhất 2 kịch bản thay thế cho UC-04." },
-  { id: "F3", criterionId: "C3", severity: "major"    as const, page: 23, description: "Use Case Diagram không có system boundary.",                  suggestion: "Thêm system boundary bao quanh tất cả các use case nội bộ." },
-  { id: "F4", criterionId: "C4", severity: "minor"    as const, page: 35, description: "Thiếu mô tả quan hệ kế thừa giữa hai lớp entity.",           suggestion: "Bổ sung mô tả quan hệ kế thừa trong class diagram." },
-  { id: "F5", criterionId: "C5", severity: "critical" as const, page: 31, description: "Thuật ngữ 'người dùng' và 'khách hàng' dùng lẫn lộn trong toàn tài liệu.", suggestion: "Thống nhất một thuật ngữ hoặc định nghĩa rõ sự khác biệt." },
-  { id: "F6", criterionId: "C5", severity: "minor"    as const, page: 44, description: "Tên bảng trong CSDL không nhất quán với tên entity trong ERD.", suggestion: "Đồng bộ tên bảng với tên entity." },
+  { id: "F1", criterionId: "C2", severity: "major"    as const, page: 12, description: "The use-case table is missing the Payment System actor.", suggestion: "Add the actor and the payment-related use cases." },
+  { id: "F2", criterionId: "C2", severity: "minor"    as const, page: 18, description: "The alternative flow for UC-04 is incomplete.", suggestion: "Add at least two alternative scenarios for UC-04." },
+  { id: "F3", criterionId: "C3", severity: "major"    as const, page: 23, description: "The Use Case Diagram has no system boundary.", suggestion: "Add a system boundary around all internal use cases." },
+  { id: "F4", criterionId: "C4", severity: "minor"    as const, page: 35, description: "The inheritance relationship between two entity classes is not explained.", suggestion: "Describe the inheritance relationship in the class diagram." },
+  { id: "F5", criterionId: "C5", severity: "critical" as const, page: 31, description: "The terms user and customer are used interchangeably throughout the document.", suggestion: "Use one term consistently or define the distinction." },
+  { id: "F6", criterionId: "C5", severity: "minor"    as const, page: 44, description: "Database table names do not match the entity names in the ERD.", suggestion: "Align table names with the corresponding entities." },
+];
+
+type Course = {
+  id: string;
+  code: string;
+  name: string;
+  term: string;
+  students: number;
+};
+
+type Assignment = {
+  id: string;
+  courseId: string;
+  title: string;
+  description: string;
+  dueDate: string;
+  attempts: number;
+  status: "draft" | "open" | "closed";
+  submitted: number;
+  reviewed: number;
+  published: number;
+  rubric: string;
+  requireAppendix: boolean;
+  templateName: string;
+};
+
+const INITIAL_COURSES: Course[] = [
+  { id: "COURSE-SE", code: "INT2208-01", name: "Công nghệ phần mềm", term: "Semester 2 · 2024", students: 42 },
+  { id: "COURSE-THESIS", code: "CS4999", name: "Khóa luận tốt nghiệp", term: "Academic year 2024", students: 18 },
+  { id: "COURSE-INTERNSHIP", code: "INT3501", name: "Thực tập doanh nghiệp", term: "Summer · 2024", students: 30 },
+];
+
+const INITIAL_ASSIGNMENTS: Assignment[] = [
+  { id: "ASG-SRS", courseId: "COURSE-SE", title: "Software Requirements Specification", description: "Submit the final SRS report for automated analysis and lecturer review.", dueDate: "2024-07-31", attempts: 3, status: "open", submitted: 24, reviewed: 18, published: 12, rubric: "SRS Standard v2.1", requireAppendix: false, templateName: "SRS-template.docx" },
+  { id: "ASG-DESIGN", courseId: "COURSE-SE", title: "System Design Report", description: "Architecture, data model, component and deployment design.", dueDate: "2024-08-18", attempts: 2, status: "draft", submitted: 0, reviewed: 0, published: 0, rubric: "Software Design v1.0", requireAppendix: true, templateName: "Design-report-template.docx" },
+  { id: "ASG-THESIS", courseId: "COURSE-THESIS", title: "Final Thesis Report", description: "Final thesis manuscript and supporting appendix.", dueDate: "2024-08-15", attempts: 2, status: "open", submitted: 11, reviewed: 6, published: 4, rubric: "Thesis Template v1.0", requireAppendix: true, templateName: "Thesis-template.docx" },
+  { id: "ASG-INTERNSHIP", courseId: "COURSE-INTERNSHIP", title: "Internship Report", description: "Describe the organization, assigned work and learning outcomes.", dueDate: "2024-08-20", attempts: 3, status: "closed", submitted: 30, reviewed: 30, published: 30, rubric: "Internship Report v3.0", requireAppendix: false, templateName: "Internship-report-template.docx" },
 ];
 
 // ---- Sidebar ----
@@ -81,19 +118,19 @@ type NavItem = { icon: React.FC<{ className?: string }>; label: string; view: Vi
 const NAV: Record<Role, NavItem[]> = {
   admin:   [
     { icon: LayoutDashboard, label: "Dashboard",       view: "admin-dashboard" },
-    { icon: Users,           label: "Người dùng",      view: "admin-users" },
+    { icon: Users,           label: "Users",           view: "admin-users" },
     { icon: Activity,        label: "Job Monitoring",  view: "admin-jobs" },
     { icon: Shield,          label: "Audit Log",       view: "admin-audit" },
   ],
   teacher: [
-    { icon: Layers,          label: "Đợt đánh giá",   view: "teacher-assessments" },
+    { icon: BookOpen,        label: "Courses",         view: "teacher-courses" },
     { icon: Inbox,           label: "Submission Queue",view: "teacher-queue" },
   ],
   student: [
-    { icon: BookOpen,        label: "Đợt đánh giá",   view: "student-assessments" },
-    { icon: Upload,          label: "Nộp tài liệu",   view: "student-upload" },
-    { icon: Clock,           label: "Theo dõi",        view: "student-status" },
-    { icon: Star,            label: "Kết quả",         view: "student-results" },
+    { icon: BookOpen,        label: "Assignments",     view: "student-assignments" },
+    { icon: Upload,          label: "Submit report",   view: "student-upload" },
+    { icon: Clock,           label: "Track submission", view: "student-status" },
+    { icon: Star,            label: "Results",         view: "student-results" },
   ],
 };
 
@@ -118,8 +155,8 @@ function Sidebar({ role, view, onViewChange, onRoleChange }: {
           className="w-full text-xs px-2.5 py-1.5 bg-white border border-[#e0e0e0] rounded-lg text-[#1c1d1d] outline-none cursor-pointer"
         >
           <option value="admin">Admin</option>
-          <option value="teacher">Giảng viên</option>
-          <option value="student">Sinh viên</option>
+          <option value="teacher">Teacher</option>
+          <option value="student">Student</option>
         </select>
       </div>
 
@@ -152,7 +189,7 @@ function Sidebar({ role, view, onViewChange, onRoleChange }: {
           </div>
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[#1c1d1d] truncate">
-              {role === "admin" ? "Admin" : role === "teacher" ? "Giảng viên" : "Sinh viên"}
+              {role === "admin" ? "Admin" : role === "teacher" ? "Teacher" : "Student"}
             </p>
             <p className="text-[10px] text-[#8a8a8a] truncate">docgrading.edu.vn</p>
           </div>
@@ -165,17 +202,19 @@ function Sidebar({ role, view, onViewChange, onRoleChange }: {
 // ---- TopBar ----
 const BREADCRUMBS: Record<View, string[]> = {
   "admin-dashboard":    ["Admin", "Dashboard"],
-  "admin-users":        ["Admin", "Người dùng"],
+  "admin-users":        ["Admin", "Users"],
   "admin-jobs":         ["Admin", "Job Monitoring"],
   "admin-audit":        ["Admin", "Audit Log"],
-  "teacher-assessments":["Giảng viên", "Đợt đánh giá"],
-  "teacher-queue":      ["Giảng viên", "Submission Queue"],
-  "teacher-review":     ["Giảng viên", "Submission Queue", "Review Workspace"],
-  "teacher-wizard":     ["Giảng viên", "Đợt đánh giá", "Tạo mới"],
-  "student-assessments":["Sinh viên", "Đợt đánh giá"],
-  "student-upload":     ["Sinh viên", "Nộp tài liệu"],
-  "student-status":     ["Sinh viên", "Theo dõi trạng thái"],
-  "student-results":    ["Sinh viên", "Kết quả"],
+  "teacher-courses":    ["Teacher", "Courses"],
+  "teacher-course":     ["Teacher", "Courses", "Course workspace"],
+  "teacher-course-editor": ["Teacher", "Courses", "Course settings"],
+  "teacher-assignment-editor": ["Teacher", "Courses", "Assignment editor"],
+  "teacher-queue":      ["Teacher", "Submission Queue"],
+  "teacher-review":     ["Teacher", "Submission Queue", "Review Workspace"],
+  "student-assignments":["Student", "Assignments"],
+  "student-upload":     ["Student", "Submit report"],
+  "student-status":     ["Student", "Track submission"],
+  "student-results":    ["Student", "Results"],
 };
 
 function TopBar({ view }: { view: View }) {
@@ -208,10 +247,10 @@ function TopBar({ view }: { view: View }) {
 
 function AdminDashboard() {
   const stats = [
-    { label: "Tổng người dùng",  value: "1,248", icon: Users,         sub: "+12 tuần này",        alert: false },
-    { label: "Đợt đang mở",      value: "7",     icon: Layers,        sub: "3 đang xử lý",        alert: false },
-    { label: "Queue depth",      value: "34",    icon: ListTodo,      sub: "↑ 8 so với hôm qua",  alert: false },
-    { label: "Job lỗi",          value: "3",     icon: XCircle,       sub: "Cần xử lý ngay",      alert: true  },
+    { label: "Total users",      value: "1,248", icon: Users,         sub: "+12 this week",       alert: false },
+    { label: "Open assignments", value: "7",     icon: Layers,        sub: "3 processing",        alert: false },
+    { label: "Queue depth",      value: "34",    icon: ListTodo,      sub: "↑ 8 since yesterday", alert: false },
+    { label: "Failed jobs",      value: "3",     icon: XCircle,       sub: "Action required",     alert: true  },
   ];
 
   const errorJobs = [
@@ -221,19 +260,19 @@ function AdminDashboard() {
   ];
 
   const recent = [
-    { time: "14:32", user: "GV. Minh",   action: "Công bố kết quả",          target: "SUB-002" },
-    { time: "13:15", user: "SV. NVA",    action: "Nộp tài liệu",             target: "SUB-001 v2" },
+    { time: "14:32", user: "Minh",       action: "published a result",       target: "SUB-002" },
+    { time: "13:15", user: "Nguyễn Văn A", action: "submitted a report",    target: "SUB-001 v2" },
     { time: "12:48", user: "Admin",      action: "Retry job",                 target: "J-0018" },
-    { time: "11:30", user: "System",     action: "Đánh giá hoàn thành",      target: "SUB-006" },
-    { time: "10:20", user: "GV. Hà",     action: "Override điểm",            target: "SUB-005 C3" },
+    { time: "11:30", user: "System",     action: "completed an evaluation",  target: "SUB-006" },
+    { time: "10:20", user: "Hà",         action: "overrode a score",         target: "SUB-005 C3" },
   ];
 
   return (
     <div className="p-6 space-y-5 max-w-[1200px]">
       <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm">
         <AlertTriangle className="size-4 text-red-600 flex-shrink-0" />
-        <span className="text-red-700 font-medium text-xs">3 job đang lỗi cần xử lý ngay</span>
-        <button className="ml-auto text-red-600 text-xs font-semibold hover:underline">Xem ngay →</button>
+        <span className="text-red-700 font-medium text-xs">3 failed jobs require attention</span>
+        <button className="ml-auto text-red-600 text-xs font-semibold hover:underline">Review now →</button>
       </div>
 
       <div className="grid grid-cols-4 gap-4">
@@ -260,13 +299,13 @@ function AdminDashboard() {
       <div className="grid grid-cols-[1fr_300px] gap-4">
         <div className="bg-white border border-[#e7eae9] rounded-2xl overflow-hidden shadow-[0_0_8px_rgba(0,0,0,0.04)]">
           <div className="flex items-center justify-between px-5 py-3 border-b border-[#f0f0f0]">
-            <h3 className="text-sm font-semibold text-[#1c1d1d]">Job lỗi</h3>
-            <button className="text-xs text-[#85878d] hover:text-[#1c1d1d]">Xem tất cả</button>
+            <h3 className="text-sm font-semibold text-[#1c1d1d]">Failed jobs</h3>
+            <button className="text-xs text-[#85878d] hover:text-[#1c1d1d]">View all</button>
           </div>
           <table className="w-full text-xs">
             <thead className="bg-[#f8f8f8]">
               <tr className="text-[#85878d] text-left">
-                {["Job ID", "Submission", "Evaluator", "Tuổi", "Lỗi", ""].map(h => (
+                {["Job ID", "Submission", "Evaluator", "Age", "Error", ""].map(h => (
                   <th key={h} className="px-5 py-2.5 font-medium">{h}</th>
                 ))}
               </tr>
@@ -292,7 +331,7 @@ function AdminDashboard() {
 
         <div className="bg-white border border-[#e7eae9] rounded-2xl overflow-hidden shadow-[0_0_8px_rgba(0,0,0,0.04)]">
           <div className="px-5 py-3 border-b border-[#f0f0f0]">
-            <h3 className="text-sm font-semibold text-[#1c1d1d]">Hoạt động gần đây</h3>
+            <h3 className="text-sm font-semibold text-[#1c1d1d]">Recent activity</h3>
           </div>
           <div className="divide-y divide-[#f5f5f5]">
             {recent.map((r, i) => (
@@ -313,27 +352,27 @@ function AdminDashboard() {
 
 function AdminUsers() {
   const users = [
-    { name: "GV. Nguyễn Minh",    email: "nminh@uni.edu.vn",             role: "teacher", status: "active" },
-    { name: "GV. Trần Hà",        email: "tha@uni.edu.vn",               role: "teacher", status: "active" },
-    { name: "SV. Nguyễn Văn A",   email: "20210001@student.uni.edu.vn",  role: "student", status: "active" },
-    { name: "SV. Trần Thị B",     email: "20210002@student.uni.edu.vn",  role: "student", status: "active" },
-    { name: "Admin Hệ thống",     email: "admin@uni.edu.vn",             role: "admin",   status: "active" },
-    { name: "SV. Lê Văn C",       email: "20210003@student.uni.edu.vn",  role: "student", status: "locked" },
+    { name: "Nguyễn Minh",        email: "nminh@uni.edu.vn",             role: "teacher", status: "active" },
+    { name: "Trần Hà",            email: "tha@uni.edu.vn",               role: "teacher", status: "active" },
+    { name: "Nguyễn Văn A",       email: "20210001@student.uni.edu.vn",  role: "student", status: "active" },
+    { name: "Trần Thị B",         email: "20210002@student.uni.edu.vn",  role: "student", status: "active" },
+    { name: "System Admin",       email: "admin@uni.edu.vn",             role: "admin",   status: "active" },
+    { name: "Lê Văn C",           email: "20210003@student.uni.edu.vn",  role: "student", status: "locked" },
   ];
   return (
     <div className="p-6 space-y-4 max-w-[1000px]">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-[#1c1d1d]">Quản lý người dùng</h2>
+        <h2 className="text-lg font-bold text-[#1c1d1d]">User management</h2>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 px-3 py-1.5 border border-[#e7eae9] rounded-xl bg-white text-xs">
             <Search className="size-3.5 text-[#85878d]" />
-            <input className="outline-none w-36 bg-transparent placeholder-[#85878d] text-xs" placeholder="Tìm người dùng..." />
+            <input className="outline-none w-36 bg-transparent placeholder-[#85878d] text-xs" placeholder="Search users..." />
           </div>
           <select className="text-xs px-3 py-1.5 border border-[#e7eae9] rounded-xl bg-white outline-none text-[#42404c]">
-            <option>Tất cả vai trò</option>
+            <option>All roles</option>
             <option>Admin</option>
-            <option>Giảng viên</option>
-            <option>Sinh viên</option>
+            <option>Teacher</option>
+            <option>Student</option>
           </select>
         </div>
       </div>
@@ -341,7 +380,7 @@ function AdminUsers() {
         <table className="w-full text-xs">
           <thead className="bg-[#f8f8f8]">
             <tr className="text-[#85878d] text-left">
-              {["Tên", "Email", "Vai trò", "Trạng thái", ""].map(h => (
+              {["Name", "Email", "Role", "Status", ""].map(h => (
                 <th key={h} className="px-5 py-3 font-medium">{h}</th>
               ))}
             </tr>
@@ -363,14 +402,14 @@ function AdminUsers() {
                     u.role === "admin" ? "bg-[#1c1d1d] text-white" :
                     u.role === "teacher" ? "bg-blue-50 text-blue-700" : "bg-[#f0f0f0] text-[#42404c]"
                   )}>
-                    {u.role === "admin" ? "Admin" : u.role === "teacher" ? "Giảng viên" : "Sinh viên"}
+                    {u.role === "admin" ? "Admin" : u.role === "teacher" ? "Teacher" : "Student"}
                   </span>
                 </td>
                 <td className="px-5 py-3">
                   <span className={clsx("px-2 py-0.5 rounded-full text-[10px] font-semibold",
                     u.status === "active" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                   )}>
-                    {u.status === "active" ? "Hoạt động" : "Bị khóa"}
+                    {u.status === "active" ? "Active" : "Locked"}
                   </span>
                 </td>
                 <td className="px-5 py-3">
@@ -401,14 +440,14 @@ function AdminJobs() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-[#1c1d1d]">Job Monitoring</h2>
-          <p className="text-xs text-[#85878d] mt-0.5">34 job trong queue · 3 lỗi · 2 đang chạy</p>
+          <p className="text-xs text-[#85878d] mt-0.5">34 jobs queued · 3 failed · 2 running</p>
         </div>
         <div className="flex items-center gap-2">
           <select className="text-xs px-3 py-1.5 border border-[#e7eae9] rounded-xl bg-white outline-none text-[#42404c]">
-            <option>Tất cả trạng thái</option>
-            <option>Lỗi</option>
-            <option>Đang chạy</option>
-            <option>Hoàn thành</option>
+            <option>All statuses</option>
+            <option>Failed</option>
+            <option>Running</option>
+            <option>Completed</option>
           </select>
         </div>
       </div>
@@ -416,7 +455,7 @@ function AdminJobs() {
         <table className="w-full text-xs">
           <thead className="bg-[#f8f8f8]">
             <tr className="text-[#85878d] text-left">
-              {["Job ID", "Submission", "Evaluator", "Trạng thái", "Tuổi", "Thời gian", "Lỗi", ""].map(h => (
+              {["Job ID", "Submission", "Evaluator", "Status", "Age", "Duration", "Error", ""].map(h => (
                 <th key={h} className="px-5 py-2.5 font-medium">{h}</th>
               ))}
             </tr>
@@ -432,7 +471,7 @@ function AdminJobs() {
                     j.status === "error" ? "bg-red-100 text-red-700" :
                     j.status === "running" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"
                   )}>
-                    {j.status === "error" ? "Lỗi" : j.status === "running" ? "Đang chạy" : "Hoàn thành"}
+                    {j.status === "error" ? "Failed" : j.status === "running" ? "Running" : "Completed"}
                   </span>
                 </td>
                 <td className="px-5 py-3 text-[#85878d]">{j.age}</td>
@@ -456,12 +495,12 @@ function AdminJobs() {
 
 function AdminAuditLog() {
   const logs = [
-    { time: "15/07 14:32", user: "GV. Minh",  action: "PUBLISH_RESULT",  target: "SUB-002",     detail: "Công bố kết quả cho SV. Trần Thị B" },
-    { time: "15/07 13:48", user: "GV. Hà",    action: "OVERRIDE_SCORE",  target: "SUB-005 C3",  detail: "Điều chỉnh điểm từ 14 → 16" },
-    { time: "15/07 12:30", user: "Admin",      action: "RETRY_JOB",       target: "J-0017",      detail: "Retry job lỗi timeout" },
-    { time: "15/07 11:15", user: "Admin",      action: "ROLE_CHANGE",     target: "U04",         detail: "Gán vai trò Teacher cho nminh@uni.edu.vn" },
-    { time: "15/07 10:00", user: "System",     action: "EVAL_COMPLETE",   target: "SUB-006",     detail: "Đánh giá hoàn thành, confidence: 0.95" },
-    { time: "14/07 17:22", user: "GV. Minh",  action: "APPROVE",         target: "SUB-006",     detail: "Duyệt kết quả đánh giá" },
+    { time: "15/07 14:32", user: "Minh",  action: "PUBLISH_RESULT",  target: "SUB-002",     detail: "Published result for Trần Thị B" },
+    { time: "15/07 13:48", user: "Hà",    action: "OVERRIDE_SCORE",  target: "SUB-005 C3",  detail: "Adjusted score from 14 → 16" },
+    { time: "15/07 12:30", user: "Admin", action: "RETRY_JOB",       target: "J-0017",      detail: "Retried job after timeout" },
+    { time: "15/07 11:15", user: "Admin", action: "ROLE_CHANGE",     target: "U04",         detail: "Assigned Teacher role to nminh@uni.edu.vn" },
+    { time: "15/07 10:00", user: "System", action: "EVAL_COMPLETE",  target: "SUB-006",     detail: "Evaluation completed, confidence: 0.95" },
+    { time: "14/07 17:22", user: "Minh",  action: "APPROVE",         target: "SUB-006",     detail: "Approved evaluation result" },
   ];
   const actionCls: Record<string, string> = {
     PUBLISH_RESULT: "bg-green-100 text-green-800",
@@ -476,7 +515,7 @@ function AdminAuditLog() {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-[#1c1d1d]">Audit Log</h2>
         <select className="text-xs px-3 py-1.5 border border-[#e7eae9] rounded-xl bg-white outline-none text-[#42404c]">
-          <option>Tất cả thao tác</option>
+          <option>All actions</option>
           <option>Publish</option>
           <option>Override</option>
           <option>Role Change</option>
@@ -486,7 +525,7 @@ function AdminAuditLog() {
         <table className="w-full text-xs">
           <thead className="bg-[#f8f8f8]">
             <tr className="text-[#85878d] text-left">
-              {["Thời gian", "Người dùng", "Thao tác", "Đối tượng", "Chi tiết"].map(h => (
+              {["Time", "User", "Action", "Target", "Details"].map(h => (
                 <th key={h} className="px-5 py-2.5 font-medium">{h}</th>
               ))}
             </tr>
@@ -516,46 +555,152 @@ function AdminAuditLog() {
 // TEACHER VIEWS
 // ============================================================
 
-function TeacherAssessments({ onCreateNew, onQueue }: { onCreateNew: () => void; onQueue: () => void }) {
-  const list = [
-    { name: "Báo cáo CNPM K21",    type: "Báo cáo phần mềm", status: "active"    as const, deadline: "31/07/2024", submitted: 24, reviewed: 18, published: 12 },
-    { name: "Luận văn TN 2024",    type: "Luận văn",         status: "draft"     as const, deadline: "15/08/2024", submitted: 0,  reviewed: 0,  published: 0  },
-    { name: "Báo cáo CNPM K20",    type: "Báo cáo phần mềm", status: "published" as const, deadline: "28/06/2024", submitted: 30, reviewed: 30, published: 30 },
-  ];
+function CourseCatalog({ courses, assignments, onSelect, onCreate }: {
+  courses: Course[];
+  assignments: Assignment[];
+  onSelect: (course: Course) => void;
+  onCreate: () => void;
+}) {
   return (
-    <div className="p-6 space-y-4 max-w-[800px]">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-[#1c1d1d]">Đợt đánh giá</h2>
-        <button onClick={onCreateNew} className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333]">
-          <Plus className="size-3.5" /> Tạo đợt mới
+    <div className="p-6 space-y-5 max-w-[980px]">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-bold text-[#1c1d1d]">Courses</h2>
+          <p className="text-xs text-[#85878d] mt-0.5">Organize assignments, rubrics and submissions by course.</p>
+        </div>
+        <button onClick={onCreate} className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333]">
+          <Plus className="size-3.5" /> Create course
         </button>
       </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        {courses.map((course) => {
+          const courseAssignments = assignments.filter((item) => item.courseId === course.id);
+          const open = courseAssignments.filter((item) => item.status === "open").length;
+          const pending = courseAssignments.reduce((sum, item) => sum + Math.max(0, item.submitted - item.reviewed), 0);
+          return (
+            <button key={course.id} onClick={() => onSelect(course)} className="bg-white border border-[#e7eae9] rounded-2xl p-5 text-left shadow-[0_0_8px_rgba(0,0,0,0.04)] hover:shadow-[0_0_14px_rgba(0,0,0,0.08)] hover:border-[#d8d8d8] transition-all group">
+              <div className="flex items-start gap-3">
+                <div className="size-10 rounded-xl bg-[#f1f2f3] border border-[#e7eae9] flex items-center justify-center flex-shrink-0">
+                  <BookOpen className="size-5 text-[#42404c]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-bold tracking-[0.08em] text-[#85878d] uppercase">{course.code}</p>
+                    {open > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-green-100 text-green-700">{open} open</span>}
+                  </div>
+                  <h3 className="text-sm font-bold text-[#1c1d1d] mt-1 truncate">{course.name}</h3>
+                  <p className="text-[11px] text-[#85878d] mt-0.5">{course.term}</p>
+                </div>
+                <ChevronRight className="size-4 text-[#b1b1b1] group-hover:text-[#1c1d1d] transition-colors mt-1" />
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-[#f1f1f1]">
+                {[
+                  ["Students", course.students],
+                  ["Assignments", courseAssignments.length],
+                  ["To review", pending],
+                ].map(([label, value]) => (
+                  <div key={label as string}>
+                    <p className="text-[10px] text-[#85878d]">{label}</p>
+                    <p className="text-sm font-bold text-[#1c1d1d] mt-0.5">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CourseWorkspace({ course, assignments, onBack, onEditCourse, onCreateAssignment, onEditAssignment, onQueue }: {
+  course: Course;
+  assignments: Assignment[];
+  onBack: () => void;
+  onEditCourse: () => void;
+  onCreateAssignment: () => void;
+  onEditAssignment: (assignment: Assignment) => void;
+  onQueue: (assignment: Assignment) => void;
+}) {
+  return (
+    <div className="p-6 space-y-5 max-w-[1040px]">
+      <button onClick={onBack} className="text-xs text-[#42404c] hover:text-[#1c1d1d] flex items-center gap-1 font-medium">
+        <ChevronLeft className="size-4" /> All courses
+      </button>
+
+      <div className="bg-white border border-[#e7eae9] rounded-2xl p-5 shadow-[0_0_8px_rgba(0,0,0,0.04)]">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="size-11 rounded-xl bg-[#1c1d1d] flex items-center justify-center flex-shrink-0">
+              <BookOpen className="size-5 text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.08em] text-[#85878d] uppercase">{course.code}</p>
+              <h2 className="text-lg font-bold text-[#1c1d1d] mt-0.5">{course.name}</h2>
+              <p className="text-xs text-[#85878d] mt-1">{course.term} · {course.students} students</p>
+            </div>
+          </div>
+          <button onClick={onEditCourse} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#42404c] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] font-medium">
+            <Settings className="size-3.5" /> Course settings
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-[#1c1d1d]">Assignments</h3>
+          <p className="text-[11px] text-[#85878d] mt-0.5">Define what students submit, how it is evaluated and when results are released.</p>
+        </div>
+        <button onClick={onCreateAssignment} className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333]">
+          <Plus className="size-3.5" /> New assignment
+        </button>
+      </div>
+
       <div className="space-y-3">
-        {list.map((a, i) => (
-          <div key={i} className="bg-white border border-[#e7eae9] rounded-2xl p-5 shadow-[0_0_8px_rgba(0,0,0,0.04)] hover:shadow-[0_0_12px_rgba(0,0,0,0.08)] transition-shadow">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1">
+        {assignments.length === 0 && (
+          <div className="bg-white border border-dashed border-[#dcdcdc] rounded-2xl py-12 text-center">
+            <FileText className="size-6 text-[#aaa] mx-auto mb-2" />
+            <p className="text-xs font-semibold text-[#42404c]">No assignments yet</p>
+            <p className="text-[11px] text-[#85878d] mt-1">Create the first assignment for this course.</p>
+          </div>
+        )}
+        {assignments.map((assignment) => (
+          <div key={assignment.id} className="bg-white border border-[#e7eae9] rounded-2xl p-5 shadow-[0_0_8px_rgba(0,0,0,0.04)]">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-sm font-bold text-[#1c1d1d]">{a.name}</h3>
+                  <h4 className="text-sm font-bold text-[#1c1d1d] truncate">{assignment.title}</h4>
                   <span className={clsx("text-[10px] px-2 py-0.5 rounded-full font-semibold",
-                    a.status === "active"    ? "bg-green-100 text-green-700" :
-                    a.status === "published" ? "bg-[#1c1d1d] text-white" :
+                    assignment.status === "open" ? "bg-green-100 text-green-700" :
+                    assignment.status === "closed" ? "bg-[#1c1d1d] text-white" :
                     "bg-[#f0f0f0] text-[#42404c]"
                   )}>
-                    {a.status === "active" ? "Đang nhận bài" : a.status === "published" ? "Đã công bố" : "Nháp"}
+                    {assignment.status === "open" ? "Open" : assignment.status === "closed" ? "Closed" : "Draft"}
                   </span>
                 </div>
-                <p className="text-[11px] text-[#85878d]">{a.type} · Deadline: {a.deadline}</p>
+                <p className="text-[11px] text-[#85878d] line-clamp-1">{assignment.description}</p>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10px] text-[#85878d]">
+                  <span>Due {assignment.dueDate}</span>
+                  <span>{assignment.attempts} submission attempts</span>
+                  <span>PDF · text layer required</span>
+                  <span>{assignment.rubric}</span>
+                </div>
               </div>
-              <button onClick={onQueue} className="text-xs text-[#42404c] border border-[#e7eae9] px-3 py-1.5 rounded-xl hover:bg-[#f5f7f9] font-medium whitespace-nowrap">
-                Xem queue
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button onClick={() => onEditAssignment(assignment)} className="flex items-center gap-1 px-3 py-1.5 text-xs text-[#42404c] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] font-medium">
+                  <Pencil className="size-3.5" /> Edit
+                </button>
+                <button onClick={() => onQueue(assignment)} className="flex items-center gap-1 px-3 py-1.5 text-xs text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333] font-semibold">
+                  Open submissions <ChevronRight className="size-3.5" />
+                </button>
+              </div>
             </div>
-            <div className="flex gap-8 mt-3 pt-3 border-t border-[#f5f5f5]">
-              {[["Đã nộp", a.submitted], ["Đã duyệt", a.reviewed], ["Đã công bố", a.published]].map(([lbl, val]) => (
-                <div key={lbl as string} className="text-xs">
-                  <span className="text-[#85878d]">{lbl}: </span>
-                  <span className="font-bold text-[#1c1d1d]">{val}</span>
+            <div className="flex gap-8 mt-4 pt-3 border-t border-[#f5f5f5]">
+              {[["Submitted", assignment.submitted], ["Reviewed", assignment.reviewed], ["Published", assignment.published]].map(([label, value]) => (
+                <div key={label as string} className="text-xs">
+                  <span className="text-[#85878d]">{label}: </span>
+                  <span className="font-bold text-[#1c1d1d]">{value}</span>
                 </div>
               ))}
             </div>
@@ -566,44 +711,104 @@ function TeacherAssessments({ onCreateNew, onQueue }: { onCreateNew: () => void;
   );
 }
 
-function AssessmentWizard({ onBack }: { onBack: () => void }) {
-  const [step, setStep] = useState(1);
-  const steps = ["Thông tin cơ bản", "Chọn rubric", "Cấu hình criterion", "Preview & Mở"];
+function CourseEditor({ course, onBack, onSave }: { course: Course | null; onBack: () => void; onSave: (course: Course) => void }) {
+  const [code, setCode] = useState(course?.code ?? "");
+  const [name, setName] = useState(course?.name ?? "");
+  const [term, setTerm] = useState(course?.term ?? "Semester 1 · 2025");
 
   return (
-    <div className="p-6 max-w-[640px]">
+    <div className="p-6 max-w-[620px]">
       <div className="flex items-center gap-3 mb-6">
         <button onClick={onBack} className="text-xs text-[#42404c] hover:text-[#1c1d1d] flex items-center gap-1 font-medium">
-          <ChevronLeft className="size-4" /> Quay lại
+          <ChevronLeft className="size-4" /> Back
         </button>
-        <h2 className="text-lg font-bold text-[#1c1d1d]">Tạo đợt đánh giá mới</h2>
+        <h2 className="text-lg font-bold text-[#1c1d1d]">{course ? "Course settings" : "Create course"}</h2>
+      </div>
+      <div className="bg-white border border-[#e7eae9] rounded-2xl p-6 shadow-[0_0_8px_rgba(0,0,0,0.04)] space-y-4">
+        <div>
+          <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Course code *</label>
+          <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="e.g. INT2208-01" className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none focus:border-[#1c1d1d] bg-[#f8f8f8] placeholder-[#aaa]" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Course name *</label>
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Course names may use the teaching language" className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none focus:border-[#1c1d1d] bg-[#f8f8f8] placeholder-[#aaa]" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Term *</label>
+          <input value={term} onChange={(event) => setTerm(event.target.value)} placeholder="Semester 1 · 2025" className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none focus:border-[#1c1d1d] bg-[#f8f8f8] placeholder-[#aaa]" />
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 mt-5">
+        <button onClick={onBack} className="px-4 py-2 text-xs text-[#42404c] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] font-medium">Cancel</button>
+        <button disabled={!code.trim() || !name.trim()} onClick={() => onSave({ id: course?.id ?? `COURSE-${Date.now()}`, code: code.trim(), name: name.trim(), term: term.trim(), students: course?.students ?? 0 })} className="px-4 py-2 text-xs text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333] disabled:opacity-40 disabled:cursor-not-allowed font-semibold">
+          Save course
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AssignmentEditor({ course, assignment, onBack, onSave }: {
+  course: Course;
+  assignment: Assignment | null;
+  onBack: () => void;
+  onSave: (assignment: Assignment) => void;
+}) {
+  const [step, setStep] = useState(1);
+  const [title, setTitle] = useState(assignment?.title ?? "");
+  const [description, setDescription] = useState(assignment?.description ?? "");
+  const [dueDate, setDueDate] = useState(assignment?.dueDate ?? "2024-08-31");
+  const [attempts, setAttempts] = useState(assignment?.attempts ?? 3);
+  const [rubric, setRubric] = useState(assignment?.rubric ?? "SRS Standard v2.1");
+  const [templateName, setTemplateName] = useState(assignment?.templateName ?? "SRS-template.docx");
+  const [requireAppendix, setRequireAppendix] = useState(assignment?.requireAppendix ?? false);
+  const steps = ["Details", "Submission requirements", "Rubric", "Review"];
+  const weight = CRITERIA.reduce((sum, criterion) => sum + criterion.weight, 0);
+
+  const save = (status: Assignment["status"]) => onSave({
+    id: assignment?.id ?? `ASG-${Date.now()}`,
+    courseId: course.id,
+    title: title.trim() || "Untitled assignment",
+    description: description.trim(),
+    dueDate,
+    attempts,
+    status,
+    submitted: assignment?.submitted ?? 0,
+    reviewed: assignment?.reviewed ?? 0,
+    published: assignment?.published ?? 0,
+    rubric,
+    requireAppendix,
+    templateName,
+  });
+
+  return (
+    <div className="p-6 max-w-[760px]">
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={onBack} className="text-xs text-[#42404c] hover:text-[#1c1d1d] flex items-center gap-1 font-medium">
+          <ChevronLeft className="size-4" /> {course.name}
+        </button>
+        <div>
+          <h2 className="text-lg font-bold text-[#1c1d1d]">{assignment ? "Edit assignment" : "Create assignment"}</h2>
+          <p className="text-[10px] text-[#85878d] mt-0.5">Drafts are saved per assignment and are not visible to students.</p>
+        </div>
       </div>
 
-      {/* Progress */}
       <div className="flex items-center gap-0 mb-8">
-        {steps.map((label, i) => {
-          const n = i + 1;
-          const done = step > n;
-          const active = step === n;
+        {steps.map((label, index) => {
+          const number = index + 1;
+          const done = step > number;
+          const active = step === number;
           return (
-            <div key={i} className="flex items-center flex-1 last:flex-none">
+            <div key={label} className="flex items-center flex-1 last:flex-none">
               <div className="flex items-center gap-2 flex-shrink-0">
                 <div className={clsx("size-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all",
-                  done   ? "bg-[#1c1d1d] border-[#1c1d1d] text-white" :
-                  active ? "border-[#1c1d1d] text-[#1c1d1d]" :
-                  "border-[#ddd] text-[#aaa]"
+                  done ? "bg-[#1c1d1d] border-[#1c1d1d] text-white" : active ? "border-[#1c1d1d] text-[#1c1d1d]" : "border-[#ddd] text-[#aaa]"
                 )}>
-                  {done ? <Check className="size-3.5" /> : n}
+                  {done ? <Check className="size-3.5" /> : number}
                 </div>
-                <span className={clsx("text-[11px] font-medium whitespace-nowrap hidden sm:block",
-                  active ? "text-[#1c1d1d]" : done ? "text-[#42404c]" : "text-[#aaa]"
-                )}>
-                  {label}
-                </span>
+                <span className={clsx("text-[11px] font-medium whitespace-nowrap hidden sm:block", active ? "text-[#1c1d1d]" : done ? "text-[#42404c]" : "text-[#aaa]")}>{label}</span>
               </div>
-              {i < steps.length - 1 && (
-                <div className={clsx("flex-1 h-px mx-2", step > n ? "bg-[#1c1d1d]" : "bg-[#e0e0e0]")} />
-              )}
+              {index < steps.length - 1 && <div className={clsx("flex-1 h-px mx-2", step > number ? "bg-[#1c1d1d]" : "bg-[#e0e0e0]")} />}
             </div>
           );
         })}
@@ -612,29 +817,28 @@ function AssessmentWizard({ onBack }: { onBack: () => void }) {
       <div className="bg-white border border-[#e7eae9] rounded-2xl p-6 shadow-[0_0_8px_rgba(0,0,0,0.04)] space-y-4">
         {step === 1 && (
           <>
-            <h3 className="text-sm font-bold text-[#1c1d1d]">Thông tin cơ bản</h3>
-            <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-bold text-[#1c1d1d]">Assignment details</h3>
+              <p className="text-[11px] text-[#85878d] mt-1">Give students enough context before they open the submission form.</p>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Assignment title *</label>
+              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Software Requirements Specification" className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none focus:border-[#1c1d1d] bg-[#f8f8f8] placeholder-[#aaa]" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Description and instructions *</label>
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe the task, expected structure and any preparation students need." className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none focus:border-[#1c1d1d] bg-[#f8f8f8] resize-none h-24 placeholder-[#aaa]" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Tên đợt đánh giá *</label>
-                <input className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none focus:border-[#1c1d1d] bg-[#f8f8f8] placeholder-[#aaa]" placeholder="VD: Báo cáo CNPM K21 HK2 2024" />
+                <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Due date *</label>
+                <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none bg-[#f8f8f8]" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Mô tả</label>
-                <textarea className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none focus:border-[#1c1d1d] bg-[#f8f8f8] resize-none h-16 placeholder-[#aaa]" placeholder="Mô tả yêu cầu cho sinh viên..." />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Loại báo cáo *</label>
-                  <select className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none bg-[#f8f8f8]">
-                    <option>Báo cáo phần mềm</option>
-                    <option>Luận văn tốt nghiệp</option>
-                    <option>Báo cáo thực tập</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Deadline *</label>
-                  <input type="date" className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none bg-[#f8f8f8]" />
-                </div>
+                <label className="text-xs font-semibold text-[#42404c] block mb-1.5">Submission attempts</label>
+                <select value={attempts} onChange={(event) => setAttempts(Number(event.target.value))} className="w-full px-3 py-2 text-xs border border-[#e7eae9] rounded-xl outline-none bg-[#f8f8f8]">
+                  {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} attempt{value > 1 ? "s" : ""}</option>)}
+                </select>
               </div>
             </div>
           </>
@@ -642,48 +846,80 @@ function AssessmentWizard({ onBack }: { onBack: () => void }) {
 
         {step === 2 && (
           <>
-            <h3 className="text-sm font-bold text-[#1c1d1d]">Chọn Rubric</h3>
+            <div>
+              <h3 className="text-sm font-bold text-[#1c1d1d]">Submission requirements</h3>
+              <p className="text-[11px] text-[#85878d] mt-1">Choose exactly what students must provide for this assignment.</p>
+            </div>
             <div className="space-y-2">
-              {["CNPM Standard v2.1 (Active)", "Luận văn Template v1.0", "Báo cáo thực tập v3.0"].map((r, i) => (
-                <label key={i} className={clsx("flex items-center gap-3 p-3 border rounded-xl cursor-pointer hover:bg-[#f8f8f8] transition-colors",
-                  i === 0 ? "border-[#1c1d1d] bg-[#f8f8f8]" : "border-[#e7eae9]"
-                )}>
-                  <input type="radio" name="rubric" defaultChecked={i === 0} className="accent-[#1c1d1d]" />
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-[#1c1d1d]">{r}</p>
-                    <p className="text-[10px] text-[#85878d]">5 criterion · Cập nhật 02/07/2024</p>
-                  </div>
-                  <button className="text-[10px] text-blue-600 hover:underline font-medium" onClick={e => e.stopPropagation()}>
-                    Nhân bản
-                  </button>
+              <label className="flex items-start gap-3 p-3.5 border border-[#1c1d1d] bg-[#f8f8f8] rounded-xl">
+                <input type="checkbox" checked readOnly className="mt-0.5 accent-[#1c1d1d]" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-[#1c1d1d]">Main report · PDF</p>
+                  <p className="text-[10px] text-[#85878d] mt-0.5">Required · maximum 50 MB · text layer required · scanned pages rejected</p>
+                </div>
+                <span className="text-[10px] font-semibold text-[#42404c]">Required</span>
+              </label>
+              <label className="flex items-start gap-3 p-3.5 border border-[#e7eae9] rounded-xl cursor-pointer hover:bg-[#f8f8f8]">
+                <input type="checkbox" checked={requireAppendix} onChange={(event) => setRequireAppendix(event.target.checked)} className="mt-0.5 accent-[#1c1d1d]" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-[#1c1d1d]">Supporting appendix</p>
+                  <p className="text-[10px] text-[#85878d] mt-0.5">Optional supplementary PDF for references or extended evidence.</p>
+                </div>
+              </label>
+            </div>
+            <div className="border-t border-[#f1f1f1] pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-[#42404c]">Student template</p>
+                  <p className="text-[10px] text-[#85878d] mt-0.5">Attach a structure template or sample document.</p>
+                </div>
+                <label className="px-3 py-1.5 text-xs text-[#42404c] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] font-medium cursor-pointer">
+                  <input type="file" className="hidden" onChange={(event) => setTemplateName(event.target.files?.[0]?.name ?? templateName)} />
+                  Replace file
                 </label>
-              ))}
+              </div>
+              <div className="mt-2.5 flex items-center gap-2 bg-[#f8f8f8] border border-[#e7eae9] rounded-xl px-3 py-2.5">
+                <FileText className="size-4 text-[#42404c]" />
+                <span className="text-xs font-medium text-[#1c1d1d] flex-1 truncate">{templateName}</span>
+                <button onClick={() => setTemplateName("No template attached")} className="text-[#85878d] hover:text-[#1c1d1d]"><X className="size-3.5" /></button>
+              </div>
             </div>
           </>
         )}
 
         {step === 3 && (
           <>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-[#1c1d1d]">Cấu hình Criterion</h3>
-              <span className={clsx("text-xs font-semibold px-2.5 py-1 rounded-full",
-                CRITERIA.reduce((s, c) => s + c.weight, 0) === 100 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-              )}>
-                Tổng: {CRITERIA.reduce((s, c) => s + c.weight, 0)}%
-              </span>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-[#1c1d1d]">Rubric and criteria</h3>
+                <p className="text-[11px] text-[#85878d] mt-1">Clone a system rubric before editing. Published versions remain immutable.</p>
+              </div>
+              <span className={clsx("text-xs font-semibold px-2.5 py-1 rounded-full", weight === 100 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")}>Total {weight}%</span>
             </div>
             <div className="space-y-2">
-              {CRITERIA.map((c) => (
-                <div key={c.id} className="flex items-center gap-3 p-3 border border-[#e7eae9] rounded-xl hover:bg-[#f8f8f8]">
+              {["SRS Standard v2.1", "Software Design v1.0", "Thesis Template v1.0"].map((name) => (
+                <label key={name} className={clsx("flex items-center gap-3 p-3 border rounded-xl cursor-pointer hover:bg-[#f8f8f8] transition-colors", rubric === name ? "border-[#1c1d1d] bg-[#f8f8f8]" : "border-[#e7eae9]")}>
+                  <input type="radio" name="rubric" checked={rubric === name} onChange={() => setRubric(name)} className="accent-[#1c1d1d]" />
                   <div className="flex-1">
-                    <p className="text-xs font-semibold text-[#1c1d1d]">{c.name}</p>
-                    <p className="text-[10px] text-[#85878d]">{c.findings} finding · Evaluator: eval-v2.1</p>
+                    <p className="text-xs font-semibold text-[#1c1d1d]">{name}</p>
+                    <p className="text-[10px] text-[#85878d]">5 criteria · versioned · evidence required</p>
+                  </div>
+                  <button type="button" className="text-[10px] text-blue-600 hover:underline font-medium" onClick={(event) => event.preventDefault()}>Clone</button>
+                </label>
+              ))}
+            </div>
+            <div className="space-y-2 pt-2 border-t border-[#f1f1f1]">
+              {CRITERIA.map((criterion) => (
+                <div key={criterion.id} className="flex items-center gap-3 p-3 border border-[#e7eae9] rounded-xl hover:bg-[#f8f8f8]">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-[#1c1d1d] truncate">{criterion.name}</p>
+                    <p className="text-[10px] text-[#85878d]">Hybrid evaluator · evidence required</p>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <input type="number" defaultValue={c.weight} className="w-12 px-2 py-1 text-xs border border-[#e7eae9] rounded-lg text-center outline-none bg-[#f8f8f8]" />
+                    <input type="number" defaultValue={criterion.weight} aria-label={`${criterion.name} weight`} className="w-12 px-2 py-1 text-xs border border-[#e7eae9] rounded-lg text-center outline-none bg-[#f8f8f8]" />
                     <span className="text-xs text-[#85878d]">%</span>
                   </div>
-                  <button className="p-1 text-[#85878d] hover:text-[#1c1d1d]"><Pencil className="size-3.5" /></button>
+                  <button className="p-1 text-[#85878d] hover:text-[#1c1d1d]" aria-label={`Edit ${criterion.name}`}><Pencil className="size-3.5" /></button>
                 </div>
               ))}
             </div>
@@ -692,41 +928,48 @@ function AssessmentWizard({ onBack }: { onBack: () => void }) {
 
         {step === 4 && (
           <>
-            <h3 className="text-sm font-bold text-[#1c1d1d]">Preview & Mở nhận bài</h3>
+            <div>
+              <h3 className="text-sm font-bold text-[#1c1d1d]">Review and publish</h3>
+              <p className="text-[11px] text-[#85878d] mt-1">Confirm student-facing requirements before opening submissions.</p>
+            </div>
             <div className="bg-[#f8f8f8] rounded-xl p-4 space-y-2 text-xs border border-[#e7eae9]">
               {[
-                ["Tên đợt", "Báo cáo CNPM K21"],
-                ["Rubric",  "CNPM Standard v2.1"],
-                ["Deadline","31/07/2024"],
-                ["Criterion","5 criterion, tổng 100%"],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between">
-                  <span className="text-[#85878d]">{k}:</span>
-                  <span className="font-semibold text-[#1c1d1d]">{v}</span>
+                ["Course", `${course.code} · ${course.name}`],
+                ["Assignment", title || "Untitled assignment"],
+                ["Due date", dueDate],
+                ["Deliverables", requireAppendix ? "Main PDF + supporting appendix" : "Main PDF"],
+                ["Attempts", String(attempts)],
+                ["Rubric", rubric],
+                ["Criteria", `${CRITERIA.length} criteria · ${weight}% total`],
+              ].map(([key, value]) => (
+                <div key={key} className="flex justify-between gap-4">
+                  <span className="text-[#85878d]">{key}:</span>
+                  <span className="font-semibold text-[#1c1d1d] text-right">{value}</span>
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-3 p-3 bg-green-50 rounded-xl border border-green-200 text-xs text-green-700">
-              <CheckCircle className="size-4 flex-shrink-0" />
-              Tất cả điều kiện đã đáp ứng. Có thể mở nhận bài.
+            <div className="flex items-start gap-3 p-3 bg-green-50 rounded-xl border border-green-200 text-xs text-green-700">
+              <CheckCircle className="size-4 flex-shrink-0 mt-0.5" />
+              <span>Requirements are complete, rubric weight is 100%, and the assignment is ready to publish.</span>
             </div>
           </>
         )}
       </div>
 
-      <div className="flex justify-between mt-5">
-        <button onClick={() => step > 1 && setStep(step - 1)} disabled={step === 1}
-          className="flex items-center gap-1.5 px-4 py-2 text-xs text-[#42404c] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] disabled:opacity-40 disabled:cursor-not-allowed font-medium">
-          <ChevronLeft className="size-3.5" /> Quay lại
-        </button>
+      <div className="flex justify-between gap-3 mt-5">
+        <div className="flex items-center gap-2">
+          <button onClick={() => step > 1 ? setStep(step - 1) : onBack()} className="flex items-center gap-1.5 px-4 py-2 text-xs text-[#42404c] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] font-medium">
+            <ChevronLeft className="size-3.5" /> {step > 1 ? "Back" : "Cancel"}
+          </button>
+          <button onClick={() => save("draft")} className="px-4 py-2 text-xs text-[#42404c] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] font-medium">Save draft</button>
+        </div>
         {step < 4 ? (
-          <button onClick={() => setStep(step + 1)}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333] font-semibold">
-            Tiếp theo <ChevronRight className="size-3.5" />
+          <button disabled={step === 1 && (!title.trim() || !description.trim())} onClick={() => setStep(step + 1)} className="flex items-center gap-1.5 px-4 py-2 text-xs text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333] disabled:opacity-40 disabled:cursor-not-allowed font-semibold">
+            Continue <ChevronRight className="size-3.5" />
           </button>
         ) : (
-          <button className="flex items-center gap-1.5 px-4 py-2 text-xs text-white bg-green-600 rounded-xl hover:bg-green-700 font-semibold">
-            <Check className="size-3.5" /> Mở nhận bài
+          <button onClick={() => save("open")} className="flex items-center gap-1.5 px-4 py-2 text-xs text-white bg-green-600 rounded-xl hover:bg-green-700 font-semibold">
+            <Check className="size-3.5" /> {assignment ? "Update and publish" : "Publish assignment"}
           </button>
         )}
       </div>
@@ -734,17 +977,17 @@ function AssessmentWizard({ onBack }: { onBack: () => void }) {
   );
 }
 
-function SubmissionQueue({ onSelect }: { onSelect: (sub: typeof SUBMISSIONS[0]) => void }) {
+function SubmissionQueue({ assignmentName, onSelect }: { assignmentName: string; onSelect: (sub: typeof SUBMISSIONS[0]) => void }) {
   type Filter = Status | "all";
   const [activeFilter, setActiveFilter] = useState<Filter>("all");
 
   const tabs: Array<{ key: Filter; label: string }> = [
-    { key: "all",              label: "Tất cả" },
-    { key: "needs-review",     label: "Cần xem xét" },
-    { key: "pending-approval", label: "Chờ duyệt" },
-    { key: "approved",         label: "Đã duyệt" },
-    { key: "published",        label: "Đã công bố" },
-    { key: "error",            label: "Lỗi" },
+    { key: "all",              label: "All" },
+    { key: "needs-review",     label: "Needs review" },
+    { key: "pending-approval", label: "Pending approval" },
+    { key: "approved",         label: "Approved" },
+    { key: "published",        label: "Published" },
+    { key: "error",            label: "Failed" },
   ];
 
   const rows = activeFilter === "all" ? SUBMISSIONS : SUBMISSIONS.filter(s => s.status === activeFilter);
@@ -754,14 +997,14 @@ function SubmissionQueue({ onSelect }: { onSelect: (sub: typeof SUBMISSIONS[0]) 
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-[#1c1d1d]">Submission Queue</h2>
-          <p className="text-xs text-[#85878d] mt-0.5">Báo cáo CNPM K21 · 24 bài nộp</p>
+          <p className="text-xs text-[#85878d] mt-0.5">{assignmentName} · {SUBMISSIONS.length} submissions</p>
         </div>
         <div className="flex items-center gap-2">
           <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#42404c] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] font-medium">
-            <Filter className="size-3.5" /> Lọc
+            <Filter className="size-3.5" /> Filter
           </button>
           <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333] font-semibold">
-            <ArrowRight className="size-3.5" /> Bài chưa duyệt tiếp theo
+            <ArrowRight className="size-3.5" /> Next unreviewed
           </button>
         </div>
       </div>
@@ -784,7 +1027,7 @@ function SubmissionQueue({ onSelect }: { onSelect: (sub: typeof SUBMISSIONS[0]) 
         <table className="w-full text-xs">
           <thead className="bg-[#f8f8f8]">
             <tr className="text-[#85878d] text-left">
-              {["Sinh viên", "Ver", "Nộp lúc", "Trạng thái", "Đề xuất", "Tin cậy", "Đang duyệt", ""].map(h => (
+              {["Student", "Version", "Submitted", "Status", "Suggested", "Confidence", "Reviewer", ""].map(h => (
                 <th key={h} className="px-5 py-3 font-medium">{h}</th>
               ))}
             </tr>
@@ -793,7 +1036,7 @@ function SubmissionQueue({ onSelect }: { onSelect: (sub: typeof SUBMISSIONS[0]) 
             {rows.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-5 py-10 text-center text-xs text-[#85878d]">
-                  Không có bài nộp nào trong trạng thái này
+                  No submissions match this status
                 </td>
               </tr>
             )}
@@ -830,7 +1073,7 @@ function SubmissionQueue({ onSelect }: { onSelect: (sub: typeof SUBMISSIONS[0]) 
                       className="flex items-center gap-1 px-2.5 py-1.5 text-[#1c1d1d] border border-[#e7eae9] rounded-xl hover:bg-[#f5f7f9] font-semibold text-[11px]"
                       onClick={e => { e.stopPropagation(); onSelect(sub); }}
                     >
-                      Duyệt →
+                      Review →
                     </button>
                   )}
                 </td>
@@ -870,14 +1113,14 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
         {/* Toolbar */}
         <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-[#e7eae9]">
           <button onClick={onBack} className="flex items-center gap-1 text-xs text-[#42404c] hover:text-[#1c1d1d] font-medium mr-1">
-            <ChevronLeft className="size-4" /> Quay lại
+            <ChevronLeft className="size-4" /> Back to queue
           </button>
           <div className="h-4 w-px bg-[#e7eae9]" />
           <button onClick={() => setPage(p => Math.max(1, p - 1))} className="p-1.5 rounded-lg hover:bg-[#f5f7f9] text-[#42404c]">
             <ChevronLeft className="size-4" />
           </button>
           <span className="text-xs text-[#42404c] min-w-[80px] text-center">
-            Trang <span className="font-bold text-[#1c1d1d]">{page}</span> / {submission.pages || 48}
+            Page <span className="font-bold text-[#1c1d1d]">{page}</span> / {submission.pages || 48}
           </span>
           <button onClick={() => setPage(p => Math.min(submission.pages || 48, p + 1))} className="p-1.5 rounded-lg hover:bg-[#f5f7f9] text-[#42404c]">
             <ChevronRight className="size-4" />
@@ -920,8 +1163,8 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
                 <div className="relative border-l-4 border-orange-400 bg-orange-50 px-4 py-3 rounded-r-xl">
                   <div className="flex items-center gap-1.5 mb-2">
                     <AlertCircle className="size-3.5 text-orange-500" />
-                    <span className="text-[11px] font-semibold text-orange-700">Bằng chứng F1 · Tiêu chí: Phân tích yêu cầu</span>
-                    <button className="ml-auto text-[10px] text-orange-600 hover:underline font-medium">Xem finding</button>
+                    <span className="text-[11px] font-semibold text-orange-700">Evidence F1 · Criterion: Requirements analysis</span>
+                    <button className="ml-auto text-[10px] text-orange-600 hover:underline font-medium">View finding</button>
                   </div>
                   <div className="space-y-1.5">
                     <div className="h-3 bg-orange-100 rounded w-full" />
@@ -934,7 +1177,7 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
               {/* Table mock */}
               <div className="border border-[#e0e0e0] rounded-lg overflow-hidden">
                 <div className="bg-[#f8f8f8] px-3 py-2 flex gap-4 border-b border-[#e0e0e0]">
-                  {["Use Case", "Actor", "Mô tả"].map(h => (
+                  {["Use Case", "Actor", "Description"].map(h => (
                     <div key={h} className="h-3 bg-[#ccc] rounded flex-1" />
                   ))}
                 </div>
@@ -967,17 +1210,17 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
           <div className="flex items-start justify-between mb-2.5">
             <div>
               <p className="text-[11px] text-[#85878d]">{submission.student} · v{submission.version}</p>
-              <p className="text-sm font-bold text-[#1c1d1d]">{submission.assessment}</p>
+              <p className="text-sm font-bold text-[#1c1d1d]">{submission.assignment}</p>
             </div>
             <div className="text-right">
               <p className="text-2xl font-extrabold text-[#1c1d1d] leading-none">{totalScore.toFixed(1)}</p>
-              <p className="text-[10px] text-[#85878d] mt-0.5">/ 10 đề xuất</p>
+              <p className="text-[10px] text-[#85878d] mt-0.5">/ 10 suggested</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5 text-[10px]">
-            {saveState === "saved"  && <><CheckCircle className="size-3 text-green-500" /><span className="text-[#85878d]">Đã lưu tự động</span></>}
-            {saveState === "saving" && <><RefreshCw   className="size-3 text-[#85878d] animate-spin" /><span className="text-[#85878d]">Đang lưu...</span></>}
-            {saveState === "error"  && <><XCircle     className="size-3 text-red-500" /><span className="text-red-600 font-medium">Không thể lưu</span></>}
+            {saveState === "saved"  && <><CheckCircle className="size-3 text-green-500" /><span className="text-[#85878d]">Autosaved</span></>}
+            {saveState === "saving" && <><RefreshCw   className="size-3 text-[#85878d] animate-spin" /><span className="text-[#85878d]">Saving...</span></>}
+            {saveState === "error"  && <><XCircle     className="size-3 text-red-500" /><span className="text-red-600 font-medium">Unable to save</span></>}
           </div>
         </div>
 
@@ -1003,7 +1246,7 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
                           state === "rejected" ? "bg-red-100 text-red-700" :
                           "bg-[#f0f0f0] text-[#42404c]"
                         )}>
-                          {state === "accepted" ? "✓ Chấp nhận" : state === "rejected" ? "✗ Từ chối" : "Chờ duyệt"}
+                          {state === "accepted" ? "✓ Accepted" : state === "rejected" ? "✗ Rejected" : "Pending review"}
                         </span>
                         <span className="text-[10px] text-[#85878d]">{c.weight}%</span>
                       </div>
@@ -1011,7 +1254,7 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="text-sm font-extrabold text-[#1c1d1d]">{scores[c.id]}<span className="text-[11px] font-normal text-[#85878d]">/{c.weight}</span></p>
-                      <p className="text-[10px] text-[#85878d]">{Math.round(c.confidence * 100)}% tin cậy</p>
+                      <p className="text-[10px] text-[#85878d]">{Math.round(c.confidence * 100)}% confidence</p>
                     </div>
                   </div>
                   {cFinds.length > 0 && (
@@ -1026,7 +1269,7 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
                   <div className="bg-white px-5 py-4 border-b border-[#e7eae9] space-y-4">
                     {/* Score */}
                     <div>
-                      <p className="text-[10px] text-[#85878d] mb-2 font-medium uppercase tracking-wide">Điểm</p>
+                      <p className="text-[10px] text-[#85878d] mb-2 font-medium uppercase tracking-wide">Score</p>
                       <div className="flex items-center gap-2">
                         <button onClick={() => { setScores(s => ({...s, [c.id]: Math.max(0, s[c.id]-1)})); save(); }}
                           className="size-6 flex items-center justify-center border border-[#e7eae9] rounded-lg text-[#42404c] hover:bg-[#f5f7f9]">
@@ -1037,9 +1280,9 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
                           className="size-6 flex items-center justify-center border border-[#e7eae9] rounded-lg text-[#42404c] hover:bg-[#f5f7f9]">
                           <Plus className="size-3" />
                         </button>
-                        <span className="text-[10px] text-[#85878d]">/ {c.weight} điểm</span>
+                        <span className="text-[10px] text-[#85878d]">/ {c.weight} points</span>
                         {scores[c.id] !== c.suggestedScore && (
-                          <span className="text-[10px] text-orange-600 ml-auto font-medium">Đề xuất: {c.suggestedScore}</span>
+                          <span className="text-[10px] text-orange-600 ml-auto font-medium">Suggested: {c.suggestedScore}</span>
                         )}
                       </div>
                     </div>
@@ -1053,16 +1296,16 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
                             f.severity === "major"    ? "bg-orange-100 text-orange-700" :
                             "bg-yellow-50 text-yellow-700"
                           )}>
-                            {f.severity === "critical" ? "Nghiêm trọng" : f.severity === "major" ? "Quan trọng" : "Nhỏ"}
+                            {f.severity === "critical" ? "Critical" : f.severity === "major" ? "Major" : "Minor"}
                           </span>
-                          <span className="text-[10px] text-[#85878d]">Trang {f.page}</span>
+                          <span className="text-[10px] text-[#85878d]">Page {f.page}</span>
                           <button className="ml-auto text-[10px] text-blue-600 hover:underline font-medium" onClick={() => setPage(f.page)}>
-                            Đến trang →
+                            Go to page →
                           </button>
                         </div>
                         <p className="text-xs text-[#1c1d1d]">{f.description}</p>
                         <div className="bg-[#f8f8f8] rounded-lg p-2.5">
-                          <p className="text-[10px] text-[#85878d] mb-1 font-medium">Gợi ý sửa</p>
+                          <p className="text-[10px] text-[#85878d] mb-1 font-medium">Suggested fix</p>
                           <p className="text-xs text-[#42404c]">{f.suggestion}</p>
                         </div>
                       </div>
@@ -1076,7 +1319,7 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
                           ? "bg-green-600 text-white border-green-600"
                           : "border-green-500 text-green-700 hover:bg-green-50"
                       )}>
-                        <Check className="size-3.5" /> Chấp nhận
+                        <Check className="size-3.5" /> Accept
                       </button>
                       <button onClick={() => reject(c.id)} className={clsx(
                         "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border transition-colors",
@@ -1084,7 +1327,7 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
                           ? "bg-red-600 text-white border-red-600"
                           : "border-red-400 text-red-600 hover:bg-red-50"
                       )}>
-                        <X className="size-3.5" /> Từ chối
+                        <X className="size-3.5" /> Reject
                       </button>
                     </div>
                   </div>
@@ -1098,17 +1341,17 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
         <div className="flex-shrink-0 px-5 py-4 border-t border-[#e7eae9] bg-white space-y-2">
           <div className="flex gap-2">
             <button className="flex-1 py-2 text-xs font-semibold border border-[#e7eae9] rounded-xl text-[#42404c] hover:bg-[#f5f7f9]">
-              Lưu nháp
+              Save draft
             </button>
             <button className="flex-1 py-2 text-xs font-semibold bg-[#1c1d1d] text-white rounded-xl hover:bg-[#333]">
-              Duyệt
+              Approve
             </button>
           </div>
           <button className="w-full py-2.5 text-xs font-semibold bg-green-600 text-white rounded-xl hover:bg-green-700">
-            Công bố kết quả cho sinh viên
+            Publish result to student
           </button>
           <p className="text-[10px] text-center text-[#85878d]">
-            Duyệt và Công bố là hai thao tác riêng biệt · Không thể hoàn tác sau khi công bố
+            Approval and publishing are separate actions · Publishing requires confirmation
           </p>
         </div>
       </div>
@@ -1120,42 +1363,43 @@ function ReviewWorkspace({ submission, onBack }: { submission: typeof SUBMISSION
 // STUDENT VIEWS
 // ============================================================
 
-function StudentAssessments({ onUpload, onResults, onStatus }: {
+function StudentAssignments({ onUpload, onResults, onStatus }: {
   onUpload: () => void; onResults: () => void; onStatus: () => void;
 }) {
   const list = [
-    { name: "Báo cáo CNPM K21",      deadline: "31/07/2024", status: "submitted" as const, submittedAt: "15/07/2024" },
-    { name: "Thực tập doanh nghiệp", deadline: "20/08/2024", status: "open"      as const, submittedAt: null },
-    { name: "Báo cáo CNPM K20",      deadline: "28/06/2024", status: "published" as const, submittedAt: "25/06/2024" },
+    { course: "Công nghệ phần mềm", name: "Software Requirements Specification", deadline: "31/07/2024", status: "submitted" as const, submittedAt: "15/07/2024" },
+    { course: "Thực tập doanh nghiệp", name: "Internship Report", deadline: "20/08/2024", status: "open" as const, submittedAt: null },
+    { course: "Công nghệ phần mềm", name: "System Design Report", deadline: "28/06/2024", status: "published" as const, submittedAt: "25/06/2024" },
   ];
   return (
     <div className="p-6 space-y-4 max-w-[720px]">
-      <h2 className="text-lg font-bold text-[#1c1d1d]">Đợt đánh giá</h2>
+      <h2 className="text-lg font-bold text-[#1c1d1d]">Assignments</h2>
       <div className="space-y-3">
         {list.map((a, i) => (
           <div key={i} className="bg-white border border-[#e7eae9] rounded-2xl p-5 shadow-[0_0_8px_rgba(0,0,0,0.04)]">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
+                <p className="text-[10px] font-semibold text-[#85878d] mb-0.5">{a.course}</p>
                 <h3 className="text-sm font-bold text-[#1c1d1d]">{a.name}</h3>
                 <p className="text-[11px] text-[#85878d] mt-0.5">
                   Deadline: <span className="font-semibold text-[#42404c]">{a.deadline}</span>
-                  {a.submittedAt && <> · Đã nộp: <span className="font-semibold text-[#42404c]">{a.submittedAt}</span></>}
+                  {a.submittedAt && <> · Submitted: <span className="font-semibold text-[#42404c]">{a.submittedAt}</span></>}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 {a.status === "open" && (
                   <button onClick={onUpload} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-[#1c1d1d] rounded-xl hover:bg-[#333]">
-                    <Upload className="size-3.5" /> Nộp tài liệu
+                    <Upload className="size-3.5" /> Submit report
                   </button>
                 )}
                 {a.status === "submitted" && (
                   <button onClick={onStatus} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border border-[#e7eae9] text-[#42404c] rounded-xl hover:bg-[#f5f7f9]">
-                    <Clock className="size-3.5" /> Theo dõi
+                    <Clock className="size-3.5" /> Track
                   </button>
                 )}
                 {a.status === "published" && (
                   <button onClick={onResults} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-green-600 rounded-xl hover:bg-green-700">
-                    <Star className="size-3.5" /> Xem kết quả
+                    <Star className="size-3.5" /> View results
                   </button>
                 )}
               </div>
@@ -1180,11 +1424,11 @@ function StudentUpload() {
 
   return (
     <div className="p-6 max-w-[560px] space-y-4">
-      <h2 className="text-lg font-bold text-[#1c1d1d]">Nộp tài liệu</h2>
+      <h2 className="text-lg font-bold text-[#1c1d1d]">Submit report</h2>
 
       <div className="bg-white border border-[#e7eae9] rounded-2xl p-4 shadow-[0_0_8px_rgba(0,0,0,0.04)]">
-        <p className="text-sm font-bold text-[#1c1d1d]">Báo cáo CNPM K21</p>
-        <p className="text-[11px] text-[#85878d] mt-0.5">Deadline: 31/07/2024 23:59 · Chỉ nhận PDF có text layer · Tối đa 50MB</p>
+        <p className="text-sm font-bold text-[#1c1d1d]">Software Requirements Specification</p>
+        <p className="text-[11px] text-[#85878d] mt-0.5">Due: 31/07/2024 23:59 · PDF with a text layer · Maximum 50 MB</p>
       </div>
 
       {stage === "idle" && (
@@ -1199,11 +1443,11 @@ function StudentUpload() {
           <div className="size-12 bg-[#f5f7f9] rounded-2xl border border-[#e7eae9] flex items-center justify-center mx-auto mb-4">
             <Upload className="size-6 text-[#42404c]" />
           </div>
-          <p className="text-sm font-bold text-[#1c1d1d] mb-1">Kéo thả file PDF vào đây</p>
-          <p className="text-xs text-[#85878d] mb-4">hoặc</p>
+          <p className="text-sm font-bold text-[#1c1d1d] mb-1">Drop your PDF here</p>
+          <p className="text-xs text-[#85878d] mb-4">or</p>
           <label className="px-5 py-2.5 text-xs font-semibold bg-[#1c1d1d] text-white rounded-xl cursor-pointer hover:bg-[#333] inline-block">
             <input type="file" accept=".pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setFile({ name: f.name, size: f.size }); }} />
-            Chọn file PDF
+            Choose PDF
           </label>
         </div>
       )}
@@ -1229,10 +1473,10 @@ function StudentUpload() {
             <RefreshCw className="size-5 text-[#42404c] animate-spin flex-shrink-0" />
             <div>
               <p className="text-xs font-semibold text-[#1c1d1d]">
-                {stage === "uploading" ? "Đang tải lên..." : "Đang kiểm tra PDF..."}
+                {stage === "uploading" ? "Uploading..." : "Checking PDF..."}
               </p>
               <p className="text-[11px] text-[#85878d]">
-                {stage === "uploading" ? "Vui lòng không đóng trang" : "Kiểm tra text layer và định dạng"}
+                {stage === "uploading" ? "Keep this page open" : "Checking format and text layer"}
               </p>
             </div>
           </div>
@@ -1248,10 +1492,10 @@ function StudentUpload() {
         <div className="bg-green-50 border border-green-200 rounded-2xl p-5 flex items-start gap-3">
           <CheckCircle className="size-6 text-green-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-green-800">Nộp tài liệu thành công!</p>
-            <p className="text-xs text-green-700 mt-1">Tài liệu của bạn đã được nhận và đang chờ xử lý. Bạn sẽ nhận thông báo khi có kết quả.</p>
+            <p className="text-sm font-bold text-green-800">Submission received</p>
+            <p className="text-xs text-green-700 mt-1">Your report is queued for evaluation. You will be notified when the result is ready.</p>
             <button onClick={() => { setStage("idle"); setFile(null); }} className="mt-2.5 text-xs font-semibold text-green-700 hover:underline">
-              Nộp phiên bản mới
+              Submit a new version
             </button>
           </div>
         </div>
@@ -1261,26 +1505,26 @@ function StudentUpload() {
         <div className="bg-red-50 border border-red-200 rounded-2xl p-5 flex items-start gap-3">
           <XCircle className="size-6 text-red-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-800">PDF không hợp lệ — Không có text layer</p>
-            <p className="text-xs text-red-700 mt-1">File PDF này có vẻ là PDF scan và không chứa text có thể trích xuất. Hệ thống không hỗ trợ OCR.</p>
-            <p className="text-xs text-red-700 mt-1.5 font-semibold">→ Hãy xuất lại PDF từ phần mềm soạn thảo (Word, LaTeX, Google Docs...) và nộp lại.</p>
-            <button onClick={() => setStage("idle")} className="mt-2.5 text-xs font-semibold text-red-700 hover:underline">Thử lại</button>
+            <p className="text-sm font-bold text-red-800">Invalid PDF — no text layer</p>
+            <p className="text-xs text-red-700 mt-1">This appears to be a scanned PDF and contains no extractable text. OCR is not supported.</p>
+            <p className="text-xs text-red-700 mt-1.5 font-semibold">→ Export the document again from Word, LaTeX or Google Docs, then resubmit it.</p>
+            <button onClick={() => setStage("idle")} className="mt-2.5 text-xs font-semibold text-red-700 hover:underline">Try again</button>
           </div>
         </div>
       )}
 
       {file && stage === "idle" && (
         <button onClick={simulate} className="w-full py-3 text-sm font-bold text-white bg-[#1c1d1d] rounded-2xl hover:bg-[#333] transition-colors">
-          Xác nhận nộp tài liệu
+          Confirm submission
         </button>
       )}
 
       <div className="flex gap-2">
         <button onClick={() => setStage("error")} className="flex-1 py-2 text-xs text-[#85878d] border border-dashed border-[#e0e0e0] rounded-xl hover:bg-[#f8f8f8]">
-          Demo: Lỗi PDF scan
+          Demo: scanned PDF error
         </button>
         <button onClick={() => { setFile({ name: "bao-cao-cnpm.pdf", size: 2400000 }); setStage("idle"); }} className="flex-1 py-2 text-xs text-[#85878d] border border-dashed border-[#e0e0e0] rounded-xl hover:bg-[#f8f8f8]">
-          Demo: Chọn file
+          Demo: choose file
         </button>
       </div>
     </div>
@@ -1289,21 +1533,21 @@ function StudentUpload() {
 
 function StudentStatus() {
   const steps = [
-    { label: "Đã nhận",        time: "15/07 14:32", done: true  },
-    { label: "Kiểm tra PDF",   time: "15/07 14:33", done: true  },
-    { label: "Chờ xử lý",     time: "15/07 14:35", done: true  },
-    { label: "Đang đánh giá", time: null,           done: false, active: true },
-    { label: "Cần xem xét",   time: null,           done: false },
-    { label: "Đã duyệt",      time: null,           done: false },
-    { label: "Đã công bố",    time: null,           done: false },
+    { label: "Received",         time: "15/07 14:32", done: true  },
+    { label: "PDF checked",      time: "15/07 14:33", done: true  },
+    { label: "Queued",           time: "15/07 14:35", done: true  },
+    { label: "Evaluating",       time: null,           done: false, active: true },
+    { label: "Needs review",     time: null,           done: false },
+    { label: "Approved",         time: null,           done: false },
+    { label: "Published",        time: null,           done: false },
   ];
   return (
     <div className="p-6 max-w-[500px] space-y-4">
-      <h2 className="text-lg font-bold text-[#1c1d1d]">Theo dõi trạng thái</h2>
+      <h2 className="text-lg font-bold text-[#1c1d1d]">Submission status</h2>
       <div className="bg-white border border-[#e7eae9] rounded-2xl p-5 shadow-[0_0_8px_rgba(0,0,0,0.04)]">
         <div className="mb-4 pb-4 border-b border-[#f5f5f5]">
-          <p className="text-sm font-bold text-[#1c1d1d]">Báo cáo CNPM K21 — Phiên bản 1</p>
-          <p className="text-[11px] text-[#85878d] mt-0.5">Cập nhật: 15/07/2024 14:35 · Thời gian xử lý ước tính: 2–4 giờ</p>
+          <p className="text-sm font-bold text-[#1c1d1d]">Software Requirements Specification — Version 1</p>
+          <p className="text-[11px] text-[#85878d] mt-0.5">Updated: 15/07/2024 14:35 · Estimated processing time: 2–4 hours</p>
         </div>
         <div className="relative">
           <div className="absolute left-[15px] top-4 bottom-4 w-px bg-[#e8e8e8]" />
@@ -1326,7 +1570,7 @@ function StudentStatus() {
                     <p className={clsx("text-xs font-semibold", isDone || isActive ? "text-[#1c1d1d]" : "text-[#aaa]")}>
                       {s.label}
                       {isActive && (
-                        <span className="ml-2 text-[10px] text-blue-500 font-normal animate-pulse">Đang xử lý...</span>
+                        <span className="ml-2 text-[10px] text-blue-500 font-normal animate-pulse">Processing...</span>
                       )}
                     </p>
                     {s.time && <p className="text-[10px] text-[#85878d] mt-0.5">{s.time}</p>}
@@ -1337,7 +1581,7 @@ function StudentStatus() {
           </div>
         </div>
       </div>
-      <p className="text-[11px] text-center text-[#85878d]">Bạn sẽ nhận thông báo khi có kết quả. Không cần chờ trên trang này.</p>
+      <p className="text-[11px] text-center text-[#85878d]">You will be notified when the result is ready. You can leave this page.</p>
     </div>
   );
 }
@@ -1346,28 +1590,28 @@ function StudentResults() {
   const [expandedId, setExpandedId] = useState<string | null>("C2");
 
   const publishedCriteria = [
-    { id: "C1", name: "Cấu trúc tài liệu",  weight: 15, score: 13, feedback: "Cấu trúc tốt, đầy đủ các phần cần thiết." },
-    { id: "C2", name: "Phân tích yêu cầu",  weight: 25, score: 18, feedback: "Phân tích yêu cầu khá đầy đủ nhưng còn thiếu một số kịch bản ngoại lệ." },
-    { id: "C3", name: "Use Case Diagram",   weight: 20, score: 14, feedback: "Diagram thiếu system boundary, cần bổ sung ở bản sau." },
-    { id: "C4", name: "Thiết kế hệ thống", weight: 25, score: 22, feedback: "Thiết kế hợp lý, kiến trúc rõ ràng, mô tả đầy đủ." },
-    { id: "C5", name: "Tính nhất quán",    weight: 15, score: 10, feedback: "Một số thuật ngữ chưa thống nhất trong toàn tài liệu." },
+    { id: "C1", name: "Document structure",    weight: 15, score: 13, feedback: "The report is well structured and includes all required sections." },
+    { id: "C2", name: "Requirements analysis", weight: 25, score: 18, feedback: "The analysis is mostly complete but several exception scenarios are missing." },
+    { id: "C3", name: "Use Case Diagram",       weight: 20, score: 14, feedback: "The diagram is missing a system boundary. Add it in the next version." },
+    { id: "C4", name: "System design",          weight: 25, score: 22, feedback: "The architecture is clear, coherent and sufficiently documented." },
+    { id: "C5", name: "Consistency",            weight: 15, score: 10, feedback: "Several terms are used inconsistently across the report." },
   ];
 
   const totalMax   = publishedCriteria.reduce((s, c) => s + c.weight, 0);
   const totalScore = (publishedCriteria.reduce((s, c) => s + c.score, 0) / totalMax) * 10;
 
   const pubFindings = [
-    { criterionId: "C2", severity: "major" as const, page: 12, description: "Bảng use case thiếu actor 'Hệ thống thanh toán'.", suggestion: "Bổ sung actor và các use case liên quan đến thanh toán." },
-    { criterionId: "C3", severity: "major" as const, page: 23, description: "Use Case Diagram không có system boundary.", suggestion: "Thêm system boundary bao quanh tất cả các use case nội bộ." },
-    { criterionId: "C5", severity: "critical" as const, page: 31, description: "Thuật ngữ 'người dùng' và 'khách hàng' dùng lẫn lộn.", suggestion: "Thống nhất một thuật ngữ hoặc định nghĩa rõ sự khác biệt." },
+    { criterionId: "C2", severity: "major" as const, page: 12, description: "The use-case table is missing the Payment System actor.", suggestion: "Add the actor and the payment-related use cases." },
+    { criterionId: "C3", severity: "major" as const, page: 23, description: "The Use Case Diagram has no system boundary.", suggestion: "Add a system boundary around all internal use cases." },
+    { criterionId: "C5", severity: "critical" as const, page: 31, description: "The terms user and customer are used interchangeably.", suggestion: "Use one term consistently or define the distinction." },
   ];
 
   return (
     <div className="p-6 max-w-[680px] space-y-5">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-lg font-bold text-[#1c1d1d]">Kết quả đánh giá</h2>
-          <p className="text-xs text-[#85878d] mt-0.5">Báo cáo CNPM K21 · Công bố: 16/07/2024</p>
+          <h2 className="text-lg font-bold text-[#1c1d1d]">Evaluation result</h2>
+          <p className="text-xs text-[#85878d] mt-0.5">Software Requirements Specification · Published: 16/07/2024</p>
         </div>
         <StatusBadge status="published" />
       </div>
@@ -1376,7 +1620,7 @@ function StudentResults() {
       <div className="bg-white border border-[#e7eae9] rounded-2xl p-6 flex items-center gap-8 shadow-[0_0_8px_rgba(0,0,0,0.04)]">
         <div className="text-center flex-shrink-0">
           <p className="text-5xl font-extrabold text-[#1c1d1d] leading-none">{totalScore.toFixed(1)}</p>
-          <p className="text-xs text-[#85878d] mt-1.5">/ 10 điểm</p>
+          <p className="text-xs text-[#85878d] mt-1.5">/ 10 points</p>
         </div>
         <div className="flex-1 space-y-2.5">
           {publishedCriteria.map((c) => (
@@ -1393,7 +1637,7 @@ function StudentResults() {
 
       {/* Criteria detail */}
       <div className="space-y-2">
-        <h3 className="text-sm font-bold text-[#1c1d1d]">Chi tiết theo tiêu chí</h3>
+        <h3 className="text-sm font-bold text-[#1c1d1d]">Criterion breakdown</h3>
         {publishedCriteria.map((c) => {
           const pct = c.score / c.weight;
           return (
@@ -1412,7 +1656,7 @@ function StudentResults() {
                   </div>
                   <div>
                     <p className="text-xs font-bold text-[#1c1d1d]">{c.name}</p>
-                    <p className="text-[10px] text-[#85878d]">{c.weight}% trọng số</p>
+                    <p className="text-[10px] text-[#85878d]">{c.weight}% weight</p>
                   </div>
                 </div>
                 <ChevronDown className={clsx("size-4 text-[#85878d] transition-transform", expandedId === c.id && "rotate-180")} />
@@ -1421,7 +1665,7 @@ function StudentResults() {
               {expandedId === c.id && (
                 <div className="px-5 pb-4 border-t border-[#f5f5f5] pt-3 space-y-3">
                   <div className="bg-[#f8f8f8] rounded-xl p-3.5 border border-[#f0f0f0]">
-                    <p className="text-[10px] text-[#85878d] mb-1 font-semibold uppercase tracking-wide">Nhận xét của giảng viên</p>
+                    <p className="text-[10px] text-[#85878d] mb-1 font-semibold uppercase tracking-wide">Teacher feedback</p>
                     <p className="text-xs text-[#42404c]">{c.feedback}</p>
                   </div>
                   {pubFindings.filter(f => f.criterionId === c.id).map((f, fi) => (
@@ -1435,15 +1679,15 @@ function StudentResults() {
                           f.severity === "critical" ? "bg-red-200 text-red-800" :
                           f.severity === "major"    ? "bg-orange-200 text-orange-800" : "bg-yellow-200 text-yellow-800"
                         )}>
-                          {f.severity === "critical" ? "Nghiêm trọng" : f.severity === "major" ? "Quan trọng" : "Nhỏ"} · Trang {f.page}
+                          {f.severity === "critical" ? "Critical" : f.severity === "major" ? "Major" : "Minor"} · Page {f.page}
                         </span>
                       </div>
                       <p className="text-[#42404c]">{f.description}</p>
-                      <p className="text-[#85878d]"><span className="font-semibold">Gợi ý: </span>{f.suggestion}</p>
+                      <p className="text-[#85878d]"><span className="font-semibold">Suggestion: </span>{f.suggestion}</p>
                     </div>
                   ))}
                   <button className="text-xs font-medium text-blue-600 hover:underline flex items-center gap-1.5">
-                    <MessageSquare className="size-3.5" /> Gửi yêu cầu xem lại tiêu chí này
+                    <MessageSquare className="size-3.5" /> Request a review of this criterion
                   </button>
                 </div>
               )}
@@ -1460,15 +1704,44 @@ function StudentResults() {
 // ============================================================
 
 export default function App() {
-  const [role, setRole]     = useState<Role>("teacher");
-  const [view, setView]     = useState<View>("teacher-queue");
+  const [role, setRole] = useState<Role>("teacher");
+  const [view, setView] = useState<View>("teacher-courses");
+  const [courses, setCourses] = useState<Course[]>(INITIAL_COURSES);
+  const [assignments, setAssignments] = useState<Assignment[]>(INITIAL_ASSIGNMENTS);
+  const [selectedCourseId, setSelectedCourseId] = useState(INITIAL_COURSES[0].id);
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
+  const [queueAssignmentId, setQueueAssignmentId] = useState(INITIAL_ASSIGNMENTS[0].id);
   const [selSub, setSelSub] = useState(SUBMISSIONS[0]);
+
+  const selectedCourse = courses.find((course) => course.id === selectedCourseId) ?? courses[0];
+  const courseAssignments = assignments.filter((assignment) => assignment.courseId === selectedCourse?.id);
+  const queueAssignment = assignments.find((assignment) => assignment.id === queueAssignmentId) ?? assignments[0];
 
   const handleRoleChange = (r: Role) => {
     setRole(r);
     if (r === "admin")   setView("admin-dashboard");
-    if (r === "teacher") setView("teacher-assessments");
-    if (r === "student") setView("student-assessments");
+    if (r === "teacher") setView("teacher-courses");
+    if (r === "student") setView("student-assignments");
+  };
+
+  const saveCourse = (course: Course) => {
+    setCourses((current) => current.some((item) => item.id === course.id)
+      ? current.map((item) => item.id === course.id ? course : item)
+      : [...current, course]
+    );
+    setSelectedCourseId(course.id);
+    setEditingCourse(null);
+    setView("teacher-course");
+  };
+
+  const saveAssignment = (assignment: Assignment) => {
+    setAssignments((current) => current.some((item) => item.id === assignment.id)
+      ? current.map((item) => item.id === assignment.id ? assignment : item)
+      : [...current, assignment]
+    );
+    setEditingAssignment(null);
+    setView("teacher-course");
   };
 
   const isReview = view === "teacher-review";
@@ -1485,23 +1758,49 @@ export default function App() {
           {view === "admin-users"         && <AdminUsers />}
           {view === "admin-jobs"          && <AdminJobs />}
           {view === "admin-audit"         && <AdminAuditLog />}
-          {view === "teacher-assessments" && (
-            <TeacherAssessments
-              onCreateNew={() => setView("teacher-wizard")}
-              onQueue={() => setView("teacher-queue")}
+          {view === "teacher-courses" && (
+            <CourseCatalog
+              courses={courses}
+              assignments={assignments}
+              onCreate={() => { setEditingCourse(null); setView("teacher-course-editor"); }}
+              onSelect={(course) => { setSelectedCourseId(course.id); setView("teacher-course"); }}
+            />
+          )}
+          {view === "teacher-course" && selectedCourse && (
+            <CourseWorkspace
+              course={selectedCourse}
+              assignments={courseAssignments}
+              onBack={() => setView("teacher-courses")}
+              onEditCourse={() => { setEditingCourse(selectedCourse); setView("teacher-course-editor"); }}
+              onCreateAssignment={() => { setEditingAssignment(null); setView("teacher-assignment-editor"); }}
+              onEditAssignment={(assignment) => { setEditingAssignment(assignment); setView("teacher-assignment-editor"); }}
+              onQueue={(assignment) => { setQueueAssignmentId(assignment.id); setView("teacher-queue"); }}
+            />
+          )}
+          {view === "teacher-course-editor" && (
+            <CourseEditor
+              course={editingCourse}
+              onBack={() => setView(editingCourse ? "teacher-course" : "teacher-courses")}
+              onSave={saveCourse}
+            />
+          )}
+          {view === "teacher-assignment-editor" && selectedCourse && (
+            <AssignmentEditor
+              key={editingAssignment?.id ?? `new-${selectedCourse.id}`}
+              course={selectedCourse}
+              assignment={editingAssignment}
+              onBack={() => setView("teacher-course")}
+              onSave={saveAssignment}
             />
           )}
           {view === "teacher-queue" && (
-            <SubmissionQueue onSelect={sub => { setSelSub(sub); setView("teacher-review"); }} />
+            <SubmissionQueue assignmentName={queueAssignment?.title ?? "All assignments"} onSelect={sub => { setSelSub(sub); setView("teacher-review"); }} />
           )}
           {view === "teacher-review" && (
             <ReviewWorkspace submission={selSub} onBack={() => setView("teacher-queue")} />
           )}
-          {view === "teacher-wizard" && (
-            <AssessmentWizard onBack={() => setView("teacher-assessments")} />
-          )}
-          {view === "student-assessments" && (
-            <StudentAssessments
+          {view === "student-assignments" && (
+            <StudentAssignments
               onUpload={() => setView("student-upload")}
               onResults={() => setView("student-results")}
               onStatus={() => setView("student-status")}

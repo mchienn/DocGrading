@@ -1,25 +1,25 @@
 
 # DocGrading Frontend
 
-Prototype React/Vite cho ba workspace Admin, Giảng viên và Sinh viên. Đây là dữ liệu giả phục vụ review flow và layout; chưa kết nối backend.
+React/Vite prototype for the Admin, Teacher and Student workspaces. It uses mock data for flow and layout review and is not connected to a backend.
 
-Thiết kế gốc: [Figma — Follow Markdown Guide](https://www.figma.com/design/VNMmj3UUihw1Wp1duygxZl/Follow-Markdown-Guide).
+Original design: [Figma — Follow Markdown Guide](https://www.figma.com/design/VNMmj3UUihw1Wp1duygxZl/Follow-Markdown-Guide).
 
-## Chạy frontend
+## Run locally
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-Build kiểm tra:
+Production build:
 
 ```bash
 pnpm build
 ```
 
-## Thư mục
+## Structure
 
-- `src/app/`: app shell, dữ liệu giả và các viewport đang chạy.
-- `src/styles/`: Tailwind và theme trung tính.
-- `../docs/design/PROTOTYPE_CONTEXT.md`: mô tả role, screen và flow dùng khi thiết kế.
+- `src/app/`: application shell, mock data and role workspaces.
+- `src/styles/`: Tailwind setup and neutral visual theme.
+- `../docs/design/PROTOTYPE_CONTEXT.md`: role, screen and design-flow context.

@@ -15,6 +15,7 @@ Phạm vi hiện tại:
 - Tham khảo trực tiếp các mẫu ảnh skeleton structure đã được gửi.
 - Ưu tiên grayscale, đường viền, placeholder và typography trung tính.
 - Không dùng màu làm dấu hiệu trạng thái duy nhất; luôn có label hoặc icon đi kèm.
+- Toàn bộ system copy, navigation, trạng thái, validation và button dùng tiếng Anh. Chỉ dữ liệu do người dùng nhập như tên Course, Assignment hoặc tên người dùng có thể dùng tiếng Việt.
 - Teacher và Admin ưu tiên desktop.
 - Student phải sử dụng được trên desktop và mobile, tối thiểu 320px.
 - Mọi màn hình cần có các trạng thái: loading, empty, error, disabled và success.
@@ -23,7 +24,7 @@ Phạm vi hiện tại:
 Admin
 Quản lý người dùng, quyền, rubric/template mặc định, evaluator, queue, job lỗi, audit log và cấu hình vận hành.
 Teacher
-Tạo đợt đánh giá, cấu hình rubric, theo dõi bài nộp, xem đề xuất chấm, kiểm tra bằng chứng, điều chỉnh và công bố kết quả.
+Quản lý Course; tạo và chỉnh sửa Assignment trong từng Course; cấu hình yêu cầu nộp bài, rubric; theo dõi bài nộp, xem đề xuất chấm, kiểm tra bằng chứng, điều chỉnh và công bố kết quả.
 Student
 Xem yêu cầu, tải PDF, theo dõi trạng thái xử lý, xem kết quả đã công bố, nộp phiên bản mới và gửi yêu cầu xem lại.
 4. Cấu trúc giao diện chung
@@ -95,33 +96,35 @@ A06 — Audit log và retention
 - Theo dõi publish, override, retry, đổi quyền và xóa dữ liệu.
 - Cấu hình thời gian lưu dữ liệu.
 6. View Teacher
-T01 — Danh sách đợt đánh giá
-- Đợt đang soạn.
-- Đang nhận bài.
-- Đang xử lý.
-- Chờ duyệt.
-- Đã công bố.
-- Số bài theo từng trạng thái.
-- CTA tạo đợt đánh giá mới.
-T02 — Wizard tạo đợt đánh giá
+T01 — Danh sách Course
+- Course code, tên Course, học kỳ và số Student.
+- Số Assignment, Assignment đang mở và bài cần review.
+- CTA tạo Course mới.
+- Mở Course workspace để quản lý Assignment.
+T02 — Course workspace
+- Thông tin Course và Course settings.
+- Danh sách Assignment theo trạng thái Draft, Open hoặc Closed.
+- Số bài Submitted, Reviewed và Published cho từng Assignment.
+- CTA tạo Assignment, chỉnh sửa Assignment hoặc mở Submission Queue.
+T03 — Wizard tạo/chỉnh sửa Assignment
 Thiết kế theo 4 bước:
-1. Thông tin cơ bản: tên, mô tả, thời hạn và loại báo cáo.
-2. Chọn rubric mặc định hoặc nhân bản rubric.
-3. Cấu hình criterion, evaluator, trọng số và mức chấm.
-4. Preview, kiểm tra lỗi và mở nhận bài.
+1. Details: tên, description, due date và số lần nộp.
+2. Submission requirements: file bắt buộc/tùy chọn, giới hạn PDF, text layer và template.
+3. Rubric: chọn/nhân bản rubric, cấu hình criterion, evaluator, trọng số và evidence.
+4. Review: preview, kiểm tra lỗi và publish Assignment.
 Yêu cầu:
 - Autosave mỗi bước.
 - Hiển thị tiến độ.
-- Không cho mở nhận bài nếu tổng trọng số khác 100.
+- Cho phép lưu Draft; không cho publish nếu tổng trọng số khác 100 hoặc thiếu yêu cầu bắt buộc.
 - Lỗi phải trỏ đúng bước và criterion liên quan.
-T03 — Rubric builder
+T04 — Rubric builder
 - Danh sách criterion có thể sắp xếp.
 - Thêm, sửa, bật/tắt criterion.
 - Cấu hình mô tả, phạm vi, evaluator, trọng số và evidence requirement.
 - Criterion editor mở bằng drawer hoặc modal.
 - Preview rubric trước khi công bố.
 - Hiển thị version và trạng thái bất biến sau khi công bố.
-T04 — Submission queue
+T05 — Submission queue
 - Bảng danh sách bài nộp.
 - Filter theo trạng thái, mức điểm, độ tin cậy và lỗi.
 - Tab hoặc filter nhanh:
@@ -132,7 +135,7 @@ T04 — Submission queue
   - Lỗi.
 - Hiển thị người đang duyệt để tránh hai Teacher sửa cùng lúc.
 - Hỗ trợ chuyển tới bài chưa duyệt tiếp theo.
-T05 — Review workspace
+T06 — Review workspace
 Đây là màn hình quan trọng nhất.
 Layout desktop:
 - Khu vực PDF chiếm khoảng 60–70% chiều rộng.
@@ -244,8 +247,8 @@ Cần thiết kế tối thiểu:
 - Filter panel trên mobile.
 - Delete/archive confirmation.
 9. Flow chính
-Flow 1 — Teacher tạo đợt đánh giá
-Danh sách đợt → tạo mới → nhập thông tin → chọn/nhân bản rubric → cấu hình criterion → preview → sửa lỗi → công bố rubric → mở nhận bài.
+Flow 1 — Teacher quản lý Course và Assignment
+Danh sách Course → mở Course workspace → tạo/chỉnh sửa Assignment → nhập details → chọn submission requirements → chọn/nhân bản rubric → cấu hình criterion → preview → sửa lỗi → lưu Draft hoặc publish Assignment.
 Flow 2 — Student nộp tài liệu
 Danh sách yêu cầu → xem chi tiết → chọn PDF → kiểm tra file → kiểm tra text layer → xác nhận upload → tạo phiên bản → theo dõi trạng thái.
 Flow 3 — Hệ thống phân tích
