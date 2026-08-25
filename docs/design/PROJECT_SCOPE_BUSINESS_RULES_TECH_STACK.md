@@ -53,7 +53,7 @@ Kiến trúc được chọn là **modular monolith có worker riêng**:
 
 1. Đăng nhập bằng tài khoản được Admin tạo; không có đăng ký công khai.
 2. RBAC cho Admin, Giảng viên và Sinh viên; một tài khoản có thể có nhiều vai trò nhưng phải chuyển workspace rõ ràng.
-3. Tạo đợt đánh giá, chọn rubric, cấu hình tiêu chí/trọng số, lưu nháp, mở và đóng nhận bài.
+3. Tạo Course, tạo Assignment trong Course, chọn rubric, cấu hình tiêu chí/trọng số, lưu nháp, mở và đóng nhận bài.
 4. Rubric mặc định gồm 12 tiêu chí SRS; hỗ trợ template có phiên bản, nhân bản rubric, dry-run trên một PDF mẫu và tạo phiên bản mới.
 5. Sinh viên upload PDF, xem điều kiện file trước khi nộp, nhận lỗi theo trang và theo dõi trạng thái xử lý.
 6. Validation PDF, lưu file riêng tư, tạo checksum, tạo phiên bản bài nộp và job xử lý bất đồng bộ.
@@ -120,20 +120,20 @@ Hệ thống lưu điểm với tối thiểu bốn chữ số thập phân, ch�
 - `3 — Tốt`: đáp ứng phần lớn; chỉ còn lỗi cục bộ, không nghiêm trọng.
 - `4 — Đạt đầy đủ`: đáp ứng yêu cầu của tiêu chí và không có lỗi đáng kể trong phạm vi kiểm tra.
 
-Một rubric có thể thay đổi trọng số hoặc tắt tiêu chí trước khi mở đợt đánh giá. Tổng trọng số của các tiêu chí đang bật phải bằng 100%.
+Một rubric có thể thay đổi trọng số hoặc tắt tiêu chí trước khi mở Assignment. Tổng trọng số của các tiêu chí đang bật phải bằng 100%.
 
 ## 5. Mô hình nghiệp vụ và trạng thái
 
 ### 5.1. Thực thể chính
 
-- `User`, `Role`, `Assessment`, `AssessmentMembership`.
+- `User`, `Role`, `Course`, `CourseMembership`, `Assignment`.
 - `RubricVersion`, `CriterionVersion`, `PerformanceLevel`, `TemplateVersion`.
 - `Submission`, `DocumentVersion`, `AnalysisJob`.
 - `EvaluationResult`, `CriterionResult`, `Finding`, `EvidenceAnchor`.
 - `ReviewDecision`, `PublishedResultVersion`, `ReviewRequest`.
 - `Notification`, `AuditEvent`.
 
-### 5.2. Vòng đời đợt đánh giá
+### 5.2. Vòng đời Assignment
 
 ```text
 DRAFT → OPEN → CLOSED → ARCHIVED
@@ -161,15 +161,15 @@ UPLOADING → VALIDATING ──→ INVALID
 
 | ID | Luật đã chốt |
 |---|---|
-| BR-01 | Admin quản lý toàn hệ thống; Giảng viên chỉ quản lý đợt/rubric/bài thuộc phạm vi được giao; Sinh viên chỉ thao tác với bài của chính mình. Mọi API phải kiểm tra quyền theo object, không chỉ ẩn nút trên UI. |
+| BR-01 | Admin quản lý toàn hệ thống; Giảng viên chỉ quản lý Course, Assignment, rubric và bài thuộc phạm vi được giao; Sinh viên chỉ thao tác với Assignment được giao và bài của chính mình. Mọi API phải kiểm tra quyền theo object, không chỉ ẩn nút trên UI. |
 | BR-02 | Không có đăng ký công khai. Admin tạo, khóa hoặc mở khóa tài khoản. Mật khẩu tối thiểu 12 ký tự và được băm bằng Argon2id. |
-| BR-03 | Rubric hệ thống không được sửa trực tiếp. Giảng viên phải nhân bản. Khi đợt nhận bài đầu tiên, rubric và liên kết RubricVersion của đợt bị đóng băng. Phiên bản rubric mới chỉ dùng cho đợt khác; không để sinh viên trong cùng một đợt bị chấm bằng hai rubric khác nhau. |
-| BR-04 | Tổng trọng số tiêu chí đang bật phải bằng 100%. Mỗi tiêu chí phải có đủ mức 0–4, mô tả, trọng số và phương pháp đánh giá trước khi mở đợt. |
-| BR-05 | Mỗi job lưu snapshot của Assessment, RubricVersion, CriterionVersion, rule version, model/provider và cấu hình xử lý. Chạy lại cùng snapshot phải có thể truy nguyên kết quả. |
+| BR-03 | Rubric hệ thống không được sửa trực tiếp. Giảng viên phải nhân bản. Khi Assignment nhận bài đầu tiên, rubric và liên kết RubricVersion của Assignment bị đóng băng. Phiên bản rubric mới chỉ dùng cho Assignment khác; không để sinh viên trong cùng một Assignment bị chấm bằng hai rubric khác nhau. |
+| BR-04 | Tổng trọng số tiêu chí đang bật phải bằng 100%. Mỗi tiêu chí phải có đủ mức 0–4, mô tả, trọng số và phương pháp đánh giá trước khi mở Assignment. |
+| BR-05 | Mỗi job lưu snapshot của Course, Assignment, RubricVersion, CriterionVersion, rule version, model/provider và cấu hình xử lý. Chạy lại cùng snapshot phải có thể truy nguyên kết quả. |
 | BR-06 | Chỉ nhận file có magic bytes và MIME là PDF, tối đa 50 MB và 100 trang, không mã hóa/mật khẩu, không attachment hoặc JavaScript nhúng. |
 | BR-07 | Một trang bị coi là nghi scan khi ảnh raster phủ từ 80% diện tích trang và có dưới 30 ký tự text hữu ích. File có bất kỳ trang nghi scan nào bị từ chối; trang trắng thật không tính là trang scan. |
 | BR-08 | File gốc được lưu ngoài web root. Truy cập file dùng quyền theo object và URL ký có hạn 5 phút. Không lưu PDF blob trong PostgreSQL. |
-| BR-09 | SHA-256 nhận diện file. Upload lặp đúng cùng file cho cùng sinh viên, đợt và lần nộp phải trả lại phiên bản hiện có thay vì tạo job trùng. |
+| BR-09 | SHA-256 nhận diện file. Upload lặp đúng cùng file cho cùng sinh viên, Assignment và lần nộp phải trả lại phiên bản hiện có thay vì tạo job trùng. |
 | BR-10 | Tối đa một job hoạt động cho một tổ hợp DocumentVersion + RubricVersion. Queue có thể giao việc lặp nhưng task phải idempotent. Job thử tối đa ba lần với exponential backoff rồi chuyển `PROCESSING_FAILED`. |
 | BR-11 | Mọi finding tự động phải có criterion, phương pháp, mô tả, page number, text quote và tọa độ hoặc section anchor. Không xác minh được anchor thì không hiển thị finding như bằng chứng; criterion chuyển `NEEDS_MANUAL_REVIEW`. |
 | BR-12 | Nội dung PDF là dữ liệu không tin cậy. Chỉ gửi phần text cần thiết cho từng criterion; nội dung tài liệu không được thay đổi system instruction, gọi tool đặc quyền hoặc quyết định quyền truy cập. |
@@ -186,11 +186,11 @@ UPLOADING → VALIDATING ──→ INVALID
 | BR-23 | Mỗi sinh viên chỉ có một review request đang mở cho một criterion của một PublishedResultVersion. Giảng viên trả lời và đóng yêu cầu; việc mở yêu cầu không tự thay đổi điểm. |
 | BR-24 | LLM bên ngoài chỉ được dùng khi cấu hình không dùng dữ liệu để huấn luyện, có chính sách lưu giữ phù hợp và text đã loại metadata/định danh có thể loại. Không đáp ứng điều kiện thì toàn bộ LLM evaluator bị tắt, rule và review thủ công vẫn hoạt động. |
 | BR-25 | Tối đa hai job đang hoạt động cho mỗi sinh viên và năm upload/phút/tài khoản. Vượt giới hạn trả lỗi có thời gian thử lại; không tạo job ngầm. |
-| BR-26 | Document/result được giữ 365 ngày sau khi đợt đóng; technical log 30 ngày; audit event 365 ngày. Xóa dữ liệu là job có audit, còn audit giữ định danh đã pseudonymize. |
+| BR-26 | Document/result được giữ 365 ngày sau khi Assignment đóng; technical log 30 ngày; audit event 365 ngày. Xóa dữ liệu là job có audit, còn audit giữ định danh đã pseudonymize. |
 | BR-27 | Notification là best-effort: lỗi gửi thông báo không rollback thao tác publish, retry job hoặc trả lời review request. Trạng thái nguồn vẫn là nguồn sự thật. |
-| BR-28 | Assessment cấu hình số lần nộp từ 1 đến 5, mặc định 3. Chỉ nhận bài khi Assessment ở trạng thái `OPEN`, chưa quá hạn và còn lượt; MVP không có late submission hoặc gia hạn riêng từng sinh viên. Giảng viên có thể đổi hạn chung trước khi đóng đợt. |
-| BR-29 | Rubric và trọng số được hiển thị cho sinh viên từ khi đợt mở. Cấu hình evaluator, prompt, rule và ghi chú nội bộ không được hiển thị. |
-| BR-30 | Review request chỉ được mở trong 7 ngày lịch từ thời điểm publish và trước khi Assessment bị archive. Hết hạn, sinh viên vẫn xem kết quả nhưng không tạo request mới. |
+| BR-28 | Assignment cấu hình số lần nộp từ 1 đến 5, mặc định 3. Chỉ nhận bài khi Assignment ở trạng thái `OPEN`, chưa quá hạn và còn lượt; MVP không có late submission hoặc gia hạn riêng từng sinh viên. Giảng viên có thể đổi hạn chung trước khi đóng Assignment. |
+| BR-29 | Rubric và trọng số được hiển thị cho sinh viên từ khi Assignment mở. Cấu hình evaluator, prompt, rule và ghi chú nội bộ không được hiển thị. |
+| BR-30 | Review request chỉ được mở trong 7 ngày lịch từ thời điểm publish kết quả và trước khi Assignment bị archive. Hết hạn, sinh viên vẫn xem kết quả nhưng không tạo request mới. |
 | BR-31 | Dry-run rubric dùng PDF mẫu riêng, không tạo Submission hoặc PublishedResult, vẫn ghi usage và evaluator snapshot. Mỗi rubric chỉ có một dry-run đang hoạt động; kết quả dry-run tự hết hạn sau 30 ngày. |
 | BR-32 | Model/provider là cấu hình vận hành có version, không hard-code vào domain. Chỉ một cấu hình đã qua benchmark và chính sách dữ liệu mới được đặt `ACTIVE`; thay model không làm thay đổi kết quả đã lưu. |
 | BR-33 | Chỉ Teacher phụ trách hoặc Admin được unpublish. Thao tác phải có lý do, giữ nguyên PublishedResultVersion và audit, ẩn kết quả khỏi Student ngay lập tức, thông báo cho Student và đóng review request đang mở với trạng thái `RESULT_WITHDRAWN`. |
@@ -228,7 +228,7 @@ AT-01 đến AT-28 và AT-30 là release blocker. AT-29 là SLO vận hành ph�
 | ID | Điều kiện nghiệm thu |
 |---|---|
 | AT-01 | Ba role đăng nhập được và 100% test truy cập chéo bị từ chối ở API; một sinh viên không thể suy đoán URL để đọc PDF/kết quả của sinh viên khác. |
-| AT-02 | Giảng viên tạo được đợt từ nháp tới mở nhận bài, dry-run rubric trên PDF mẫu; hệ thống chặn mở khi rubric sai tổng trọng số hoặc thiếu level; sau hạn hoặc hết số lượt, upload bị từ chối mà không trừ thêm lượt. |
+| AT-02 | Giảng viên tạo được Course và Assignment từ nháp tới mở nhận bài, dry-run rubric trên PDF mẫu; hệ thống chặn mở khi rubric sai tổng trọng số hoặc thiếu level; sau hạn hoặc hết số lượt, upload bị từ chối mà không trừ thêm lượt. |
 | AT-03 | Rubric đã dùng không sửa tại chỗ; thao tác sửa tạo version mới và bài cũ vẫn hiển thị đúng snapshot cũ. |
 | AT-04 | PDF text-native trong giới hạn được nhận, có SHA-256 và tạo đúng một DocumentVersion cùng một AnalysisJob. |
 | AT-05 | File sai định dạng, quá 50 MB, quá 100 trang, có mật khẩu, active content hoặc trang nghi scan bị từ chối với lý do và trang liên quan; không enqueue evaluator. |
@@ -278,7 +278,7 @@ Browser
 
 ### 9.1. Lý do chọn modular monolith
 
-- Nghiệp vụ Assessment, Rubric, Submission, Review và Publish liên quan chặt; một transaction boundary và một database giảm lỗi nhất quán.
+- Nghiệp vụ Course, Assignment, Rubric, Submission, Review và Publish liên quan chặt; một transaction boundary và một database giảm lỗi nhất quán.
 - API và worker dùng chung domain model/evaluator package nhưng chạy ở process riêng, nên xử lý PDF/LLM không khóa request web.
 - Một Docker Compose đủ cho MVP, dễ debug và triển khai hơn nhiều service độc lập.
 - Các module có interface rõ để có thể tách worker hoặc storage sau này mà không thiết kế microservice từ đầu.
@@ -286,7 +286,8 @@ Browser
 ### 9.2. Ranh giới module
 
 - `identity`: account, role, session, authorization.
-- `assessment`: đợt đánh giá, membership, deadline và lifecycle.
+- `course`: Course, membership và phân công Giảng viên/Sinh viên.
+- `assignment`: Assignment, yêu cầu nộp bài, deadline và lifecycle.
 - `rubric`: rubric version, criterion, level, weight và evaluator config.
 - `submission`: upload, validation, document version và private storage.
 - `analysis`: Document IR, job, evaluator, finding và evidence.
@@ -296,12 +297,74 @@ Browser
 
 Module giao tiếp qua service interface/domain event trong cùng codebase. Không tạo HTTP nội bộ giữa module trong MVP.
 
+### 9.3. Quyết định chính thức về frontend
+
+Chọn **React + TypeScript + Vite** cho frontend sản phẩm. Không dùng Next.js trong MVP.
+
+Quyết định này thay thế dòng Web dùng Next.js tại SRS §5.7 và là baseline áp dụng cho phát triển; lần phát hành SRS kế tiếp phải đồng bộ lại cùng nội dung.
+
+- DocGrading là ứng dụng đăng nhập theo role, giàu tương tác ở review workspace và không có yêu cầu SEO, SSR hoặc nội dung public cần render phía server.
+- FastAPI là server duy nhất sở hữu authentication, authorization, domain transaction và OpenAPI. Không tạo thêm Route Handler, Server Action hoặc BFF bằng Next.js.
+- Prototype hiện tại đã kiểm chứng cấu trúc màn hình và flow trên React/Vite. Nó là nguồn tham khảo UI với mock data, không phải bằng chứng rằng API, persistence hoặc authorization đã được triển khai.
+- Production build là static assets do Vite tạo và Caddy phục vụ. Khi phát triển, Vite proxy `/api` sang FastAPI; production giữ cùng origin qua reverse proxy để đơn giản hóa cookie và CSRF.
+- React Router quản lý URL theo Course/Assignment/Submission; TanStack Query quản lý server state. Không tiếp tục dùng `View` state trong `App.tsx` làm router sản phẩm.
+- Việc nâng prototype từ React 18/Vite 6 lên baseline target phải là thay đổi dependency có kiểm thử riêng; không trộn vào công việc nối API.
+
+### 9.4. API contract v1
+
+#### 9.4.1. Quy ước chung
+
+- REST/JSON dưới prefix `/api/v1`. FastAPI/Pydantic là nguồn sự thật và xuất OpenAPI tại `/api/v1/openapi.json`.
+- TypeScript client và type được generate từ OpenAPI; frontend không duy trì model request/response viết tay song song với backend. OpenAPI đã chốt phải được lưu làm artifact CI và contract test phải phát hiện breaking change.
+- JSON dùng `snake_case`; ID public là UUID; thời gian là ISO 8601 UTC; enum dùng literal chữ hoa như state machine trong tài liệu này.
+- Response một resource trả trực tiếp resource. Danh sách trả `{items, page, page_size, total}`; `page_size` tối đa 100; sort và filter phải được khai báo trong OpenAPI.
+- Authentication dùng opaque session cookie. Mọi mutation yêu cầu CSRF token. Backend kiểm tra role và quyền theo từng Course, Assignment, Submission hoặc Result; tài nguyên ngoài phạm vi của người dùng trả `404` để không làm lộ sự tồn tại.
+- Mọi response có `X-Request-ID`. Lỗi dùng `application/problem+json` theo RFC 9457 với tối thiểu `type`, `title`, `status`, `detail`, `instance`, `code`, `request_id`; lỗi validation có thêm `errors[]` gồm `field`, `code`, `message`. Không trả stack trace, queue name, prompt hoặc nội dung PDF.
+- `POST` tạo resource đồng bộ trả `201 Created` và `Location`. Tác vụ nền trả `202 Accepted` cùng `job_id`, `status_url` và `Retry-After`. Rate limit trả `429` và `Retry-After`.
+- Resource có chỉnh sửa đồng thời trả `ETag: "rev-{revision}"`. Mutation phải gửi `If-Match`; revision cũ trả `412 Precondition Failed`, không ghi đè dữ liệu.
+- `Idempotency-Key` bắt buộc cho upload, retry, approve, publish và unpublish. Cùng key và cùng payload trả lại kết quả trước đó; cùng key nhưng payload khác trả `409 Conflict`.
+
+#### 9.4.2. Resource hierarchy và endpoint bắt buộc
+
+`Course` là aggregate quản lý người học và quyền truy cập. `Assignment` luôn thuộc đúng một Course và sở hữu yêu cầu nộp bài, deadline, số lượt, RubricVersion và Submission. Không dùng `Assessment` như một entity API song song.
+
+| Nhóm | Endpoint v1 | Hợp đồng chính |
+|---|---|---|
+| Session | `POST /auth/session`, `DELETE /auth/session`, `GET /users/me` | Đăng nhập/đăng xuất và trả user, role, quyền hiệu lực; session nằm trong cookie, không trả JWT để lưu ở browser. |
+| Course | `GET/POST /courses`, `GET/PATCH /courses/{course_id}`, `GET/POST /courses/{course_id}/members`, `DELETE /courses/{course_id}/members/{user_id}` | CRUD Course và membership; chỉ Admin hoặc Teacher được phân công mới mutation. |
+| Assignment | `GET/POST /courses/{course_id}/assignments`, `GET/PATCH /assignments/{assignment_id}`, `POST /assignments/{assignment_id}/open`, `POST /assignments/{assignment_id}/close` | Lưu details, submission requirements, rubric link và lifecycle. `open` chỉ thành công khi rubric/requirements hợp lệ. Từ **publish** chỉ dành cho kết quả; Assignment dùng **open/close**. |
+| Rubric | `GET/POST /rubrics`, `GET /rubrics/{rubric_id}/versions`, `POST /rubrics/{rubric_id}/versions`, `PUT /assignments/{assignment_id}/rubric-version` | Nhân bản/version rubric; không sửa version đã được Assignment sử dụng. |
+| Submission | `GET /assignments/{assignment_id}/submissions`, `POST /assignments/{assignment_id}/submissions`, `GET /submissions/{submission_id}`, `GET /submissions/{submission_id}/versions` | Upload dùng `multipart/form-data`; sau kiểm tra đồng bộ cơ bản, tạo DocumentVersion + AnalysisJob và trả `202`. Upload trùng theo BR-09 trả resource hiện có. |
+| File/evidence | `GET /document-versions/{version_id}/download`, `GET /document-versions/{version_id}/evidence/{anchor_id}` | Kiểm tra quyền trước khi trả redirect/URL ký tối đa 5 phút hoặc evidence anchor; hỗ trợ mở đúng page/coordinate. |
+| Job | `GET /analysis-jobs/{job_id}`, `POST /analysis-jobs/{job_id}/retry`, `GET /operations/analysis-jobs` | Frontend poll `status_url`; không giả lập phần trăm khi worker không có progress thật. MVP không dùng WebSocket/SSE. Retry tuân BR-10 và quyền vận hành. |
+| Review | `GET /document-versions/{version_id}/review`, `POST/DELETE /document-versions/{version_id}/review-lock`, `PATCH /criterion-results/{criterion_result_id}` | Review workspace trả rubric snapshot, criterion result, finding và evidence; lock/heartbeat theo BR-18; edit dùng `If-Match`. |
+| Approve/publish | `POST /document-versions/{version_id}/approve`, `POST /document-versions/{version_id}/publish`, `POST /published-results/{published_result_id}/unpublish` | Approve và publish là hai command riêng. Publish/unpublish atomic, idempotent, có reason/audit và không lộ kết quả một phần. |
+| Student result | `GET /submissions/{submission_id}/published-result`, `POST /published-results/{published_result_id}/review-requests` | Chỉ trả published snapshot và field được phép công khai; tạo review request theo BR-23/BR-30. |
+| Review request | `GET /assignments/{assignment_id}/review-requests`, `GET/PATCH /review-requests/{review_request_id}` | Teacher xem, phản hồi và đóng request; thay đổi điểm phải tạo PublishedResultVersion mới. |
+| Operations | `GET/PATCH /users/{user_id}`, `GET /operations/audit-events` | Admin quản lý account và xem audit có filter/pagination; không trả secret hoặc nội dung tài liệu. |
+
+#### 9.4.3. Hợp đồng trạng thái bất đồng bộ
+
+1. Upload thành công ở tầng HTTP trả `202` với `submission_id`, `document_version_id`, `job_id`, `status`, `status_url` và `retry_after_seconds`.
+2. Frontend poll `status_url` sau thời gian server chỉ định, dùng backoff từ 2 đến tối đa 10 giây và dừng ở `INVALID`, `PROCESSING_FAILED`, `AWAITING_REVIEW` hoặc `PUBLISHED`.
+3. API chỉ trả `progress_percent` khi worker có số bước đo được; nếu không thì trả `null` cùng `status` và `status_message` trung thực.
+4. `PROCESSING_FAILED` trả `retryable` và `user_action`; chi tiết kỹ thuật chỉ xuất hiện ở endpoint Operations cho Admin.
+5. Browser refresh phải khôi phục trạng thái từ API bằng `status_url`; timer và state trong prototype không phải nguồn sự thật.
+
+#### 9.4.4. Điều kiện hoàn tất contract
+
+- OpenAPI mô tả đủ request, success response, Problem Details, auth/CSRF, enum và ví dụ cho toàn bộ endpoint trong bảng trên.
+- Frontend build dùng generated client và không gọi `fetch` trực tiếp ngoài một transport wrapper dùng chung.
+- Contract test xác nhận codegen TypeScript thành công, không có operation ID trùng và mọi mutation khai báo các response `401`, `403` hoặc `404`, `409`, `412`, `422` và `429` khi áp dụng.
+- Integration test khóa các invariant quan trọng: object authorization, Course → Assignment ownership, upload idempotency, optimistic concurrency, Approve ≠ Publish và Student chỉ thấy PublishedResultVersion.
+- E2E AT-30 chạy qua API thật; mock timer của prototype không được dùng làm bằng chứng nghiệm thu.
+
 ## 10. Tech stack đã chọn
 
 | Lớp | Công nghệ | Quyết định sử dụng |
 |---|---|---|
 | Runtime frontend | Node.js 24 LTS | Chỉ dùng bản LTS và khóa version bằng `.nvmrc`/Volta. |
-| Frontend | React 19, TypeScript 6, Vite 8 | SPA phù hợp ứng dụng nội bộ theo role; không có nhu cầu SEO hoặc SSR. |
+| Frontend | React 19, TypeScript 6, Vite 8 | Quyết định chính thức cho SPA; không dùng Next.js, SSR, React Server Components, Server Actions hoặc Route Handlers. |
 | Routing/data | React Router, TanStack Query | URL giữ filter/selection quan trọng; server state không đưa vào global store tùy ý. Không dùng Redux trong MVP. |
 | Form/schema | React Hook Form, Zod | Form rubric/upload rõ validation; type API được generate từ OpenAPI. |
 | UI | Tailwind CSS + Radix Primitives | Radix xử lý semantics/focus/keyboard; Tailwind triển khai skeleton trung tính. Không dùng dashboard template hoặc theme nhiều màu. |
@@ -358,7 +421,7 @@ Module giao tiếp qua service interface/domain event trong cùng codebase. Khô
 
 ## 13. Trình tự triển khai để giữ mốc một tháng
 
-- **Tuần 1:** domain model, database, auth/RBAC, app shell, OpenAPI contract, Assessment và RubricVersion.
+- **Tuần 1:** domain model, database, auth/RBAC, app shell, OpenAPI contract, Course, Assignment và RubricVersion.
 - **Tuần 2:** upload/validation, private storage, queue, Document IR, PDF.js viewer và ba evaluator rule-based đầu tiên.
 - **Tuần 3:** review workspace, finding/evidence, autosave/lock, approve/publish, student result và remaining evaluators sau feature flag.
 - **Tuần 4:** benchmark/gating, resubmission/review request, admin jobs/audit, security/accessibility/load test, backup restore và UAT.
@@ -383,8 +446,14 @@ Cuối tuần 2 phải có vertical slice: sinh viên upload một PDF hợp l�
 - [OWASP LLM01: Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)
 - [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)
 - [Gradescope — Grading submissions with rubrics](https://guides.gradescope.com/hc/en-us/articles/22249389005709-Grading-submissions-with-rubrics)
-- [Vite — Getting Started](https://vite.dev/guide/)
+- [Vite — Building for Production](https://vite.dev/guide/build)
+- [Next.js — Single-Page Applications and static export](https://nextjs.org/docs/app/guides/single-page-applications)
+- [Next.js — Static exports and unsupported server features](https://nextjs.org/docs/app/guides/static-exports)
+- [FastAPI — Generate Clients](https://fastapi.tiangolo.com/advanced/generate-clients/)
 - [FastAPI — Background Tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/)
+- [OpenAPI Specification](https://spec.openapis.org/oas/latest.html)
+- [RFC 9110 — HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110.html)
+- [RFC 9457 — Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html)
 - [Celery 5.6 — Tasks](https://docs.celeryq.dev/en/stable/userguide/tasks.html)
 - [Node.js release status](https://nodejs.org/en/about/previous-releases)
 - [Python version status](https://devguide.python.org/versions/)
