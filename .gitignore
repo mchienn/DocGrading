@@ -17,3 +17,13 @@ AGENTS.md
 .env
 .env.*
 !.env.example
+
+# Python backend
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+backend/storage/

@@ -21,7 +21,7 @@ Kiến trúc được chọn là **modular monolith có worker riêng**:
 - PDF: PDF.js ở trình duyệt; pypdf và pdfplumber ở worker.
 - Triển khai MVP: Docker Compose trên một máy chủ, không dùng Kubernetes hoặc microservice.
 
-Đây là stack mục tiêu đã chọn. Repository hiện chỉ có tài liệu và prototype; chưa có implementation để coi các công nghệ trên là đã được triển khai hoặc kiểm chứng bằng benchmark nội bộ.
+Repository hiện có prototype React/Vite và nền tảng backend T-005 gồm FastAPI health endpoint, SQLAlchemy/Alembic base, Celery healthcheck, Docker Compose và CI. Domain schema, API nghiệp vụ, persistence nghiệp vụ, authorization và pipeline PDF/AI vẫn chưa được triển khai hoặc kiểm chứng bằng benchmark nội bộ.
 
 ## 2. Mục tiêu sản phẩm
 
