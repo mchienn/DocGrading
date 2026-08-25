@@ -29,7 +29,8 @@ class Assignment(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         sa.CheckConstraint(
             "(status = 'DRAFT' AND published_at IS NULL AND closed_at IS NULL) "
             "OR (status = 'OPEN' AND published_at IS NOT NULL AND closed_at IS NULL) "
-            "OR (status IN ('CLOSED', 'ARCHIVED') AND published_at IS NOT NULL AND closed_at IS NOT NULL)",
+            "OR (status IN ('CLOSED', 'ARCHIVED') "
+            "AND published_at IS NOT NULL AND closed_at IS NOT NULL)",
             name="ck_assignments_publication_state",
         ),
         sa.CheckConstraint("revision > 0", name="ck_assignments_revision_positive"),
@@ -176,7 +177,7 @@ class AssignmentRequirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         sa.ForeignKey(
             "template_versions.id",
             ondelete="RESTRICT",
-            name="fk_assignment_requirements_template_version_id_template_versions",
+            name="fk_assignment_requirements_template_version_templates",
         ),
         nullable=True,
     )

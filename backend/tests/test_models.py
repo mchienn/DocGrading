@@ -114,3 +114,13 @@ def test_critical_constraints_and_indexes_have_stable_names() -> None:
         if isinstance(idx, Index)
     }
     assert "uq_analysis_jobs_active_document_rubric" in analysis_jobs_indexes
+
+
+def test_criterion_version_nested_json_mutation_tracks_dirty() -> None:
+    cv = CriterionVersion(levels=[{"name": "Level 1", "description": "initial"}])
+    state = inspect(cv)
+    state._commit_all(state.dict)
+    assert not state.modified
+
+    cv.levels[0]["description"] = "updated"
+    assert state.modified

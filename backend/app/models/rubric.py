@@ -7,12 +7,17 @@ import uuid
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.enums import RubricStatus, pg_enum
-from app.models.mixins import RevisionMixin, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.mixins import (
+    NestedMutableDict,
+    NestedMutableList,
+    RevisionMixin,
+    TimestampMixin,
+    UUIDPrimaryKeyMixin,
+)
 
 if TYPE_CHECKING:
     from app.models.analysis import AnalysisJob
@@ -38,7 +43,8 @@ class RubricVersion(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         ),
         sa.CheckConstraint(
             "(status = 'DRAFT' AND published_at IS NULL) "
-            "OR (status IN ('PUBLISHED', 'ARCHIVED') AND published_at IS NOT NULL)",
+            "OR (status IN ('PUBLISHED', 'ARCHIVED') "
+            "AND published_at IS NOT NULL)",
             name="ck_rubric_versions_publication_state",
         ),
         sa.CheckConstraint("revision > 0", name="ck_rubric_versions_revision_positive"),
@@ -121,6 +127,7 @@ class RubricVersion(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         "RubricVersion",
         back_populates="source_version",
         foreign_keys="RubricVersion.source_version_id",
+        passive_deletes="all",
     )
     criteria: Mapped[list[CriterionVersion]] = relationship(
         "CriterionVersion",
@@ -212,19 +219,19 @@ class CriterionVersion(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base)
     )
     evaluation_method: Mapped[str] = mapped_column(sa.String(64), nullable=False)
     levels: Mapped[list[dict[str, Any]]] = mapped_column(
-        MutableList.as_mutable(JSONB),
+        NestedMutableList.as_mutable(JSONB),
         default=list,
         server_default=sa.text("'[]'::jsonb"),
         nullable=False,
     )
     evaluator_config: Mapped[dict[str, Any]] = mapped_column(
-        MutableDict.as_mutable(JSONB),
+        NestedMutableDict.as_mutable(JSONB),
         default=dict,
         server_default=sa.text("'{}'::jsonb"),
         nullable=False,
     )
     evidence_requirements: Mapped[dict[str, Any]] = mapped_column(
-        MutableDict.as_mutable(JSONB),
+        NestedMutableDict.as_mutable(JSONB),
         default=dict,
         server_default=sa.text("'{}'::jsonb"),
         nullable=False,
@@ -286,7 +293,7 @@ class TemplateVersion(UUIDPrimaryKeyMixin, Base):
         nullable=False,
     )
     structure: Mapped[dict[str, Any]] = mapped_column(
-        MutableDict.as_mutable(JSONB),
+        NestedMutableDict.as_mutable(JSONB),
         default=dict,
         server_default=sa.text("'{}'::jsonb"),
         nullable=False,
@@ -319,4 +326,5 @@ class TemplateVersion(UUIDPrimaryKeyMixin, Base):
         "AssignmentRequirement",
         back_populates="template_version",
         foreign_keys="AssignmentRequirement.template_version_id",
+        passive_deletes="all",
     )
