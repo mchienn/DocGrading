@@ -84,9 +84,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         "Submission",
         back_populates="student",
         foreign_keys="Submission.student_id",
+        passive_deletes="all",
     )
     audit_events: Mapped[list[AuditEvent]] = relationship(
         "AuditEvent",
         back_populates="actor_user",
         foreign_keys="AuditEvent.actor_user_id",
+        passive_deletes="all",
     )

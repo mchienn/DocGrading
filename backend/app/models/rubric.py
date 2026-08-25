@@ -144,6 +144,7 @@ class RubricVersion(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         "AnalysisJob",
         back_populates="rubric_version",
         foreign_keys="AnalysisJob.rubric_version_id",
+        passive_deletes="all",
     )
 
 

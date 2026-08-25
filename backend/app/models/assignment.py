@@ -114,6 +114,7 @@ class Assignment(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         "Submission",
         back_populates="assignment",
         foreign_keys="Submission.assignment_id",
+        passive_deletes="all",
     )
 
 
