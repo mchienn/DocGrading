@@ -151,7 +151,6 @@ class NestedMutableDict(Mutable, dict):
     def __setstate__(self, state: dict[str, Any]) -> None:
         super().__init__()
         self._root = self
-        self._parents = {}
         for k, v in state.get("_data", {}).items():
             super().__setitem__(k, _reparent(v, self))
 
@@ -234,13 +233,8 @@ class NestedMutableList(Mutable, list):
         self.extend(values)
         return self
 
-    def __imul__(self, n: int) -> NestedMutableList:
-        root = getattr(self, "_root", None) or self
-        items = list(self)
-        super().clear()
-        for _ in range(n):
-            for item in items:
-                super().append(_reparent(item, root))
+    def __imul__(self, n: Any) -> NestedMutableList:
+        super().__imul__(n)
         self._notify()
         return self
 
@@ -250,6 +244,5 @@ class NestedMutableList(Mutable, list):
     def __setstate__(self, state: dict[str, Any]) -> None:
         super().__init__()
         self._root = self
-        self._parents = {}
         for item in state.get("_data", []):
             super().append(_reparent(item, self))

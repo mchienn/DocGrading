@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import pickle
 import uuid
+import weakref
+
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import inspect
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
 from app.models.mixins import (
     NestedMutableDict,
     NestedMutableList,
@@ -74,6 +79,21 @@ def test_list_sort_reverse_iadd_imul_mark_dirty() -> None:
     m.items *= 2
     assert state.modified
     assert len(m.items) == 6
+
+
+def test_list_imul_invalid_multiplier_and_identity_preservation() -> None:
+    m = SampleModel(items=[{"val": 10}])
+    child = m.items[0]
+
+    # Invalid multiplier raises TypeError without mutating contents
+    with pytest.raises(TypeError):
+        m.items *= "invalid"  # type: ignore[operator]
+    assert len(m.items) == 1
+    assert m.items[0]["val"] == 10
+
+    # *= 1 preserves existing child identity
+    m.items *= 1
+    assert m.items[0] is child
 
 
 def test_dict_ior_marks_dirty_and_wraps_nested() -> None:
@@ -172,6 +192,17 @@ def test_pickle_roundtrip_and_post_unpickle_mutation() -> None:
     assert not state2.modified
     m2.data["config"]["tags"].append("c")
     assert state2.modified
+
+
+def test_direct_unpickle_root_hierarchy_and_weakkeydict() -> None:
+    d = NestedMutableDict({"config": {"retries": 3, "tags": ["a", "b"]}})
+    raw = pickle.dumps(d)
+    restored = pickle.loads(raw)
+
+    assert restored["config"]._root is restored
+    assert restored["config"]["tags"]._root is restored
+    assert isinstance(restored._parents, weakref.WeakKeyDictionary)
+    assert type(restored._parents) is weakref.WeakKeyDictionary
 
 
 def test_cyclic_structure_raises_error() -> None:
