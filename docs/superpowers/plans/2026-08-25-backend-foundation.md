@@ -446,6 +446,51 @@ else:
 ```
 
 
+Replace `backend/alembic/script.py.mako` so generated revisions use Python 3.13 unions, Ruff-compatible import groups, and omit unused Alembic/SQLAlchemy imports when a revision is empty:
+
+```mako
+"""${message}
+
+Revision ID: ${up_revision}
+Revises: ${down_revision | comma,n}
+Create Date: ${create_date}
+
+"""
+from collections.abc import Sequence
+% if upgrades or downgrades:
+
+import sqlalchemy as sa
+
+from alembic import op
+% endif
+${imports if imports else ""}
+# revision identifiers, used by Alembic.
+revision: str = ${repr(up_revision)}
+down_revision: str | Sequence[str] | None = ${repr(down_revision)}
+branch_labels: str | Sequence[str] | None = ${repr(branch_labels)}
+depends_on: str | Sequence[str] | None = ${repr(depends_on)}
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    ${upgrades if upgrades else "pass"}
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    ${downgrades if downgrades else "pass"}
+```
+
+Enable Black as Alembic's post-write hook in `backend/alembic.ini` so generated string literals and layout already satisfy CI:
+
+```ini
+[post_write_hooks]
+hooks = black
+black.type = console_scripts
+black.entrypoint = black
+black.options = -l 88 REVISION_SCRIPT_FILENAME
+```
+
 - [ ] **Step 3: Create the empty base revision**
 
 Run:
@@ -635,7 +680,7 @@ services:
     image: postgres:17-bookworm
     env_file: .env
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -648,7 +693,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
