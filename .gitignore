@@ -1,0 +1,18 @@
+# Local coding-agent and worktree tooling
+.codeagentswarm/
+.codegraph/
+.omp/
+.orca/
+.agents/
+.codex/
+.claude/
+.gemini/
+.antigravity/
+.mcp.json
+orca.yaml
+.worktreeinclude
+
+# Local development environment
+.env
+.env.*
+!.env.example
