@@ -1,0 +1,44 @@
+[project]
+name = "docgrading-backend"
+version = "0.1.0"
+description = "Backend API and workers for DocGrading"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "alembic>=1.16,<2",
+  "asyncpg>=0.30,<1",
+  "celery[redis]>=5.6,<6",
+  "fastapi>=0.116,<1",
+  "pydantic-settings>=2.10,<3",
+  "sqlalchemy[asyncio]>=2.0.41,<3",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[dependency-groups]
+dev = [
+  "black>=25.1,<27",
+  "httpx2>=2.12,<3",
+  "pytest>=8.4,<9",
+  "ruff>=0.12,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.black]
+target-version = ["py313"]
+line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
