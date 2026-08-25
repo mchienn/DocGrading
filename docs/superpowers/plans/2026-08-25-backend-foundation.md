@@ -80,7 +80,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "black>=25.1,<27",
-  "httpx>=0.28,<1",
+  "httpx2>=2.12,<3",
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
 ]
