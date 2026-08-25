@@ -35,7 +35,6 @@ backend/
 ├── alembic/
 │   └── versions/
 ├── tests/
-├── .env.example
 ├── alembic.ini
 ├── Dockerfile
 ├── pyproject.toml
@@ -70,13 +69,13 @@ Task này chỉ chứng minh luồng producer → Redis broker → Celery worker
 
 ## 5. Cấu hình, secrets và storage
 
-`backend/.env.example` liệt kê biến cấu hình cùng giá trị placeholder an toàn cho development. Developer sao chép file này thành `backend/.env`; file thật bị Git ignore. Credential không xuất hiện trong source, Dockerfile hoặc workflow.
+`.env.example` ở repository root liệt kê biến cấu hình cùng giá trị placeholder an toàn cho development. Developer sao chép file này thành `.env`; file thật bị Git ignore. Đặt file tại root để Docker Compose tự nạp biến khi chạy bằng lệnh chuẩn, đồng thời backend local đọc cùng một nguồn cấu hình. Credential không xuất hiện trong source, Dockerfile hoặc workflow.
 
 Nhóm biến tối thiểu gồm:
 
 - môi trường, host và port API;
-- thông tin PostgreSQL và `DATABASE_URL`;
-- Celery broker URL và result backend URL;
+- thông tin kết nối PostgreSQL; ứng dụng dựng URL SQLAlchemy bằng `URL.create` để escape credential đúng cách;
+- host và port Redis; ứng dụng dựng riêng broker URL và result backend URL;
 - `STORAGE_PATH`.
 
 Pydantic Settings đọc biến môi trường và fail-fast khi thiếu cấu hình bắt buộc. Docker Compose truyền cùng cấu hình cho API và worker.
@@ -92,7 +91,7 @@ PDF không được lưu trong PostgreSQL. Môi trường development mount mộ
 - `postgres`: PostgreSQL 17 với persistent volume và healthcheck;
 - `redis`: Redis 7 với persistent volume và healthcheck.
 
-API và worker chỉ khởi động sau các dependency cần thiết đạt healthcheck. Image chạy bằng user không đặc quyền. Sau khi tạo `backend/.env`, developer khởi động stack bằng một lệnh:
+API và worker chỉ khởi động sau các dependency cần thiết đạt healthcheck. Image chạy bằng user không đặc quyền. Sau khi tạo `.env` ở repository root, developer khởi động stack bằng một lệnh:
 
 ```bash
 docker compose up --build
