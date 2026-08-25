@@ -11,7 +11,7 @@
 .mcp.json
 orca.yaml
 .worktreeinclude
-.AGENTS.md
+AGENTS.md
 
 # Local development environment
 .env
