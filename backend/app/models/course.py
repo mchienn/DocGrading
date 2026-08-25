@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 import uuid
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,7 +28,11 @@ class Course(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
     term: Mapped[str] = mapped_column(sa.String(128), nullable=False)
     owner_teacher_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        sa.ForeignKey("users.id", ondelete="RESTRICT", name="fk_courses_owner_teacher_id_users"),
+        sa.ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+            name="fk_courses_owner_teacher_id_users",
+        ),
         nullable=False,
     )
 
@@ -52,17 +57,30 @@ class Course(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
 class Membership(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "memberships"
     __table_args__ = (
-        sa.UniqueConstraint("course_id", "user_id", "role", name="uq_memberships_course_user_role"),
+        sa.UniqueConstraint(
+            "course_id",
+            "user_id",
+            "role",
+            name="uq_memberships_course_user_role",
+        ),
     )
 
     course_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        sa.ForeignKey("courses.id", ondelete="CASCADE", name="fk_memberships_course_id_courses"),
+        sa.ForeignKey(
+            "courses.id",
+            ondelete="CASCADE",
+            name="fk_memberships_course_id_courses",
+        ),
         nullable=False,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        sa.ForeignKey("users.id", ondelete="RESTRICT", name="fk_memberships_user_id_users"),
+        sa.ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+            name="fk_memberships_user_id_users",
+        ),
         nullable=False,
     )
     role: Mapped[MembershipRole] = mapped_column(

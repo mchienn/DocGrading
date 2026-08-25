@@ -1,5 +1,6 @@
 from enum import StrEnum
 from typing import Any
+
 import sqlalchemy as sa
 
 
@@ -67,15 +68,15 @@ def pg_enum(
     name: str,
     *,
     native_enum: bool = True,
-    create_type: bool = True,
     **kwargs: Any,
 ) -> sa.Enum:
-    """Helper creating named native SQLAlchemy Enum values via values_callable and validate_strings."""
+    """Helper creating named native SQLAlchemy Enum values via values_callable and
+    validate_strings.
+    """
     return sa.Enum(
         enum_cls,
         name=name,
         native_enum=native_enum,
-        create_type=create_type,
         values_callable=lambda enum: [member.value for member in enum],
         validate_strings=True,
         **kwargs,

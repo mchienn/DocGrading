@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -22,14 +24,18 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
     __table_args__ = (
         sa.CheckConstraint("cardinality(roles) > 0", name="ck_users_roles_not_empty"),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
-        sa.Index("uq_users_email_lower", sa.func.lower(sa.column("email")), unique=True),
+        sa.Index(
+            "uq_users_email_lower",
+            sa.func.lower(sa.column("email")),
+            unique=True,
+        ),
     )
 
     email: Mapped[str] = mapped_column(sa.String(320), nullable=False)
     display_name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     roles: Mapped[list[UserRole]] = mapped_column(
-        ARRAY(pg_enum(UserRole, name="user_role")),
+        MutableList.as_mutable(ARRAY(pg_enum(UserRole, name="user_role"))),
         default=list,
         nullable=False,
     )
