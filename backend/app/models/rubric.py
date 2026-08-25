@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
-import uuid
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
