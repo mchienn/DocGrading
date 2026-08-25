@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, inspect
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import configure_mappers
 
@@ -18,19 +18,19 @@ from app.models import (
     User,
 )
 
-EXPECTED_TABLES = {
-    "analysis_jobs",
-    "assignment_requirements",
-    "assignments",
-    "audit_events",
-    "courses",
-    "criterion_versions",
-    "document_versions",
-    "memberships",
-    "rubric_versions",
-    "submissions",
-    "template_versions",
-    "users",
+MODEL_TABLE_MAP: dict[type[Base], str] = {
+    User: "users",
+    Course: "courses",
+    Membership: "memberships",
+    Assignment: "assignments",
+    AssignmentRequirement: "assignment_requirements",
+    RubricVersion: "rubric_versions",
+    CriterionVersion: "criterion_versions",
+    TemplateVersion: "template_versions",
+    Submission: "submissions",
+    DocumentVersion: "document_versions",
+    AnalysisJob: "analysis_jobs",
+    AuditEvent: "audit_events",
 }
 
 
@@ -45,13 +45,18 @@ def foreign_key_targets(model: type[Base]) -> set[str]:
 
 def test_domain_models_register_exact_tables() -> None:
     configure_mappers()
-    assert set(Base.metadata.tables) == EXPECTED_TABLES
+    assert set(Base.metadata.tables) == set(MODEL_TABLE_MAP.values())
+    for model, table_name in MODEL_TABLE_MAP.items():
+        mapper = inspect(model)
+        assert mapper.local_table is Base.metadata.tables[table_name]
 
 
-def test_public_ids_use_postgresql_uuid() -> None:
+def test_public_ids_use_postgresql_uuid_and_are_sole_primary_key() -> None:
     configure_mappers()
-    for table_name in EXPECTED_TABLES:
-        assert isinstance(Base.metadata.tables[table_name].c.id.type, UUID)
+    for table_name in MODEL_TABLE_MAP.values():
+        table = Base.metadata.tables[table_name]
+        assert isinstance(table.c.id.type, UUID)
+        assert [col.name for col in table.primary_key.columns] == ["id"]
 
 
 def test_user_roles_and_json_snapshots_use_postgresql_types() -> None:
@@ -82,16 +87,30 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
 
 def test_critical_constraints_and_indexes_have_stable_names() -> None:
     configure_mappers()
-    names = {
-        item.name
-        for table in Base.metadata.tables.values()
-        for item in (*table.constraints, *table.indexes)
-        if isinstance(item, (CheckConstraint, Index)) and item.name is not None
+    users_checks = {
+        c.name
+        for c in Base.metadata.tables["users"].constraints
+        if isinstance(c, CheckConstraint)
     }
-    assert {
-        "ck_users_roles_not_empty",
-        "ck_assignments_publication_state",
-        "ck_audit_events_actor",
-        "ck_audit_events_snapshots",
-        "uq_analysis_jobs_active_document_rubric",
-    } <= names
+    assert "ck_users_roles_not_empty" in users_checks
+
+    assignments_checks = {
+        c.name
+        for c in Base.metadata.tables["assignments"].constraints
+        if isinstance(c, CheckConstraint)
+    }
+    assert "ck_assignments_publication_state" in assignments_checks
+
+    audit_events_checks = {
+        c.name
+        for c in Base.metadata.tables["audit_events"].constraints
+        if isinstance(c, CheckConstraint)
+    }
+    assert {"ck_audit_events_actor", "ck_audit_events_snapshots"} <= audit_events_checks
+
+    analysis_jobs_indexes = {
+        idx.name
+        for idx in Base.metadata.tables["analysis_jobs"].indexes
+        if isinstance(idx, Index)
+    }
+    assert "uq_analysis_jobs_active_document_rubric" in analysis_jobs_indexes
