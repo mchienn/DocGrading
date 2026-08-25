@@ -301,7 +301,7 @@ Module giao tiếp qua service interface/domain event trong cùng codebase. Khô
 
 Chọn **React + TypeScript + Vite** cho frontend sản phẩm. Không dùng Next.js trong MVP.
 
-Quyết định này thay thế dòng Web dùng Next.js tại SRS §5.7 và là baseline áp dụng cho phát triển; lần phát hành SRS kế tiếp phải đồng bộ lại cùng nội dung.
+Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS §5.7 và là baseline áp dụng cho phát triển.
 
 - DocGrading là ứng dụng đăng nhập theo role, giàu tương tác ở review workspace và không có yêu cầu SEO, SSR hoặc nội dung public cần render phía server.
 - FastAPI là server duy nhất sở hữu authentication, authorization, domain transaction và OpenAPI. Không tạo thêm Route Handler, Server Action hoặc BFF bằng Next.js.
