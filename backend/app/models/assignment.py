@@ -34,6 +34,10 @@ class Assignment(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
             name="ck_assignments_publication_state",
         ),
         sa.CheckConstraint("revision > 0", name="ck_assignments_revision_positive"),
+        sa.CheckConstraint(
+            "length(btrim(title)) > 0 AND title !~ '^[[:space:]]*$'",
+            name="ck_assignments_title_not_blank",
+        ),
     )
 
     course_id: Mapped[uuid.UUID] = mapped_column(
@@ -68,6 +72,10 @@ class Assignment(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
     due_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
+    )
+    first_submission_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
     )
     max_submissions: Mapped[int] = mapped_column(
         sa.Integer,
@@ -138,8 +146,16 @@ class AssignmentRequirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "max_page_count IS NULL OR max_page_count > 0",
             name="ck_assignment_requirements_max_page_count_positive",
         ),
-    )
+        sa.CheckConstraint(
+            "length(btrim(kind)) > 0 AND kind !~ '^[[:space:]]*$'",
+            name="ck_assignment_requirements_kind_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(label)) > 0 AND label !~ '^[[:space:]]*$'",
+            name="ck_assignment_requirements_label_not_blank",
+        ),
 
+    )
     assignment_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         sa.ForeignKey(

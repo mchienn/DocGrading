@@ -27,6 +27,20 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
             "AND array_position(roles, NULL::user_role) IS NULL",
             name="ck_users_roles_not_empty",
         ),
+        sa.CheckConstraint(
+            "length(btrim(email)) > 0 AND email !~ '^[[:space:]]*$'",
+            name="ck_users_email_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(display_name)) > 0 "
+            "AND display_name !~ '^[[:space:]]*$'",
+            name="ck_users_display_name_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(password_hash)) > 0 "
+            "AND password_hash !~ '^[[:space:]]*$'",
+            name="ck_users_password_hash_not_blank",
+        ),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
         sa.Index(
             "uq_users_email_lower",

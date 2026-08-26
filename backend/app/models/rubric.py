@@ -34,6 +34,15 @@ class RubricVersion(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
             name="uq_rubric_versions_rubric_version",
         ),
         sa.CheckConstraint(
+            "length(btrim(name)) > 0 AND name !~ '^[[:space:]]*$'",
+            name="ck_rubric_versions_name_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(calculation_method)) > 0 "
+            "AND calculation_method !~ '^[[:space:]]*$'",
+            name="ck_rubric_versions_calculation_method_not_blank",
+        ),
+        sa.CheckConstraint(
             "version_number > 0",
             name="ck_rubric_versions_version_number_positive",
         ),
@@ -167,6 +176,24 @@ class CriterionVersion(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base)
             name="uq_criterion_versions_rubric_version_position",
         ),
         sa.CheckConstraint(
+            "length(btrim(code)) > 0 AND code !~ '^[[:space:]]*$'",
+            name="ck_criterion_versions_code_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(title)) > 0 AND title !~ '^[[:space:]]*$'",
+            name="ck_criterion_versions_title_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(description)) > 0 "
+            "AND description !~ '^[[:space:]]*$'",
+            name="ck_criterion_versions_description_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(evaluation_method)) > 0 "
+            "AND evaluation_method !~ '^[[:space:]]*$'",
+            name="ck_criterion_versions_evaluation_method_not_blank",
+        ),
+        sa.CheckConstraint(
             "weight >= 0.00 AND weight <= 100.00",
             name="ck_criterion_versions_weight_range",
         ),
@@ -252,6 +279,10 @@ class TemplateVersion(UUIDPrimaryKeyMixin, Base):
             "template_id",
             "version_number",
             name="uq_template_versions_template_version",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(name)) > 0 AND name !~ '^[[:space:]]*$'",
+            name="ck_template_versions_name_not_blank",
         ),
         sa.CheckConstraint(
             "version_number > 0",

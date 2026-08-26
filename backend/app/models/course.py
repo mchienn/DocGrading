@@ -20,6 +20,18 @@ class Course(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
     __tablename__ = "courses"
     __table_args__ = (
         sa.UniqueConstraint("code", name="uq_courses_code"),
+        sa.CheckConstraint(
+            "length(btrim(code)) > 0 AND code !~ '^[[:space:]]*$'",
+            name="ck_courses_code_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(name)) > 0 AND name !~ '^[[:space:]]*$'",
+            name="ck_courses_name_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(term)) > 0 AND term !~ '^[[:space:]]*$'",
+            name="ck_courses_term_not_blank",
+        ),
         sa.CheckConstraint("revision > 0", name="ck_courses_revision_positive"),
     )
 

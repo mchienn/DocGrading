@@ -93,6 +93,21 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "sha256 ~ '^[0-9a-f]{64}$'",
             name="ck_document_versions_sha256_format",
         ),
+        sa.CheckConstraint(
+            "length(btrim(storage_key)) > 0 "
+            "AND storage_key !~ '^[[:space:]]*$'",
+            name="ck_document_versions_storage_key_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(original_filename)) > 0 "
+            "AND original_filename !~ '^[[:space:]]*$'",
+            name="ck_document_versions_original_filename_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(content_type)) > 0 "
+            "AND content_type !~ '^[[:space:]]*$'",
+            name="ck_document_versions_content_type_not_blank",
+        ),
     )
 
     submission_id: Mapped[uuid.UUID] = mapped_column(

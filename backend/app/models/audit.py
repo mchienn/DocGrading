@@ -40,6 +40,15 @@ class AuditEvent(UUIDPrimaryKeyMixin, Base):
             "reason !~ '^[[:space:]]*$'",
             name="ck_audit_events_reason_not_blank",
         ),
+        sa.CheckConstraint(
+            "length(btrim(resource_type)) > 0 "
+            "AND resource_type !~ '^[[:space:]]*$'",
+            name="ck_audit_events_resource_type_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(action)) > 0 AND action !~ '^[[:space:]]*$'",
+            name="ck_audit_events_action_not_blank",
+        ),
         sa.Index("ix_audit_events_resource", "resource_type", "resource_id"),
         sa.Index("ix_audit_events_occurred_at", "occurred_at"),
     )

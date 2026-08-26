@@ -138,6 +138,20 @@ def upgrade() -> None:
             "cardinality(roles) > 0 AND array_position(roles, NULL::user_role) IS NULL",
             name="ck_users_roles_not_empty",
         ),
+        sa.CheckConstraint(
+            "length(btrim(email)) > 0 AND email !~ '^[[:space:]]*$'",
+            name="ck_users_email_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(display_name)) > 0 "
+            "AND display_name !~ '^[[:space:]]*$'",
+            name="ck_users_display_name_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(password_hash)) > 0 "
+            "AND password_hash !~ '^[[:space:]]*$'",
+            name="ck_users_password_hash_not_blank",
+        ),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
     )
     op.create_index(
@@ -171,6 +185,18 @@ def upgrade() -> None:
         sa.Column("owner_teacher_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_courses"),
         sa.UniqueConstraint("code", name="uq_courses_code"),
+        sa.CheckConstraint(
+            "length(btrim(code)) > 0 AND code !~ '^[[:space:]]*$'",
+            name="ck_courses_code_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(name)) > 0 AND name !~ '^[[:space:]]*$'",
+            name="ck_courses_name_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(term)) > 0 AND term !~ '^[[:space:]]*$'",
+            name="ck_courses_term_not_blank",
+        ),
         sa.CheckConstraint("revision > 0", name="ck_courses_revision_positive"),
         sa.ForeignKeyConstraint(
             ["owner_teacher_id"],
@@ -259,6 +285,15 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_rubric_versions"),
         sa.UniqueConstraint(
             "rubric_id", "version_number", name="uq_rubric_versions_rubric_version"
+        ),
+        sa.CheckConstraint(
+            "length(btrim(name)) > 0 AND name !~ '^[[:space:]]*$'",
+            name="ck_rubric_versions_name_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(calculation_method)) > 0 "
+            "AND calculation_method !~ '^[[:space:]]*$'",
+            name="ck_rubric_versions_calculation_method_not_blank",
         ),
         sa.CheckConstraint(
             "version_number > 0", name="ck_rubric_versions_version_number_positive"
@@ -358,6 +393,24 @@ def upgrade() -> None:
             name="uq_criterion_versions_rubric_version_position",
         ),
         sa.CheckConstraint(
+            "length(btrim(code)) > 0 AND code !~ '^[[:space:]]*$'",
+            name="ck_criterion_versions_code_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(title)) > 0 AND title !~ '^[[:space:]]*$'",
+            name="ck_criterion_versions_title_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(description)) > 0 "
+            "AND description !~ '^[[:space:]]*$'",
+            name="ck_criterion_versions_description_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(evaluation_method)) > 0 "
+            "AND evaluation_method !~ '^[[:space:]]*$'",
+            name="ck_criterion_versions_evaluation_method_not_blank",
+        ),
+        sa.CheckConstraint(
             "weight >= 0.00 AND weight <= 100.00",
             name="ck_criterion_versions_weight_range",
         ),
@@ -417,6 +470,10 @@ def upgrade() -> None:
             name="uq_template_versions_template_version",
         ),
         sa.CheckConstraint(
+            "length(btrim(name)) > 0 AND name !~ '^[[:space:]]*$'",
+            name="ck_template_versions_name_not_blank",
+        ),
+        sa.CheckConstraint(
             "version_number > 0", name="ck_template_versions_version_number_positive"
         ),
         sa.CheckConstraint(
@@ -468,6 +525,9 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("due_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column(
+            "first_submission_at", sa.DateTime(timezone=True), nullable=True
+        ),
+        sa.Column(
             "max_submissions", sa.Integer(), server_default=sa.text("3"), nullable=False
         ),
         sa.Column("status", assignment_status, nullable=False),
@@ -486,6 +546,10 @@ def upgrade() -> None:
             name="ck_assignments_publication_state",
         ),
         sa.CheckConstraint("revision > 0", name="ck_assignments_revision_positive"),
+        sa.CheckConstraint(
+            "length(btrim(title)) > 0 AND title !~ '^[[:space:]]*$'",
+            name="ck_assignments_title_not_blank",
+        ),
         sa.ForeignKeyConstraint(
             ["course_id"],
             ["courses.id"],
@@ -552,6 +616,14 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "max_page_count IS NULL OR max_page_count > 0",
             name="ck_assignment_requirements_max_page_count_positive",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(kind)) > 0 AND kind !~ '^[[:space:]]*$'",
+            name="ck_assignment_requirements_kind_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(label)) > 0 AND label !~ '^[[:space:]]*$'",
+            name="ck_assignment_requirements_label_not_blank",
         ),
         sa.ForeignKeyConstraint(
             ["assignment_id"],
@@ -650,6 +722,21 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "sha256 ~ '^[0-9a-f]{64}$'", name="ck_document_versions_sha256_format"
+        ),
+        sa.CheckConstraint(
+            "length(btrim(storage_key)) > 0 "
+            "AND storage_key !~ '^[[:space:]]*$'",
+            name="ck_document_versions_storage_key_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(original_filename)) > 0 "
+            "AND original_filename !~ '^[[:space:]]*$'",
+            name="ck_document_versions_original_filename_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(content_type)) > 0 "
+            "AND content_type !~ '^[[:space:]]*$'",
+            name="ck_document_versions_content_type_not_blank",
         ),
         sa.ForeignKeyConstraint(
             ["submission_id"],
@@ -770,6 +857,15 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "reason !~ '^[[:space:]]*$'", name="ck_audit_events_reason_not_blank"
+        ),
+        sa.CheckConstraint(
+            "length(btrim(resource_type)) > 0 "
+            "AND resource_type !~ '^[[:space:]]*$'",
+            name="ck_audit_events_resource_type_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(action)) > 0 AND action !~ '^[[:space:]]*$'",
+            name="ck_audit_events_action_not_blank",
         ),
         sa.ForeignKeyConstraint(
             ["actor_user_id"],
@@ -922,6 +1018,11 @@ def upgrade() -> None:
                         ERRCODE = '23514',
                         MESSAGE = 'student must have active course membership';
                 END IF;
+                UPDATE assignments
+                SET first_submission_at = COALESCE(
+                    first_submission_at, CURRENT_TIMESTAMP
+                )
+                WHERE id = NEW.assignment_id;
                 RETURN NEW;
             END;
             $$;
@@ -947,6 +1048,27 @@ def upgrade() -> None:
             BEFORE INSERT ON assignments
             FOR EACH ROW EXECUTE FUNCTION fn_lock_assignment_rubric_insert();
             """))
+    op.execute(sa.text("""
+            CREATE FUNCTION fn_protect_assignment_submission_freeze()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF OLD.first_submission_at IS NOT NULL
+                   AND NEW.first_submission_at IS DISTINCT FROM OLD.first_submission_at THEN
+                    RAISE EXCEPTION USING
+                        ERRCODE = '23514',
+                        MESSAGE = 'assignment submission freeze is immutable';
+                END IF;
+                RETURN NEW;
+            END;
+            $$;
+            """))
+    op.execute(sa.text("""
+            CREATE TRIGGER trg_protect_assignment_submission_freeze
+            BEFORE UPDATE OF first_submission_at ON assignments
+            FOR EACH ROW EXECUTE FUNCTION fn_protect_assignment_submission_freeze();
+            """))
 
     op.execute(sa.text("""
             CREATE FUNCTION fn_immut_rubric_version()
@@ -966,13 +1088,13 @@ def upgrade() -> None:
                     PERFORM fn_domain_lock('assignment', assignment_row.id);
                     IF EXISTS (
                         SELECT 1
-                        FROM submissions AS s
-                        WHERE s.assignment_id = assignment_row.id
+                        FROM assignments AS a
+                        WHERE a.id = assignment_row.id
+                          AND a.first_submission_at IS NOT NULL
                     ) THEN
                         RAISE EXCEPTION USING
                             ERRCODE = '23514',
-                            MESSAGE = 'rubric version is immutable '
-                                || 'after first submission';
+                            MESSAGE = 'rubric version is immutable after first submission';
                     END IF;
                 END LOOP;
                 IF TG_OP = 'DELETE' THEN
@@ -987,6 +1109,36 @@ def upgrade() -> None:
             BEFORE UPDATE OR DELETE ON rubric_versions
             FOR EACH ROW EXECUTE FUNCTION fn_immut_rubric_version();
             """))
+    op.execute(sa.text("""
+            CREATE FUNCTION fn_assert_criterion_parent_mutable(parent_id uuid)
+            RETURNS void
+            LANGUAGE plpgsql
+            AS $$
+            DECLARE
+                assignment_row record;
+            BEGIN
+                PERFORM fn_domain_lock('rubric', parent_id);
+                FOR assignment_row IN
+                    SELECT a.id
+                    FROM assignments AS a
+                    WHERE a.rubric_version_id = parent_id
+                    ORDER BY a.id
+                LOOP
+                    PERFORM fn_domain_lock('assignment', assignment_row.id);
+                    IF EXISTS (
+                        SELECT 1
+                        FROM assignments AS a
+                        WHERE a.id = assignment_row.id
+                          AND a.first_submission_at IS NOT NULL
+                    ) THEN
+                        RAISE EXCEPTION USING
+                            ERRCODE = '23514',
+                            MESSAGE = 'criterion version is immutable after first submission';
+                    END IF;
+                END LOOP;
+            END;
+            $$;
+            """))
 
     op.execute(sa.text("""
             CREATE FUNCTION fn_immut_criterion_version()
@@ -994,27 +1146,25 @@ def upgrade() -> None:
             LANGUAGE plpgsql
             AS $$
             DECLARE
-                assignment_row record;
+                parent_row record;
             BEGIN
-                PERFORM fn_domain_lock('rubric', OLD.rubric_version_id);
-                FOR assignment_row IN
-                    SELECT a.id
-                    FROM assignments AS a
-                    WHERE a.rubric_version_id = OLD.rubric_version_id
-                    ORDER BY a.id
-                LOOP
-                    PERFORM fn_domain_lock('assignment', assignment_row.id);
-                    IF EXISTS (
-                        SELECT 1
-                        FROM submissions AS s
-                        WHERE s.assignment_id = assignment_row.id
-                    ) THEN
-                        RAISE EXCEPTION USING
-                            ERRCODE = '23514',
-                            MESSAGE = 'criterion version is immutable '
-                                || 'after first submission';
-                    END IF;
-                END LOOP;
+                IF TG_OP = 'INSERT' THEN
+                    PERFORM fn_assert_criterion_parent_mutable(NEW.rubric_version_id);
+                ELSIF TG_OP = 'DELETE' THEN
+                    PERFORM fn_assert_criterion_parent_mutable(OLD.rubric_version_id);
+                ELSE
+                    FOR parent_row IN
+                        SELECT parent_id
+                        FROM (
+                            SELECT OLD.rubric_version_id AS parent_id
+                            UNION
+                            SELECT NEW.rubric_version_id AS parent_id
+                        ) AS parent_ids
+                        ORDER BY parent_id
+                    LOOP
+                        PERFORM fn_assert_criterion_parent_mutable(parent_row.parent_id);
+                    END LOOP;
+                END IF;
                 IF TG_OP = 'DELETE' THEN
                     RETURN OLD;
                 END IF;
@@ -1024,7 +1174,7 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_immut_criterion_version
-            BEFORE UPDATE OR DELETE ON criterion_versions
+            BEFORE INSERT OR UPDATE OR DELETE ON criterion_versions
             FOR EACH ROW EXECUTE FUNCTION fn_immut_criterion_version();
             """))
 
@@ -1037,13 +1187,10 @@ def upgrade() -> None:
                 PERFORM fn_domain_lock('rubric', NEW.rubric_version_id);
                 PERFORM fn_domain_lock('assignment', OLD.id);
                 IF NEW.rubric_version_id IS DISTINCT FROM OLD.rubric_version_id
-                   AND EXISTS (
-                       SELECT 1 FROM submissions AS s WHERE s.assignment_id = OLD.id
-                   ) THEN
+                   AND OLD.first_submission_at IS NOT NULL THEN
                     RAISE EXCEPTION USING
                         ERRCODE = '23514',
-                        MESSAGE = 'assignment rubric is immutable '
-                            || 'after first submission';
+                        MESSAGE = 'assignment rubric is immutable after first submission';
                 END IF;
                 RETURN NEW;
             END;
@@ -1084,6 +1231,11 @@ def downgrade() -> None:
         )
     )
     op.execute(
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_protect_assignment_submission_freeze ON assignments"
+        )
+    )
+    op.execute(
         sa.text("DROP TRIGGER IF EXISTS trg_immut_assignment_rubric ON assignments")
     )
     op.execute(
@@ -1106,6 +1258,8 @@ def downgrade() -> None:
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_audit_events_append_only()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_assignment_rubric()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_lock_assignment_rubric_insert()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_protect_assignment_submission_freeze()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_assert_criterion_parent_mutable(uuid)"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_criterion_version()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_rubric_version()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_validate_submission_student()"))
