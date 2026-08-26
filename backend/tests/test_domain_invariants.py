@@ -556,6 +556,249 @@ def test_postgresql_domain_invariants() -> None:
     asyncio.run(_run_domain_invariants_test())
 
 
+async def _run_temp_user_shadow_course_owner_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    user_id = uuid.uuid4()
+    try:
+        async with engine.connect() as conn:
+            outer = await conn.begin()
+            try:
+                await conn.execute(
+                    text("""
+                        INSERT INTO public.users (
+                            id, email, display_name, password_hash,
+                            roles, status, revision
+                        )
+                        VALUES (
+                            :id, :email, 'Shadow Student', 'hash_shadow_student',
+                            ARRAY['STUDENT']::public.user_role[],
+                            'ACTIVE'::public.user_status, 1
+                        )
+                    """),
+                    {
+                        "id": user_id,
+                        "email": f"shadow_student_{uuid.uuid4().hex}@example.com",
+                    },
+                )
+                await conn.execute(
+                    text("""
+                        CREATE TEMP TABLE users (
+                            id uuid PRIMARY KEY,
+                            roles public.user_role[] NOT NULL
+                        ) ON COMMIT DROP
+                    """)
+                )
+                await conn.execute(
+                    text("""
+                        INSERT INTO pg_temp.users (id, roles)
+                        VALUES (:id, ARRAY['TEACHER']::public.user_role[])
+                    """),
+                    {"id": user_id},
+                )
+
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"course owner must have TEACHER role",
+                ) as error_info:
+                    async with conn.begin_nested():
+                        await conn.execute(
+                            text("""
+                                INSERT INTO public.courses (
+                                    id, code, name, term, owner_teacher_id, revision
+                                )
+                                VALUES (
+                                    :id, :code, 'Shadow Course', 'Fall 2026',
+                                    :owner_teacher_id, 1
+                                )
+                            """),
+                            {
+                                "id": uuid.uuid4(),
+                                "code": f"SHADOW_{uuid.uuid4().hex}",
+                                "owner_teacher_id": user_id,
+                            },
+                        )
+                assert getattr(error_info.value.orig, "sqlstate", None) == "23514"
+                assert str(error_info.value.orig) == (
+                    "course owner must have TEACHER role"
+                )
+            finally:
+                await outer.rollback()
+    finally:
+        await engine.dispose()
+
+
+def test_postgresql_course_owner_trigger_ignores_temp_user_shadow() -> None:
+    asyncio.run(_run_temp_user_shadow_course_owner_test())
+
+
+async def _run_temp_assignment_shadow_submission_marker_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    ids = _new_durable_freeze_ids()
+    graph_committed = False
+    try:
+        async with engine.connect() as setup_conn:
+            setup_trans = await setup_conn.begin()
+            try:
+                await _insert_durable_freeze_graph(setup_conn, ids)
+                await setup_trans.commit()
+                graph_committed = True
+            except Exception:
+                await setup_trans.rollback()
+                raise
+
+        # This must be a different connection from graph setup: the trigger
+        # function's first plans must resolve after this temp table exists.
+        async with engine.connect() as conn:
+            outer = await conn.begin()
+            try:
+                await conn.execute(
+                    text("""
+                        CREATE TEMP TABLE assignments (
+                            id uuid PRIMARY KEY,
+                            course_id uuid NOT NULL,
+                            first_submission_at timestamptz
+                        ) ON COMMIT DROP
+                    """)
+                )
+                await conn.execute(
+                    text("""
+                        INSERT INTO pg_temp.assignments (
+                            id, course_id, first_submission_at
+                        )
+                        VALUES (:id, :course_id, NULL)
+                    """),
+                    {
+                        "id": ids["assignment_1_id"],
+                        "course_id": ids["course_id"],
+                    },
+                )
+                await conn.execute(
+                    text("""
+                        INSERT INTO public.submissions (
+                            id, assignment_id, student_id
+                        )
+                        VALUES (:id, :assignment_id, :student_id)
+                    """),
+                    {
+                        "id": ids["submission_id"],
+                        "assignment_id": ids["assignment_1_id"],
+                        "student_id": ids["student_id"],
+                    },
+                )
+                public_marker = await conn.scalar(
+                    text("""
+                        SELECT first_submission_at
+                        FROM public.assignments
+                        WHERE id = :id
+                    """),
+                    {"id": ids["assignment_1_id"]},
+                )
+                assert public_marker is not None, (
+                    "submission trigger must update public assignment marker"
+                )
+                temp_marker = await conn.scalar(
+                    text("""
+                        SELECT first_submission_at
+                        FROM pg_temp.assignments
+                        WHERE id = :id
+                    """),
+                    {"id": ids["assignment_1_id"]},
+                )
+                assert temp_marker is None
+            finally:
+                await outer.rollback()
+    finally:
+        try:
+            if graph_committed:
+                await _cleanup_domain_rows(
+                    engine,
+                    submission_ids=(ids["submission_id"],),
+                    assignment_ids=(
+                        ids["assignment_1_id"],
+                        ids["assignment_2_id"],
+                    ),
+                    criterion_version_ids=(
+                        ids["criterion_version_1_id"],
+                        ids["criterion_version_2_id"],
+                    ),
+                    rubric_version_ids=(
+                        ids["rubric_version_1_id"],
+                        ids["rubric_version_2_id"],
+                    ),
+                    membership_ids=(ids["membership_id"],),
+                    course_ids=(ids["course_id"],),
+                    user_ids=(ids["teacher_id"], ids["student_id"]),
+                )
+        finally:
+            await engine.dispose()
+
+
+def test_postgresql_submission_trigger_ignores_temp_assignment_shadow() -> None:
+    asyncio.run(_run_temp_assignment_shadow_submission_marker_test())
+
+
+async def _run_audit_events_truncate_guard_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    audit_event_id = uuid.uuid4()
+    try:
+        async with engine.connect() as conn:
+            outer = await conn.begin()
+            try:
+                await conn.execute(
+                    text("""
+                        INSERT INTO public.audit_events (
+                            id, resource_type, resource_id, action, actor_type,
+                            actor_user_id, before, after, reason
+                        )
+                        VALUES (
+                            :id, 'ASSIGNMENT', :resource_id, 'PUBLISH',
+                            'SYSTEM'::public.audit_actor_type, NULL,
+                            '{"status": "DRAFT"}'::jsonb,
+                            '{"status": "OPEN"}'::jsonb,
+                            'Audit truncate guard'
+                        )
+                    """),
+                    {
+                        "id": audit_event_id,
+                        "resource_id": uuid.uuid4(),
+                    },
+                )
+
+                for cascade in ("", " CASCADE"):
+                    with pytest.raises(
+                        DBAPIError,
+                        match=r"audit events are append-only",
+                    ) as error_info:
+                        async with conn.begin_nested():
+                            await conn.execute(
+                                text(f"TRUNCATE public.audit_events{cascade}")
+                            )
+                    assert getattr(error_info.value.orig, "sqlstate", None) == "23514"
+                    assert str(error_info.value.orig) == (
+                        "audit events are append-only"
+                    )
+                    remaining = await conn.scalar(
+                        text("""
+                            SELECT count(*)
+                            FROM public.audit_events
+                            WHERE id = :id
+                        """),
+                        {"id": audit_event_id},
+                    )
+                    assert remaining == 1
+            finally:
+                await outer.rollback()
+    finally:
+        await engine.dispose()
+
+
+def test_postgresql_audit_events_reject_truncate_and_cascade() -> None:
+    asyncio.run(_run_audit_events_truncate_guard_test())
+
+
 def _constraint_name(error: DBAPIError, expected: str) -> str | None:
     original = error.orig
     diagnostic = getattr(original, "diag", None)
