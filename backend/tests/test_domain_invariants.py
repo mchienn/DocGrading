@@ -582,14 +582,12 @@ async def _run_temp_user_shadow_course_owner_test() -> None:
                         "email": f"shadow_student_{uuid.uuid4().hex}@example.com",
                     },
                 )
-                await conn.execute(
-                    text("""
+                await conn.execute(text("""
                         CREATE TEMP TABLE users (
                             id uuid PRIMARY KEY,
                             roles public.user_role[] NOT NULL
                         ) ON COMMIT DROP
-                    """)
-                )
+                    """))
                 await conn.execute(
                     text("""
                         INSERT INTO pg_temp.users (id, roles)
@@ -654,15 +652,13 @@ async def _run_temp_assignment_shadow_submission_marker_test() -> None:
         async with engine.connect() as conn:
             outer = await conn.begin()
             try:
-                await conn.execute(
-                    text("""
+                await conn.execute(text("""
                         CREATE TEMP TABLE assignments (
                             id uuid PRIMARY KEY,
                             course_id uuid NOT NULL,
                             first_submission_at timestamptz
                         ) ON COMMIT DROP
-                    """)
-                )
+                    """))
                 await conn.execute(
                     text("""
                         INSERT INTO pg_temp.assignments (
@@ -696,9 +692,9 @@ async def _run_temp_assignment_shadow_submission_marker_test() -> None:
                     """),
                     {"id": ids["assignment_1_id"]},
                 )
-                assert public_marker is not None, (
-                    "submission trigger must update public assignment marker"
-                )
+                assert (
+                    public_marker is not None
+                ), "submission trigger must update public assignment marker"
                 temp_marker = await conn.scalar(
                     text("""
                         SELECT first_submission_at
@@ -778,9 +774,7 @@ async def _run_audit_events_truncate_guard_test() -> None:
                                 text(f"TRUNCATE public.audit_events{cascade}")
                             )
                     assert getattr(error_info.value.orig, "sqlstate", None) == "23514"
-                    assert "audit events are append-only" in str(
-                        error_info.value.orig
-                    )
+                    assert "audit events are append-only" in str(error_info.value.orig)
                     remaining = await conn.scalar(
                         text("""
                             SELECT count(*)

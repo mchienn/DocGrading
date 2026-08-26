@@ -144,7 +144,8 @@ def upgrade() -> None:
         sa.Column("status", user_status, nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_users"),
         sa.CheckConstraint(
-            "cardinality(roles) > 0 AND array_position(roles, NULL::public.user_role) IS NULL",
+            "cardinality(roles) > 0 "
+            "AND array_position(roles, NULL::public.user_role) IS NULL",
             name="ck_users_roles_not_empty",
         ),
         sa.CheckConstraint(
@@ -890,11 +891,15 @@ def upgrade() -> None:
         schema="public",
     )
     op.create_index(
-        "ix_audit_events_resource", "audit_events", ["resource_type", "resource_id"],
+        "ix_audit_events_resource",
+        "audit_events",
+        ["resource_type", "resource_id"],
         schema="public",
     )
     op.create_index(
-        "ix_audit_events_occurred_at", "audit_events", ["occurred_at"],
+        "ix_audit_events_occurred_at",
+        "audit_events",
+        ["occurred_at"],
         schema="public",
     )
     # Canonical per-statement lock order: rubric/user keys precede assignment;
@@ -984,7 +989,9 @@ def upgrade() -> None:
                 PERFORM public.fn_domain_lock('user', NEW.id);
                 IF (
                     EXISTS (
-                        SELECT 1 FROM public.courses AS c WHERE c.owner_teacher_id = OLD.id
+                        SELECT 1
+                        FROM public.courses AS c
+                        WHERE c.owner_teacher_id = OLD.id
                     )
                     AND NOT EXISTS (
                         SELECT 1
@@ -1121,7 +1128,8 @@ def upgrade() -> None:
     op.execute(sa.text("""
             CREATE TRIGGER trg_protect_assignment_submission_freeze
             BEFORE UPDATE OF first_submission_at ON public.assignments
-            FOR EACH ROW EXECUTE FUNCTION public.fn_protect_assignment_submission_freeze();
+            FOR EACH ROW
+            EXECUTE FUNCTION public.fn_protect_assignment_submission_freeze();
             """))
 
     op.execute(sa.text("""
@@ -1208,9 +1216,13 @@ def upgrade() -> None:
                 parent_row record;
             BEGIN
                 IF TG_OP = 'INSERT' THEN
-                    PERFORM public.fn_assert_criterion_parent_mutable(NEW.rubric_version_id);
+                    PERFORM public.fn_assert_criterion_parent_mutable(
+                        NEW.rubric_version_id
+                    );
                 ELSIF TG_OP = 'DELETE' THEN
-                    PERFORM public.fn_assert_criterion_parent_mutable(OLD.rubric_version_id);
+                    PERFORM public.fn_assert_criterion_parent_mutable(
+                        OLD.rubric_version_id
+                    );
                 ELSE
                     FOR parent_row IN
                         SELECT parent_id
@@ -1298,16 +1310,20 @@ def downgrade() -> None:
         )
     )
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_audit_events_append_only ON public.audit_events")
-    )
-    op.execute(
         sa.text(
-            "DROP TRIGGER IF EXISTS trg_lock_assignment_rubric_insert ON public.assignments"
+            "DROP TRIGGER IF EXISTS trg_audit_events_append_only ON public.audit_events"
         )
     )
     op.execute(
         sa.text(
-            "DROP TRIGGER IF EXISTS trg_reject_assignment_marker_insert ON public.assignments"
+            "DROP TRIGGER IF EXISTS trg_lock_assignment_rubric_insert "
+            "ON public.assignments"
+        )
+    )
+    op.execute(
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_reject_assignment_marker_insert "
+            "ON public.assignments"
         )
     )
     op.execute(
@@ -1317,46 +1333,78 @@ def downgrade() -> None:
         )
     )
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_immut_assignment_rubric ON public.assignments")
-    )
-    op.execute(
         sa.text(
-            "DROP TRIGGER IF EXISTS trg_immut_criterion_version ON public.criterion_versions"
+            "DROP TRIGGER IF EXISTS trg_immut_assignment_rubric ON public.assignments"
         )
     )
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_immut_rubric_version ON public.rubric_versions")
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_immut_criterion_version "
+            "ON public.criterion_versions"
+        )
     )
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_validate_submission_student ON public.submissions")
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_immut_rubric_version ON public.rubric_versions"
+        )
     )
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_prevent_role_removal ON public.users"))
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_validate_membership_role ON public.memberships")
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_validate_submission_student "
+            "ON public.submissions"
+        )
     )
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_validate_course_owner ON public.courses"))
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_prevent_role_removal ON public.users")
+    )
+    op.execute(
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_validate_membership_role ON public.memberships"
+        )
+    )
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_validate_course_owner ON public.courses")
+    )
 
     op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_audit_events_append_only()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_immut_assignment_rubric()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_lock_assignment_rubric_insert()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_reject_assignment_marker_insert()"))
     op.execute(
-        sa.text("DROP FUNCTION IF EXISTS public.fn_protect_assignment_submission_freeze()")
+        sa.text("DROP FUNCTION IF EXISTS public.fn_lock_assignment_rubric_insert()")
     )
     op.execute(
-        sa.text("DROP FUNCTION IF EXISTS public.fn_assert_criterion_parent_mutable(uuid)")
+        sa.text("DROP FUNCTION IF EXISTS public.fn_reject_assignment_marker_insert()")
+    )
+    op.execute(
+        sa.text(
+            "DROP FUNCTION IF EXISTS public.fn_protect_assignment_submission_freeze()"
+        )
+    )
+    op.execute(
+        sa.text(
+            "DROP FUNCTION IF EXISTS public.fn_assert_criterion_parent_mutable(uuid)"
+        )
     )
     op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_immut_criterion_version()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_immut_rubric_version()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_validate_submission_student()"))
+    op.execute(
+        sa.text("DROP FUNCTION IF EXISTS public.fn_validate_submission_student()")
+    )
     op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_prevent_role_removal()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_validate_membership_role()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_validate_course_owner()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_domain_lock(text, uuid)"))
 
-    op.drop_index("ix_audit_events_occurred_at", table_name="audit_events", schema="public")
-    op.drop_index("ix_audit_events_resource", table_name="audit_events", schema="public")
-    op.drop_index("uq_analysis_jobs_active_document_rubric", table_name="analysis_jobs", schema="public")
+    op.drop_index(
+        "ix_audit_events_occurred_at", table_name="audit_events", schema="public"
+    )
+    op.drop_index(
+        "ix_audit_events_resource", table_name="audit_events", schema="public"
+    )
+    op.drop_index(
+        "uq_analysis_jobs_active_document_rubric",
+        table_name="analysis_jobs",
+        schema="public",
+    )
     op.drop_index("uq_users_email_lower", table_name="users", schema="public")
 
     op.drop_table("audit_events", schema="public")
