@@ -115,7 +115,7 @@ Unique `(course_id, user_id, role)`. Trigger xác nhận role membership tồn t
 
 `max_submissions` nằm trong 1..5. `DRAFT` có `published_at IS NULL`; mọi trạng thái còn lại có `published_at IS NOT NULL`. Publish theo ngôn ngữ PM tracker là lần chuyển đầu từ `DRAFT` sang `OPEN`. T-007/T-008 phải giới hạn Student theo `Membership(role=STUDENT, status=ACTIVE)` và `published_at IS NOT NULL`; T-006 chỉ cung cấp cấu trúc dữ liệu, không tạo query hoặc endpoint.
 
-`first_submission_at` ban đầu là `NULL`, được database đặt đúng một lần khi Assignment nhận Submission đầu tiên và không thể xóa hoặc thay đổi. Marker này lưu sự kiện lịch sử nên vẫn tồn tại khi Submission bị xóa hoặc chuyển sang Assignment khác.
+`first_submission_at` ban đầu là `NULL`, chỉ được database đặt đúng một lần trong nested Submission trigger khi Assignment nhận Submission đầu tiên và không thể xóa hoặc thay đổi. Direct INSERT/UPDATE cung cấp marker bị từ chối để không giả mạo provenance. Marker này lưu sự kiện lịch sử nên vẫn tồn tại khi Submission bị xóa hoặc chuyển sang Assignment khác.
 
 `assignment_requirements` lưu:
 
@@ -216,7 +216,7 @@ CHECK yêu cầu:
 PostgreSQL function/trigger là authority vì invariant công bằng không được phép bị bypass bởi bulk ORM update, SQL trực tiếp, worker hoặc migration dữ liệu ứng dụng.
 
 1. Trigger trên `submissions` đặt `assignments.first_submission_at` bằng thời điểm database khi nhận Submission đầu tiên. Reassignment đặt marker cho Assignment mới; marker của Assignment cũ không bị xóa.
-2. Trigger trên `assignments` chặn thay đổi hoặc xóa `first_submission_at` sau khi marker đã có giá trị.
+2. Trigger trên `assignments` từ chối marker khác `NULL` khi direct INSERT, từ chối direct UPDATE từ `NULL` và chặn thay đổi hoặc xóa `first_submission_at` sau khi marker đã có giá trị. Chỉ nested Submission trigger được phép đặt marker.
 3. Trigger trên `rubric_versions` chặn `UPDATE` và `DELETE` khi tồn tại Assignment tham chiếu row có `first_submission_at IS NOT NULL`.
 4. Trigger trên `criterion_versions` chặn `INSERT`, `UPDATE` và `DELETE` nếu parent cũ hoặc parent mới là RubricVersion đã đóng băng. Reparent không được dùng để đưa criterion vào hoặc ra khỏi rubric đã dùng.
 5. Trigger trên `assignments` chặn thay `rubric_version_id` khi `first_submission_at IS NOT NULL`.

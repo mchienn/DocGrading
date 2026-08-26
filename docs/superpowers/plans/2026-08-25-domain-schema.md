@@ -373,7 +373,7 @@ Attach BEFORE INSERT/UPDATE triggers to the relevant tables and a BEFORE UPDATE 
 
 Create functions/triggers with these exact durable rules:
 
-- Assignment `first_submission_at` starts `NULL`, is set once on first Submission/reassignment and cannot later change or clear;
+- Assignment `first_submission_at` starts `NULL`, rejects a caller-supplied marker on direct INSERT/UPDATE, is set once only by the nested Submission trigger, and cannot later change or clear;
 - RubricVersion `UPDATE`/`DELETE` is rejected when any referencing Assignment has a non-null freeze marker;
 - CriterionVersion `INSERT`/`UPDATE`/`DELETE` checks both old and new parent RubricVersion IDs in deterministic order and rejects if either is frozen;
 - Assignment `rubric_version_id` change is rejected when its freeze marker is non-null;
