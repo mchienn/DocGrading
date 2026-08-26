@@ -57,6 +57,7 @@ def test_public_ids_use_postgresql_uuid_and_are_sole_primary_key() -> None:
         table = Base.metadata.tables[table_name]
         assert isinstance(table.c.id.type, UUID)
         assert [col.name for col in table.primary_key.columns] == ["id"]
+        assert table.primary_key.name == f"pk_{table_name}"
 
 
 def test_user_roles_and_json_snapshots_use_postgresql_types() -> None:
