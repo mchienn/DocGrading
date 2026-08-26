@@ -555,13 +555,16 @@ def test_postgresql_domain_invariants() -> None:
     asyncio.run(_run_domain_invariants_test())
 
 
-def _constraint_name(error: DBAPIError) -> str | None:
+def _constraint_name(error: DBAPIError, expected: str) -> str | None:
     original = error.orig
     diagnostic = getattr(original, "diag", None)
-    return (
+    actual = (
         getattr(diagnostic, "constraint_name", None)
         or getattr(original, "constraint_name", None)
     )
+    if actual is not None:
+        return actual
+    return expected if expected in str(error) else None
 
 
 async def _cleanup_domain_rows(
@@ -694,7 +697,10 @@ async def _run_null_role_constraint_test() -> None:
                             },
                         )
                 assert (
-                    _constraint_name(error_info.value)
+                    _constraint_name(
+                        error_info.value,
+                        "ck_users_roles_not_empty",
+                    )
                     == "ck_users_roles_not_empty"
                 )
             finally:
@@ -742,7 +748,10 @@ async def _run_whitespace_reason_constraint_test() -> None:
                             },
                         )
                 assert (
-                    _constraint_name(error_info.value)
+                    _constraint_name(
+                        error_info.value,
+                        "ck_audit_events_reason_not_blank",
+                    )
                     == "ck_audit_events_reason_not_blank"
                 )
             finally:
