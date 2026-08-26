@@ -843,6 +843,19 @@ async def _insert_durable_submission(conn, ids) -> None:
 
 
 async def _run_first_submission_marker_case(conn, ids) -> None:
+    initial_markers = await conn.execute(
+        text("""
+            SELECT first_submission_at
+            FROM assignments
+            WHERE id IN (:assignment_1_id, :assignment_2_id)
+        """),
+        {
+            "assignment_1_id": ids["assignment_1_id"],
+            "assignment_2_id": ids["assignment_2_id"],
+        },
+    )
+    assert all(row[0] is None for row in initial_markers)
+
     await _insert_durable_submission(conn, ids)
     marker_1 = await conn.scalar(
         text("SELECT first_submission_at FROM assignments WHERE id = :id"),
