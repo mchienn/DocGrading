@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
@@ -558,7 +559,7 @@ def test_postgresql_domain_invariants() -> None:
 
 async def _run_temp_user_shadow_course_owner_test() -> None:
     settings = get_settings()
-    engine = create_async_engine(settings.database_url)
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
     user_id = uuid.uuid4()
     try:
         async with engine.connect() as conn:
@@ -634,7 +635,7 @@ def test_postgresql_course_owner_trigger_ignores_temp_user_shadow() -> None:
 
 async def _run_temp_assignment_shadow_submission_marker_test() -> None:
     settings = get_settings()
-    engine = create_async_engine(settings.database_url)
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
     ids = _new_durable_freeze_ids()
     graph_committed = False
     try:
@@ -647,9 +648,9 @@ async def _run_temp_assignment_shadow_submission_marker_test() -> None:
             except Exception:
                 await setup_trans.rollback()
                 raise
-
-        # This must be a different connection from graph setup: the trigger
-        # function's first plans must resolve after this temp table exists.
+        # NullPool guarantees that setup and shadow-test connections are
+        # distinct physical PostgreSQL sessions. The trigger function's first
+        # plans must resolve after this temp table exists.
         async with engine.connect() as conn:
             outer = await conn.begin()
             try:
