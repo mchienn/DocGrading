@@ -18,24 +18,28 @@ user_role = postgresql.ENUM(
     "TEACHER",
     "STUDENT",
     name="user_role",
+    schema="public",
     create_type=False,
 )
 user_status = postgresql.ENUM(
     "ACTIVE",
     "LOCKED",
     name="user_status",
+    schema="public",
     create_type=False,
 )
 membership_role = postgresql.ENUM(
     "TEACHER",
     "STUDENT",
     name="membership_role",
+    schema="public",
     create_type=False,
 )
 membership_status = postgresql.ENUM(
     "ACTIVE",
     "INACTIVE",
     name="membership_status",
+    schema="public",
     create_type=False,
 )
 assignment_status = postgresql.ENUM(
@@ -44,6 +48,7 @@ assignment_status = postgresql.ENUM(
     "CLOSED",
     "ARCHIVED",
     name="assignment_status",
+    schema="public",
     create_type=False,
 )
 rubric_status = postgresql.ENUM(
@@ -51,6 +56,7 @@ rubric_status = postgresql.ENUM(
     "PUBLISHED",
     "ARCHIVED",
     name="rubric_status",
+    schema="public",
     create_type=False,
 )
 document_status = postgresql.ENUM(
@@ -64,6 +70,7 @@ document_status = postgresql.ENUM(
     "PUBLISHED",
     "PROCESSING_FAILED",
     name="document_status",
+    schema="public",
     create_type=False,
 )
 analysis_job_status = postgresql.ENUM(
@@ -73,12 +80,14 @@ analysis_job_status = postgresql.ENUM(
     "FAILED",
     "CANCELLED",
     name="analysis_job_status",
+    schema="public",
     create_type=False,
 )
 audit_actor_type = postgresql.ENUM(
     "USER",
     "SYSTEM",
     name="audit_actor_type",
+    schema="public",
     create_type=False,
 )
 
@@ -135,7 +144,7 @@ def upgrade() -> None:
         sa.Column("status", user_status, nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_users"),
         sa.CheckConstraint(
-            "cardinality(roles) > 0 AND array_position(roles, NULL::user_role) IS NULL",
+            "cardinality(roles) > 0 AND array_position(roles, NULL::public.user_role) IS NULL",
             name="ck_users_roles_not_empty",
         ),
         sa.CheckConstraint(
@@ -151,12 +160,14 @@ def upgrade() -> None:
             name="ck_users_password_hash_not_blank",
         ),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
+        schema="public",
     )
     op.create_index(
         "uq_users_email_lower",
         "users",
         [sa.text("lower(email)")],
         unique=True,
+        schema="public",
     )
 
     op.create_table(
@@ -198,10 +209,11 @@ def upgrade() -> None:
         sa.CheckConstraint("revision > 0", name="ck_courses_revision_positive"),
         sa.ForeignKeyConstraint(
             ["owner_teacher_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_courses_owner_teacher_id_users",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -229,16 +241,17 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["course_id"],
-            ["courses.id"],
+            ["public.courses.id"],
             name="fk_memberships_course_id_courses",
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["user_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_memberships_user_id_users",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -308,22 +321,23 @@ def upgrade() -> None:
         sa.CheckConstraint("revision > 0", name="ck_rubric_versions_revision_positive"),
         sa.ForeignKeyConstraint(
             ["owner_user_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_rubric_versions_owner_user_id_users",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["created_by_user_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_rubric_versions_created_by_user_id_users",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["source_version_id"],
-            ["rubric_versions.id"],
+            ["public.rubric_versions.id"],
             name="fk_rubric_versions_source_version_id_rubric_versions",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -431,10 +445,11 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["rubric_version_id"],
-            ["rubric_versions.id"],
+            ["public.rubric_versions.id"],
             name="fk_criterion_versions_rubric_version_id_rubric_versions",
             ondelete="CASCADE",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -483,16 +498,17 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["owner_user_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_template_versions_owner_user_id_users",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["created_by_user_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_template_versions_created_by_user_id_users",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -547,22 +563,23 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["course_id"],
-            ["courses.id"],
+            ["public.courses.id"],
             name="fk_assignments_course_id_courses",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["created_by_teacher_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_assignments_created_by_teacher_id_users",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["rubric_version_id"],
-            ["rubric_versions.id"],
+            ["public.rubric_versions.id"],
             name="fk_assignments_rubric_version_id_rubric_versions",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -622,16 +639,17 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["assignment_id"],
-            ["assignments.id"],
+            ["public.assignments.id"],
             name="fk_assignment_requirements_assignment_id_assignments",
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["template_version_id"],
-            ["template_versions.id"],
+            ["public.template_versions.id"],
             name="fk_assignment_requirements_template_version_template_versions",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -657,16 +675,17 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["assignment_id"],
-            ["assignments.id"],
+            ["public.assignments.id"],
             name="fk_submissions_assignment_id_assignments",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["student_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_submissions_student_id_users",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -733,16 +752,17 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["submission_id"],
-            ["submissions.id"],
+            ["public.submissions.id"],
             name="fk_document_versions_submission_id_submissions",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["previous_version_id"],
-            ["document_versions.id"],
+            ["public.document_versions.id"],
             name="fk_document_versions_previous_version_id_document_versions",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
 
     op.create_table(
@@ -795,16 +815,17 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["document_version_id"],
-            ["document_versions.id"],
+            ["public.document_versions.id"],
             name="fk_analysis_jobs_document_version_id_document_versions",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["rubric_version_id"],
-            ["rubric_versions.id"],
+            ["public.rubric_versions.id"],
             name="fk_analysis_jobs_rubric_version_id_rubric_versions",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
     op.create_index(
         "uq_analysis_jobs_active_document_rubric",
@@ -812,6 +833,7 @@ def upgrade() -> None:
         ["document_version_id", "rubric_version_id"],
         unique=True,
         postgresql_where=sa.text("status IN ('QUEUED', 'RUNNING')"),
+        schema="public",
     )
 
     op.create_table(
@@ -861,22 +883,28 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["actor_user_id"],
-            ["users.id"],
+            ["public.users.id"],
             name="fk_audit_events_actor_user_id_users",
             ondelete="RESTRICT",
         ),
+        schema="public",
     )
     op.create_index(
-        "ix_audit_events_resource", "audit_events", ["resource_type", "resource_id"]
+        "ix_audit_events_resource", "audit_events", ["resource_type", "resource_id"],
+        schema="public",
     )
-    op.create_index("ix_audit_events_occurred_at", "audit_events", ["occurred_at"])
+    op.create_index(
+        "ix_audit_events_occurred_at", "audit_events", ["occurred_at"],
+        schema="public",
+    )
     # Canonical per-statement lock order: rubric/user keys precede assignment;
     # when both are needed, user precedes assignment. Future multi-statement
     # services must pre-acquire locks in this order.
     op.execute(sa.text("""
-            CREATE FUNCTION fn_domain_lock(lock_scope text, entity_id uuid)
+            CREATE FUNCTION public.fn_domain_lock(lock_scope text, entity_id uuid)
             RETURNS void
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
                 PERFORM pg_advisory_xact_lock(
@@ -887,17 +915,18 @@ def upgrade() -> None:
             """))
 
     op.execute(sa.text("""
-            CREATE FUNCTION fn_validate_course_owner()
+            CREATE FUNCTION public.fn_validate_course_owner()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
-                PERFORM fn_domain_lock('user', NEW.owner_teacher_id);
+                PERFORM public.fn_domain_lock('user', NEW.owner_teacher_id);
                 IF NOT EXISTS (
                     SELECT 1
-                    FROM users AS u
+                    FROM public.users AS u
                     WHERE u.id = NEW.owner_teacher_id
-                      AND 'TEACHER'::user_role = ANY (u.roles)
+                      AND 'TEACHER'::public.user_role = ANY (u.roles)
                 ) THEN
                     RAISE EXCEPTION USING
                         ERRCODE = '23514',
@@ -909,20 +938,21 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_validate_course_owner
-            BEFORE INSERT OR UPDATE OF owner_teacher_id ON courses
-            FOR EACH ROW EXECUTE FUNCTION fn_validate_course_owner();
+            BEFORE INSERT OR UPDATE OF owner_teacher_id ON public.courses
+            FOR EACH ROW EXECUTE FUNCTION public.fn_validate_course_owner();
             """))
 
     op.execute(sa.text("""
-            CREATE FUNCTION fn_validate_membership_role()
+            CREATE FUNCTION public.fn_validate_membership_role()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
-                PERFORM fn_domain_lock('user', NEW.user_id);
+                PERFORM public.fn_domain_lock('user', NEW.user_id);
                 IF NOT EXISTS (
                     SELECT 1
-                    FROM users AS u
+                    FROM public.users AS u
                     WHERE u.id = NEW.user_id
                       AND EXISTS (
                           SELECT 1
@@ -940,20 +970,21 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_validate_membership_role
-            BEFORE INSERT OR UPDATE OF user_id, role ON memberships
-            FOR EACH ROW EXECUTE FUNCTION fn_validate_membership_role();
+            BEFORE INSERT OR UPDATE OF user_id, role ON public.memberships
+            FOR EACH ROW EXECUTE FUNCTION public.fn_validate_membership_role();
             """))
 
     op.execute(sa.text("""
-            CREATE FUNCTION fn_prevent_role_removal()
+            CREATE FUNCTION public.fn_prevent_role_removal()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
-                PERFORM fn_domain_lock('user', NEW.id);
+                PERFORM public.fn_domain_lock('user', NEW.id);
                 IF (
                     EXISTS (
-                        SELECT 1 FROM courses AS c WHERE c.owner_teacher_id = OLD.id
+                        SELECT 1 FROM public.courses AS c WHERE c.owner_teacher_id = OLD.id
                     )
                     AND NOT EXISTS (
                         SELECT 1
@@ -962,7 +993,7 @@ def upgrade() -> None:
                     )
                 ) OR EXISTS (
                     SELECT 1
-                    FROM memberships AS m
+                    FROM public.memberships AS m
                     WHERE m.user_id = OLD.id
                       AND NOT EXISTS (
                           SELECT 1
@@ -980,37 +1011,38 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_prevent_role_removal
-            BEFORE UPDATE OF roles ON users
-            FOR EACH ROW EXECUTE FUNCTION fn_prevent_role_removal();
+            BEFORE UPDATE OF roles ON public.users
+            FOR EACH ROW EXECUTE FUNCTION public.fn_prevent_role_removal();
             """))
 
     op.execute(sa.text("""
-            CREATE FUNCTION fn_validate_submission_student()
+            CREATE FUNCTION public.fn_validate_submission_student()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
-                PERFORM fn_domain_lock('user', NEW.student_id);
-                PERFORM fn_domain_lock('assignment', NEW.assignment_id);
+                PERFORM public.fn_domain_lock('user', NEW.student_id);
+                PERFORM public.fn_domain_lock('assignment', NEW.assignment_id);
                 IF NOT EXISTS (
                     SELECT 1
-                    FROM users AS u
+                    FROM public.users AS u
                     WHERE u.id = NEW.student_id
-                      AND 'STUDENT'::user_role = ANY (u.roles)
+                      AND 'STUDENT'::public.user_role = ANY (u.roles)
                 ) OR NOT EXISTS (
                     SELECT 1
-                    FROM assignments AS a
-                    JOIN memberships AS m ON m.course_id = a.course_id
+                    FROM public.assignments AS a
+                    JOIN public.memberships AS m ON m.course_id = a.course_id
                     WHERE a.id = NEW.assignment_id
                       AND m.user_id = NEW.student_id
                       AND m.role::text = 'STUDENT'
-                      AND m.status = 'ACTIVE'::membership_status
+                      AND m.status = 'ACTIVE'::public.membership_status
                 ) THEN
                     RAISE EXCEPTION USING
                         ERRCODE = '23514',
                         MESSAGE = 'student must have active course membership';
                 END IF;
-                UPDATE assignments
+                UPDATE public.assignments
                 SET first_submission_at = COALESCE(
                     first_submission_at, CURRENT_TIMESTAMP
                 )
@@ -1021,29 +1053,31 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_validate_submission_student
-            BEFORE INSERT OR UPDATE OF assignment_id, student_id ON submissions
-            FOR EACH ROW EXECUTE FUNCTION fn_validate_submission_student();
+            BEFORE INSERT OR UPDATE OF assignment_id, student_id ON public.submissions
+            FOR EACH ROW EXECUTE FUNCTION public.fn_validate_submission_student();
             """))
     op.execute(sa.text("""
-            CREATE FUNCTION fn_lock_assignment_rubric_insert()
+            CREATE FUNCTION public.fn_lock_assignment_rubric_insert()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
-                PERFORM fn_domain_lock('rubric', NEW.rubric_version_id);
+                PERFORM public.fn_domain_lock('rubric', NEW.rubric_version_id);
                 RETURN NEW;
             END;
             $$;
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_lock_assignment_rubric_insert
-            BEFORE INSERT ON assignments
-            FOR EACH ROW EXECUTE FUNCTION fn_lock_assignment_rubric_insert();
+            BEFORE INSERT ON public.assignments
+            FOR EACH ROW EXECUTE FUNCTION public.fn_lock_assignment_rubric_insert();
             """))
     op.execute(sa.text("""
-            CREATE FUNCTION fn_reject_assignment_marker_insert()
+            CREATE FUNCTION public.fn_reject_assignment_marker_insert()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
                 IF NEW.first_submission_at IS NOT NULL THEN
@@ -1057,13 +1091,14 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_reject_assignment_marker_insert
-            BEFORE INSERT ON assignments
-            FOR EACH ROW EXECUTE FUNCTION fn_reject_assignment_marker_insert();
+            BEFORE INSERT ON public.assignments
+            FOR EACH ROW EXECUTE FUNCTION public.fn_reject_assignment_marker_insert();
             """))
     op.execute(sa.text("""
-            CREATE FUNCTION fn_protect_assignment_submission_freeze()
+            CREATE FUNCTION public.fn_protect_assignment_submission_freeze()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
                 IF OLD.first_submission_at IS NOT NULL
@@ -1085,29 +1120,30 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_protect_assignment_submission_freeze
-            BEFORE UPDATE OF first_submission_at ON assignments
-            FOR EACH ROW EXECUTE FUNCTION fn_protect_assignment_submission_freeze();
+            BEFORE UPDATE OF first_submission_at ON public.assignments
+            FOR EACH ROW EXECUTE FUNCTION public.fn_protect_assignment_submission_freeze();
             """))
 
     op.execute(sa.text("""
-            CREATE FUNCTION fn_immut_rubric_version()
+            CREATE FUNCTION public.fn_immut_rubric_version()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             DECLARE
                 assignment_row record;
             BEGIN
-                PERFORM fn_domain_lock('rubric', OLD.id);
+                PERFORM public.fn_domain_lock('rubric', OLD.id);
                 FOR assignment_row IN
                     SELECT a.id
-                    FROM assignments AS a
+                    FROM public.assignments AS a
                     WHERE a.rubric_version_id = OLD.id
                     ORDER BY a.id
                 LOOP
-                    PERFORM fn_domain_lock('assignment', assignment_row.id);
+                    PERFORM public.fn_domain_lock('assignment', assignment_row.id);
                     IF EXISTS (
                         SELECT 1
-                        FROM assignments AS a
+                        FROM public.assignments AS a
                         WHERE a.id = assignment_row.id
                           AND a.first_submission_at IS NOT NULL
                     ) THEN
@@ -1126,28 +1162,29 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_immut_rubric_version
-            BEFORE UPDATE OR DELETE ON rubric_versions
-            FOR EACH ROW EXECUTE FUNCTION fn_immut_rubric_version();
+            BEFORE UPDATE OR DELETE ON public.rubric_versions
+            FOR EACH ROW EXECUTE FUNCTION public.fn_immut_rubric_version();
             """))
     op.execute(sa.text("""
-            CREATE FUNCTION fn_assert_criterion_parent_mutable(parent_id uuid)
+            CREATE FUNCTION public.fn_assert_criterion_parent_mutable(parent_id uuid)
             RETURNS void
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             DECLARE
                 assignment_row record;
             BEGIN
-                PERFORM fn_domain_lock('rubric', parent_id);
+                PERFORM public.fn_domain_lock('rubric', parent_id);
                 FOR assignment_row IN
                     SELECT a.id
-                    FROM assignments AS a
+                    FROM public.assignments AS a
                     WHERE a.rubric_version_id = parent_id
                     ORDER BY a.id
                 LOOP
-                    PERFORM fn_domain_lock('assignment', assignment_row.id);
+                    PERFORM public.fn_domain_lock('assignment', assignment_row.id);
                     IF EXISTS (
                         SELECT 1
-                        FROM assignments AS a
+                        FROM public.assignments AS a
                         WHERE a.id = assignment_row.id
                           AND a.first_submission_at IS NOT NULL
                     ) THEN
@@ -1162,17 +1199,18 @@ def upgrade() -> None:
             """))
 
     op.execute(sa.text("""
-            CREATE FUNCTION fn_immut_criterion_version()
+            CREATE FUNCTION public.fn_immut_criterion_version()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             DECLARE
                 parent_row record;
             BEGIN
                 IF TG_OP = 'INSERT' THEN
-                    PERFORM fn_assert_criterion_parent_mutable(NEW.rubric_version_id);
+                    PERFORM public.fn_assert_criterion_parent_mutable(NEW.rubric_version_id);
                 ELSIF TG_OP = 'DELETE' THEN
-                    PERFORM fn_assert_criterion_parent_mutable(OLD.rubric_version_id);
+                    PERFORM public.fn_assert_criterion_parent_mutable(OLD.rubric_version_id);
                 ELSE
                     FOR parent_row IN
                         SELECT parent_id
@@ -1183,7 +1221,7 @@ def upgrade() -> None:
                         ) AS parent_ids
                         ORDER BY parent_id
                     LOOP
-                        PERFORM fn_assert_criterion_parent_mutable(
+                        PERFORM public.fn_assert_criterion_parent_mutable(
                             parent_row.parent_id
                         );
                     END LOOP;
@@ -1197,18 +1235,19 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_immut_criterion_version
-            BEFORE INSERT OR UPDATE OR DELETE ON criterion_versions
-            FOR EACH ROW EXECUTE FUNCTION fn_immut_criterion_version();
+            BEFORE INSERT OR UPDATE OR DELETE ON public.criterion_versions
+            FOR EACH ROW EXECUTE FUNCTION public.fn_immut_criterion_version();
             """))
 
     op.execute(sa.text("""
-            CREATE FUNCTION fn_immut_assignment_rubric()
+            CREATE FUNCTION public.fn_immut_assignment_rubric()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
-                PERFORM fn_domain_lock('rubric', NEW.rubric_version_id);
-                PERFORM fn_domain_lock('assignment', OLD.id);
+                PERFORM public.fn_domain_lock('rubric', NEW.rubric_version_id);
+                PERFORM public.fn_domain_lock('assignment', OLD.id);
                 IF NEW.rubric_version_id IS DISTINCT FROM OLD.rubric_version_id
                    AND OLD.first_submission_at IS NOT NULL THEN
                     RAISE EXCEPTION USING
@@ -1222,14 +1261,15 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_immut_assignment_rubric
-            BEFORE UPDATE OF rubric_version_id ON assignments
-            FOR EACH ROW EXECUTE FUNCTION fn_immut_assignment_rubric();
+            BEFORE UPDATE OF rubric_version_id ON public.assignments
+            FOR EACH ROW EXECUTE FUNCTION public.fn_immut_assignment_rubric();
             """))
 
     op.execute(sa.text("""
-            CREATE FUNCTION fn_audit_events_append_only()
+            CREATE FUNCTION public.fn_audit_events_append_only()
             RETURNS trigger
             LANGUAGE plpgsql
+            SET search_path = pg_catalog, public, pg_temp
             AS $$
             BEGIN
                 RAISE EXCEPTION USING
@@ -1240,85 +1280,96 @@ def upgrade() -> None:
             """))
     op.execute(sa.text("""
             CREATE TRIGGER trg_audit_events_append_only
-            BEFORE UPDATE OR DELETE ON audit_events
-            FOR EACH ROW EXECUTE FUNCTION fn_audit_events_append_only();
+            BEFORE UPDATE OR DELETE ON public.audit_events
+            FOR EACH ROW EXECUTE FUNCTION public.fn_audit_events_append_only();
+            """))
+    op.execute(sa.text("""
+            CREATE TRIGGER trg_audit_events_append_only_truncate
+            BEFORE TRUNCATE ON public.audit_events
+            FOR EACH STATEMENT EXECUTE FUNCTION public.fn_audit_events_append_only();
             """))
 
 
 def downgrade() -> None:
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_audit_events_append_only ON audit_events")
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_audit_events_append_only_truncate "
+            "ON public.audit_events"
+        )
+    )
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_audit_events_append_only ON public.audit_events")
     )
     op.execute(
         sa.text(
-            "DROP TRIGGER IF EXISTS trg_lock_assignment_rubric_insert ON assignments"
+            "DROP TRIGGER IF EXISTS trg_lock_assignment_rubric_insert ON public.assignments"
         )
     )
     op.execute(
         sa.text(
-            "DROP TRIGGER IF EXISTS trg_reject_assignment_marker_insert ON assignments"
+            "DROP TRIGGER IF EXISTS trg_reject_assignment_marker_insert ON public.assignments"
         )
     )
     op.execute(
         sa.text(
             "DROP TRIGGER IF EXISTS trg_protect_assignment_submission_freeze "
-            "ON assignments"
+            "ON public.assignments"
         )
     )
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_immut_assignment_rubric ON assignments")
+        sa.text("DROP TRIGGER IF EXISTS trg_immut_assignment_rubric ON public.assignments")
     )
     op.execute(
         sa.text(
-            "DROP TRIGGER IF EXISTS trg_immut_criterion_version ON criterion_versions"
+            "DROP TRIGGER IF EXISTS trg_immut_criterion_version ON public.criterion_versions"
         )
     )
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_immut_rubric_version ON rubric_versions")
+        sa.text("DROP TRIGGER IF EXISTS trg_immut_rubric_version ON public.rubric_versions")
     )
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_validate_submission_student ON submissions")
+        sa.text("DROP TRIGGER IF EXISTS trg_validate_submission_student ON public.submissions")
     )
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_prevent_role_removal ON users"))
+    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_prevent_role_removal ON public.users"))
     op.execute(
-        sa.text("DROP TRIGGER IF EXISTS trg_validate_membership_role ON memberships")
+        sa.text("DROP TRIGGER IF EXISTS trg_validate_membership_role ON public.memberships")
     )
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_validate_course_owner ON courses"))
+    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_validate_course_owner ON public.courses"))
 
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_audit_events_append_only()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_assignment_rubric()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_lock_assignment_rubric_insert()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_reject_assignment_marker_insert()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_audit_events_append_only()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_immut_assignment_rubric()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_lock_assignment_rubric_insert()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_reject_assignment_marker_insert()"))
     op.execute(
-        sa.text("DROP FUNCTION IF EXISTS fn_protect_assignment_submission_freeze()")
+        sa.text("DROP FUNCTION IF EXISTS public.fn_protect_assignment_submission_freeze()")
     )
     op.execute(
-        sa.text("DROP FUNCTION IF EXISTS fn_assert_criterion_parent_mutable(uuid)")
+        sa.text("DROP FUNCTION IF EXISTS public.fn_assert_criterion_parent_mutable(uuid)")
     )
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_criterion_version()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_rubric_version()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_validate_submission_student()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_prevent_role_removal()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_validate_membership_role()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_validate_course_owner()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_domain_lock(text, uuid)"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_immut_criterion_version()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_immut_rubric_version()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_validate_submission_student()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_prevent_role_removal()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_validate_membership_role()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_validate_course_owner()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS public.fn_domain_lock(text, uuid)"))
 
-    op.drop_index("ix_audit_events_occurred_at", table_name="audit_events")
-    op.drop_index("ix_audit_events_resource", table_name="audit_events")
-    op.drop_index("uq_analysis_jobs_active_document_rubric", table_name="analysis_jobs")
-    op.drop_index("uq_users_email_lower", table_name="users")
+    op.drop_index("ix_audit_events_occurred_at", table_name="audit_events", schema="public")
+    op.drop_index("ix_audit_events_resource", table_name="audit_events", schema="public")
+    op.drop_index("uq_analysis_jobs_active_document_rubric", table_name="analysis_jobs", schema="public")
+    op.drop_index("uq_users_email_lower", table_name="users", schema="public")
 
-    op.drop_table("audit_events")
-    op.drop_table("analysis_jobs")
-    op.drop_table("document_versions")
-    op.drop_table("submissions")
-    op.drop_table("assignment_requirements")
-    op.drop_table("assignments")
-    op.drop_table("template_versions")
-    op.drop_table("criterion_versions")
-    op.drop_table("rubric_versions")
-    op.drop_table("memberships")
-    op.drop_table("courses")
-    op.drop_table("users")
+    op.drop_table("audit_events", schema="public")
+    op.drop_table("analysis_jobs", schema="public")
+    op.drop_table("document_versions", schema="public")
+    op.drop_table("submissions", schema="public")
+    op.drop_table("assignment_requirements", schema="public")
+    op.drop_table("assignments", schema="public")
+    op.drop_table("template_versions", schema="public")
+    op.drop_table("criterion_versions", schema="public")
+    op.drop_table("rubric_versions", schema="public")
+    op.drop_table("memberships", schema="public")
+    op.drop_table("courses", schema="public")
+    op.drop_table("users", schema="public")
 
     _drop_enum_types()
