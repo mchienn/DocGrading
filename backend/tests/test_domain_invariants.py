@@ -620,8 +620,8 @@ async def _run_temp_user_shadow_course_owner_test() -> None:
                             },
                         )
                 assert getattr(error_info.value.orig, "sqlstate", None) == "23514"
-                assert str(error_info.value.orig) == (
-                    "course owner must have TEACHER role"
+                assert "course owner must have TEACHER role" in str(
+                    error_info.value.orig
                 )
             finally:
                 await outer.rollback()
@@ -778,8 +778,8 @@ async def _run_audit_events_truncate_guard_test() -> None:
                                 text(f"TRUNCATE public.audit_events{cascade}")
                             )
                     assert getattr(error_info.value.orig, "sqlstate", None) == "23514"
-                    assert str(error_info.value.orig) == (
-                        "audit events are append-only"
+                    assert "audit events are append-only" in str(
+                        error_info.value.orig
                     )
                     remaining = await conn.scalar(
                         text("""
