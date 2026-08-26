@@ -553,3 +553,533 @@ async def _run_domain_invariants_test() -> None:
 
 def test_postgresql_domain_invariants() -> None:
     asyncio.run(_run_domain_invariants_test())
+
+
+def _constraint_name(error: DBAPIError) -> str | None:
+    original = error.orig
+    diagnostic = getattr(original, "diag", None)
+    return (
+        getattr(diagnostic, "constraint_name", None)
+        or getattr(original, "constraint_name", None)
+    )
+
+
+async def _cleanup_domain_rows(
+    engine,
+    *,
+    submission_ids=(),
+    assignment_ids=(),
+    criterion_version_ids=(),
+    rubric_version_ids=(),
+    membership_ids=(),
+    course_ids=(),
+    audit_event_ids=(),
+    user_ids=(),
+) -> None:
+    async with engine.connect() as conn:
+        trans = await conn.begin()
+        try:
+            for row_id in submission_ids:
+                await conn.execute(
+                    text("DELETE FROM submissions WHERE id = :id"),
+                    {"id": row_id},
+                )
+            for row_id in assignment_ids:
+                await conn.execute(
+                    text("DELETE FROM assignments WHERE id = :id"),
+                    {"id": row_id},
+                )
+            for row_id in criterion_version_ids:
+                await conn.execute(
+                    text("DELETE FROM criterion_versions WHERE id = :id"),
+                    {"id": row_id},
+                )
+            for row_id in rubric_version_ids:
+                await conn.execute(
+                    text("DELETE FROM rubric_versions WHERE id = :id"),
+                    {"id": row_id},
+                )
+            for row_id in membership_ids:
+                await conn.execute(
+                    text("DELETE FROM memberships WHERE id = :id"),
+                    {"id": row_id},
+                )
+            for row_id in course_ids:
+                await conn.execute(
+                    text("DELETE FROM courses WHERE id = :id"),
+                    {"id": row_id},
+                )
+            for row_id in audit_event_ids:
+                await conn.execute(
+                    text("DELETE FROM audit_events WHERE id = :id"),
+                    {"id": row_id},
+                )
+            for row_id in user_ids:
+                await conn.execute(
+                    text("DELETE FROM users WHERE id = :id"),
+                    {"id": row_id},
+                )
+            await trans.commit()
+        except BaseException:
+            await trans.rollback()
+            raise
+
+
+async def _run_null_role_constraint_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    user_id = uuid.uuid4()
+
+    try:
+        async with engine.connect() as conn:
+            trans = await conn.begin()
+            try:
+                with pytest.raises(DBAPIError) as error_info:
+                    async with conn.begin_nested():
+                        await conn.execute(
+                            text("""
+                                INSERT INTO users (
+                                    id, email, display_name, password_hash,
+                                    roles, status, revision
+                                )
+                                VALUES (
+                                    :id, :email, 'Null Role User',
+                                    'hash_null_role',
+                                    ARRAY[NULL]::user_role[],
+                                    'ACTIVE'::user_status, 1
+                                )
+                            """),
+                            {
+                                "id": user_id,
+                                "email": f"null_role_{uuid.uuid4().hex}@example.com",
+                            },
+                        )
+                assert (
+                    _constraint_name(error_info.value)
+                    == "ck_users_roles_not_empty"
+                )
+            finally:
+                await trans.rollback()
+    finally:
+        await _cleanup_domain_rows(engine, user_ids=(user_id,))
+        await engine.dispose()
+
+
+def test_postgresql_rejects_null_role_array_member() -> None:
+    asyncio.run(_run_null_role_constraint_test())
+
+
+async def _run_whitespace_reason_constraint_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    audit_event_id = uuid.uuid4()
+
+    try:
+        async with engine.connect() as conn:
+            trans = await conn.begin()
+            try:
+                with pytest.raises(DBAPIError) as error_info:
+                    async with conn.begin_nested():
+                        await conn.execute(
+                            text("""
+                                INSERT INTO audit_events (
+                                    id, resource_type, resource_id, action,
+                                    actor_type, actor_user_id, before, after,
+                                    reason
+                                )
+                                VALUES (
+                                    :id, 'COURSE', :resource_id, 'UPDATE',
+                                    'SYSTEM'::audit_actor_type, NULL,
+                                    '{"name": "Old"}'::jsonb,
+                                    '{"name": "New"}'::jsonb, :reason
+                                )
+                            """),
+                            {
+                                "id": audit_event_id,
+                                "resource_id": uuid.uuid4(),
+                                "reason": "\t\n",
+                            },
+                        )
+                assert (
+                    _constraint_name(error_info.value)
+                    == "ck_audit_events_reason_not_blank"
+                )
+            finally:
+                await trans.rollback()
+    finally:
+        await _cleanup_domain_rows(engine, audit_event_ids=(audit_event_id,))
+        await engine.dispose()
+
+
+def test_postgresql_rejects_whitespace_only_audit_reason() -> None:
+    asyncio.run(_run_whitespace_reason_constraint_test())
+
+
+async def _run_role_removal_course_insert_race_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    teacher_id = uuid.uuid4()
+    course_id = uuid.uuid4()
+    conn_a = None
+    conn_b = None
+    trans_a = None
+    trans_b = None
+    insert_task = None
+
+    try:
+        async with engine.connect() as setup_conn:
+            setup_trans = await setup_conn.begin()
+            await setup_conn.execute(
+                text("""
+                    INSERT INTO users (
+                        id, email, display_name, password_hash,
+                        roles, status, revision
+                    )
+                    VALUES (
+                        :id, :email, 'Race Teacher', 'hash_race_teacher',
+                        ARRAY['TEACHER']::user_role[],
+                        'ACTIVE'::user_status, 1
+                    )
+                """),
+                {
+                    "id": teacher_id,
+                    "email": f"race_teacher_{uuid.uuid4().hex}@example.com",
+                },
+            )
+            await setup_trans.commit()
+
+        conn_a = await engine.connect()
+        trans_a = await conn_a.begin()
+        await conn_a.execute(
+            text("""
+                UPDATE users
+                SET roles = ARRAY['STUDENT']::user_role[]
+                WHERE id = :id
+            """),
+            {"id": teacher_id},
+        )
+
+        conn_b = await engine.connect()
+        trans_b = await conn_b.begin()
+        await conn_b.execute(text("SET LOCAL lock_timeout = '2000ms'"))
+
+        insert_task = asyncio.create_task(
+            conn_b.execute(
+                text("""
+                    INSERT INTO courses (
+                        id, code, name, term, owner_teacher_id, revision
+                    )
+                    VALUES (
+                        :id, :code, 'Concurrent Course', 'Fall 2026',
+                        :owner_teacher_id, 1
+                    )
+                """),
+                {
+                    "id": course_id,
+                    "code": f"RACE_{uuid.uuid4().hex}",
+                    "owner_teacher_id": teacher_id,
+                },
+            )
+        )
+
+        try:
+            await asyncio.wait_for(asyncio.shield(insert_task), timeout=0.25)
+        except asyncio.TimeoutError:
+            pass
+        except BaseException as error:
+            pytest.fail(f"course insert completed with an early error: {error}")
+        else:
+            pytest.fail(
+                "course insert must remain blocked while role removal is open"
+            )
+
+        await trans_a.commit()
+        trans_a = None
+
+        with pytest.raises(
+            DBAPIError,
+            match=r"course owner must have TEACHER role",
+        ):
+            await asyncio.wait_for(insert_task, timeout=2.0)
+        await trans_b.rollback()
+        trans_b = None
+
+        async with engine.connect() as verify_conn:
+            course_count = await verify_conn.scalar(
+                text("SELECT count(*) FROM courses WHERE id = :id"),
+                {"id": course_id},
+            )
+        assert course_count == 0
+    finally:
+        if insert_task is not None and not insert_task.done():
+            insert_task.cancel()
+            try:
+                await insert_task
+            except asyncio.CancelledError:
+                pass
+        if trans_a is not None:
+            await trans_a.rollback()
+        if trans_b is not None:
+            await trans_b.rollback()
+        if conn_a is not None:
+            await conn_a.close()
+        if conn_b is not None:
+            await conn_b.close()
+        await _cleanup_domain_rows(
+            engine,
+            course_ids=(course_id,),
+            user_ids=(teacher_id,),
+        )
+        await engine.dispose()
+
+
+def test_postgresql_serializes_role_removal_and_course_insert() -> None:
+    asyncio.run(_run_role_removal_course_insert_race_test())
+
+
+async def _insert_submission_graph(conn, ids) -> None:
+    now = datetime.now(UTC)
+    due_date = now + timedelta(days=7)
+    await conn.execute(
+        text("""
+            INSERT INTO users (
+                id, email, display_name, password_hash,
+                roles, status, revision
+            )
+            VALUES
+                (
+                    :teacher_id, :teacher_email, 'Graph Teacher',
+                    'hash_graph_teacher',
+                    ARRAY['TEACHER']::user_role[],
+                    'ACTIVE'::user_status, 1
+                ),
+                (
+                    :student_id, :student_email, 'Graph Student',
+                    'hash_graph_student',
+                    ARRAY['STUDENT']::user_role[],
+                    'ACTIVE'::user_status, 1
+                )
+        """),
+        {
+            "teacher_id": ids["teacher_id"],
+            "teacher_email": f"graph_teacher_{uuid.uuid4().hex}@example.com",
+            "student_id": ids["student_id"],
+            "student_email": f"graph_student_{uuid.uuid4().hex}@example.com",
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO courses (
+                id, code, name, term, owner_teacher_id, revision
+            )
+            VALUES (
+                :id, :code, 'Graph Course', 'Fall 2026',
+                :owner_teacher_id, 1
+            )
+        """),
+        {
+            "id": ids["course_id"],
+            "code": f"GRAPH_{uuid.uuid4().hex}",
+            "owner_teacher_id": ids["teacher_id"],
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO memberships (
+                id, course_id, user_id, role, status
+            )
+            VALUES (
+                :id, :course_id, :user_id,
+                'STUDENT'::membership_role,
+                'ACTIVE'::membership_status
+            )
+        """),
+        {
+            "id": ids["membership_id"],
+            "course_id": ids["course_id"],
+            "user_id": ids["student_id"],
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO rubric_versions (
+                id, rubric_id, version_number, name, description,
+                status, calculation_method, total_weight,
+                owner_user_id, created_by_user_id, published_at, revision
+            )
+            VALUES (
+                :id, :rubric_id, 1, 'Race Rubric', 'Initial race rubric',
+                'PUBLISHED'::rubric_status, 'WEIGHTED_SUM', 100.0,
+                :owner_user_id, :created_by_user_id, :published_at, 1
+            )
+        """),
+        {
+            "id": ids["rubric_version_id"],
+            "rubric_id": ids["rubric_id"],
+            "owner_user_id": ids["teacher_id"],
+            "created_by_user_id": ids["teacher_id"],
+            "published_at": now,
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO criterion_versions (
+                id, criterion_id, rubric_version_id, code, title,
+                description, scope, weight, position, is_enabled,
+                evaluation_method, levels, evaluator_config,
+                evidence_requirements, revision
+            )
+            VALUES (
+                :id, :criterion_id, :rubric_version_id, 'RACE_CRITERION',
+                'Race Criterion', 'Criterion for race test', 'SECTION',
+                100.0, 1, true, 'AI_ASSISTED',
+                CAST(:levels AS jsonb), CAST(:evaluator_config AS jsonb),
+                CAST(:evidence_requirements AS jsonb), 1
+            )
+        """),
+        {
+            "id": ids["criterion_version_id"],
+            "criterion_id": ids["criterion_id"],
+            "rubric_version_id": ids["rubric_version_id"],
+            "levels": json.dumps([{"name": "Proficient", "score": 100}]),
+            "evaluator_config": json.dumps({"model": "race-model"}),
+            "evidence_requirements": json.dumps({"required_lines": True}),
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO assignments (
+                id, course_id, created_by_teacher_id, rubric_version_id,
+                title, description, due_at, max_submissions, status,
+                published_at, closed_at, revision
+            )
+            VALUES (
+                :id, :course_id, :created_by_teacher_id, :rubric_version_id,
+                'Race Assignment', 'Assignment for race test', :due_at, 3,
+                'OPEN'::assignment_status, :published_at, NULL, 1
+            )
+        """),
+        {
+            "id": ids["assignment_id"],
+            "course_id": ids["course_id"],
+            "created_by_teacher_id": ids["teacher_id"],
+            "rubric_version_id": ids["rubric_version_id"],
+            "due_at": due_date,
+            "published_at": now,
+        },
+    )
+
+
+async def _run_first_submission_rubric_update_race_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    ids = {
+        "teacher_id": uuid.uuid4(),
+        "student_id": uuid.uuid4(),
+        "course_id": uuid.uuid4(),
+        "membership_id": uuid.uuid4(),
+        "rubric_id": uuid.uuid4(),
+        "rubric_version_id": uuid.uuid4(),
+        "criterion_id": uuid.uuid4(),
+        "criterion_version_id": uuid.uuid4(),
+        "assignment_id": uuid.uuid4(),
+        "submission_id": uuid.uuid4(),
+    }
+    conn_a = None
+    conn_b = None
+    trans_a = None
+    trans_b = None
+    update_task = None
+
+    try:
+        async with engine.connect() as setup_conn:
+            setup_trans = await setup_conn.begin()
+            await _insert_submission_graph(setup_conn, ids)
+            await setup_trans.commit()
+
+        conn_a = await engine.connect()
+        trans_a = await conn_a.begin()
+        await conn_a.execute(
+            text("""
+                INSERT INTO submissions (id, assignment_id, student_id)
+                VALUES (:id, :assignment_id, :student_id)
+            """),
+            {
+                "id": ids["submission_id"],
+                "assignment_id": ids["assignment_id"],
+                "student_id": ids["student_id"],
+            },
+        )
+
+        conn_b = await engine.connect()
+        trans_b = await conn_b.begin()
+        await conn_b.execute(text("SET LOCAL lock_timeout = '2000ms'"))
+        update_task = asyncio.create_task(
+            conn_b.execute(
+                text("""
+                    UPDATE rubric_versions
+                    SET name = 'Updated During Race'
+                    WHERE id = :id
+                """),
+                {"id": ids["rubric_version_id"]},
+            )
+        )
+
+        try:
+            await asyncio.wait_for(asyncio.shield(update_task), timeout=0.25)
+        except asyncio.TimeoutError:
+            pass
+        except BaseException as error:
+            pytest.fail(f"rubric update completed with an early error: {error}")
+        else:
+            pytest.fail(
+                "rubric update must remain blocked while first submission is open"
+            )
+
+        await trans_a.commit()
+        trans_a = None
+
+        with pytest.raises(
+            DBAPIError,
+            match=r"rubric version is immutable after first submission",
+        ):
+            await asyncio.wait_for(update_task, timeout=2.0)
+        await trans_b.rollback()
+        trans_b = None
+
+        async with engine.connect() as verify_conn:
+            rubric_name = await verify_conn.scalar(
+                text("SELECT name FROM rubric_versions WHERE id = :id"),
+                {"id": ids["rubric_version_id"]},
+            )
+        assert rubric_name == "Race Rubric"
+    finally:
+        if update_task is not None and not update_task.done():
+            update_task.cancel()
+            try:
+                await update_task
+            except asyncio.CancelledError:
+                pass
+        if trans_a is not None:
+            await trans_a.rollback()
+        if trans_b is not None:
+            await trans_b.rollback()
+        if conn_a is not None:
+            await conn_a.close()
+        if conn_b is not None:
+            await conn_b.close()
+        await _cleanup_domain_rows(
+            engine,
+            submission_ids=(ids["submission_id"],),
+            assignment_ids=(ids["assignment_id"],),
+            criterion_version_ids=(ids["criterion_version_id"],),
+            rubric_version_ids=(ids["rubric_version_id"],),
+            membership_ids=(ids["membership_id"],),
+            course_ids=(ids["course_id"],),
+            user_ids=(ids["teacher_id"], ids["student_id"]),
+        )
+        await engine.dispose()
+
+
+def test_postgresql_serializes_first_submission_and_rubric_update() -> None:
+    asyncio.run(_run_first_submission_rubric_update_race_test())
