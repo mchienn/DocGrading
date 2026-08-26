@@ -1041,6 +1041,26 @@ def upgrade() -> None:
             FOR EACH ROW EXECUTE FUNCTION fn_lock_assignment_rubric_insert();
             """))
     op.execute(sa.text("""
+            CREATE FUNCTION fn_reject_assignment_marker_insert()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF NEW.first_submission_at IS NOT NULL THEN
+                    RAISE EXCEPTION USING
+                        ERRCODE = '23514',
+                        MESSAGE = 'assignment submission freeze is database managed';
+                END IF;
+                RETURN NEW;
+            END;
+            $$;
+            """))
+    op.execute(sa.text("""
+            CREATE TRIGGER trg_reject_assignment_marker_insert
+            BEFORE INSERT ON assignments
+            FOR EACH ROW EXECUTE FUNCTION fn_reject_assignment_marker_insert();
+            """))
+    op.execute(sa.text("""
             CREATE FUNCTION fn_protect_assignment_submission_freeze()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -1052,6 +1072,12 @@ def upgrade() -> None:
                     RAISE EXCEPTION USING
                         ERRCODE = '23514',
                         MESSAGE = 'assignment submission freeze is immutable';
+                ELSIF OLD.first_submission_at IS NULL
+                      AND NEW.first_submission_at IS NOT NULL
+                      AND pg_trigger_depth() = 1 THEN
+                    RAISE EXCEPTION USING
+                        ERRCODE = '23514',
+                        MESSAGE = 'assignment submission freeze is database managed';
                 END IF;
                 RETURN NEW;
             END;
@@ -1230,6 +1256,11 @@ def downgrade() -> None:
     )
     op.execute(
         sa.text(
+            "DROP TRIGGER IF EXISTS trg_reject_assignment_marker_insert ON assignments"
+        )
+    )
+    op.execute(
+        sa.text(
             "DROP TRIGGER IF EXISTS trg_protect_assignment_submission_freeze "
             "ON assignments"
         )
@@ -1257,6 +1288,7 @@ def downgrade() -> None:
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_audit_events_append_only()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_assignment_rubric()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_lock_assignment_rubric_insert()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_reject_assignment_marker_insert()"))
     op.execute(
         sa.text("DROP FUNCTION IF EXISTS fn_protect_assignment_submission_freeze()")
     )
