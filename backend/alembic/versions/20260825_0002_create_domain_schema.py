@@ -120,8 +120,8 @@ def upgrade() -> None:
         sa.Column("display_name", sa.String(length=255), nullable=False),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
         sa.Column("roles", postgresql.ARRAY(user_role), nullable=False),
-        sa.Column("status", user_status, server_default=sa.text("'ACTIVE'::user_status"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.Column("status", user_status, nullable=False),
+        sa.PrimaryKeyConstraint("id", name="pk_users"),
         sa.CheckConstraint("cardinality(roles) > 0", name="ck_users_roles_not_empty"),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
     )
@@ -142,7 +142,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("term", sa.String(length=128), nullable=False),
         sa.Column("owner_teacher_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_courses"),
         sa.UniqueConstraint("code", name="uq_courses_code"),
         sa.CheckConstraint("revision > 0", name="ck_courses_revision_positive"),
         sa.ForeignKeyConstraint(
@@ -161,8 +161,8 @@ def upgrade() -> None:
         sa.Column("course_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("role", membership_role, nullable=False),
-        sa.Column("status", membership_status, server_default=sa.text("'ACTIVE'::membership_status"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.Column("status", membership_status, nullable=False),
+        sa.PrimaryKeyConstraint("id", name="pk_memberships"),
         sa.UniqueConstraint("course_id", "user_id", "role", name="uq_memberships_course_user_role"),
         sa.ForeignKeyConstraint(
             ["course_id"],
@@ -188,14 +188,14 @@ def upgrade() -> None:
         sa.Column("version_number", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("status", rubric_status, server_default=sa.text("'DRAFT'::rubric_status"), nullable=False),
+        sa.Column("status", rubric_status, nullable=False),
         sa.Column("calculation_method", sa.String(length=64), server_default=sa.text("'WEIGHTED_SUM'"), nullable=False),
         sa.Column("total_weight", sa.Numeric(precision=6, scale=2), server_default=sa.text("0.00"), nullable=False),
         sa.Column("owner_user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("created_by_user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("source_version_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_rubric_versions"),
         sa.UniqueConstraint("rubric_id", "version_number", name="uq_rubric_versions_rubric_version"),
         sa.CheckConstraint("version_number > 0", name="ck_rubric_versions_version_number_positive"),
         sa.CheckConstraint("total_weight >= 0.00 AND total_weight <= 100.00", name="ck_rubric_versions_total_weight_range"),
@@ -244,7 +244,7 @@ def upgrade() -> None:
         sa.Column("levels", postgresql.JSONB(), server_default=sa.text("'[]'::jsonb"), nullable=False),
         sa.Column("evaluator_config", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
         sa.Column("evidence_requirements", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_criterion_versions"),
         sa.UniqueConstraint("rubric_version_id", "criterion_id", name="uq_criterion_versions_rubric_version_criterion"),
         sa.UniqueConstraint("rubric_version_id", "code", name="uq_criterion_versions_rubric_version_code"),
         sa.UniqueConstraint("rubric_version_id", "position", name="uq_criterion_versions_rubric_version_position"),
@@ -275,7 +275,7 @@ def upgrade() -> None:
         sa.Column("storage_key", sa.String(length=1024), nullable=True),
         sa.Column("sha256", sa.String(length=64), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_template_versions"),
         sa.UniqueConstraint("template_id", "version_number", name="uq_template_versions_template_version"),
         sa.CheckConstraint("version_number > 0", name="ck_template_versions_version_number_positive"),
         sa.CheckConstraint("jsonb_typeof(structure) = 'object'", name="ck_template_versions_structure_is_object"),
@@ -307,10 +307,10 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("due_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("max_submissions", sa.Integer(), server_default=sa.text("3"), nullable=False),
-        sa.Column("status", assignment_status, server_default=sa.text("'DRAFT'::assignment_status"), nullable=False),
+        sa.Column("status", assignment_status, nullable=False),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_assignments"),
         sa.CheckConstraint("max_submissions >= 1 AND max_submissions <= 5", name="ck_assignments_max_submissions"),
         sa.CheckConstraint(
             "(status = 'DRAFT' AND published_at IS NULL AND closed_at IS NULL) OR "
@@ -354,7 +354,7 @@ def upgrade() -> None:
         sa.Column("max_page_count", sa.Integer(), nullable=True),
         sa.Column("text_layer_required", sa.Boolean(), server_default=sa.text("true"), nullable=False),
         sa.Column("template_version_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_assignment_requirements"),
         sa.UniqueConstraint("assignment_id", "position", name="uq_assignment_requirements_position"),
         sa.CheckConstraint("position > 0", name="ck_assignment_requirements_position_positive"),
         sa.CheckConstraint("max_file_size_bytes IS NULL OR max_file_size_bytes > 0", name="ck_assignment_requirements_max_file_size_bytes_positive"),
@@ -380,7 +380,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("assignment_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("student_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_submissions"),
         sa.UniqueConstraint("assignment_id", "student_id", name="uq_submissions_assignment_student"),
         sa.ForeignKeyConstraint(
             ["assignment_id"],
@@ -410,10 +410,10 @@ def upgrade() -> None:
         sa.Column("size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("page_count", sa.Integer(), nullable=True),
         sa.Column("sha256", sa.String(length=64), nullable=False),
-        sa.Column("status", document_status, server_default=sa.text("'UPLOADING'::document_status"), nullable=False),
+        sa.Column("status", document_status, nullable=False),
         sa.Column("failure_code", sa.String(length=64), nullable=True),
         sa.Column("failure_detail", sa.Text(), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_document_versions"),
         sa.UniqueConstraint("submission_id", "version_number", name="uq_document_versions_submission_version"),
         sa.UniqueConstraint("submission_id", "sha256", name="uq_document_versions_submission_sha256"),
         sa.CheckConstraint("version_number > 0", name="ck_document_versions_version_number_positive"),
@@ -441,7 +441,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("document_version_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("rubric_version_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("status", analysis_job_status, server_default=sa.text("'QUEUED'::analysis_job_status"), nullable=False),
+        sa.Column("status", analysis_job_status, nullable=False),
         sa.Column("attempt_count", sa.Integer(), server_default=sa.text("0"), nullable=False),
         sa.Column("max_attempts", sa.Integer(), server_default=sa.text("3"), nullable=False),
         sa.Column("snapshot", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
@@ -450,7 +450,7 @@ def upgrade() -> None:
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("error_code", sa.String(length=64), nullable=True),
         sa.Column("error_detail", sa.Text(), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_analysis_jobs"),
         sa.CheckConstraint("max_attempts > 0 AND attempt_count >= 0 AND attempt_count <= max_attempts", name="ck_analysis_jobs_attempts"),
         sa.CheckConstraint("jsonb_typeof(snapshot) = 'object'", name="ck_analysis_jobs_snapshot_object"),
         sa.ForeignKeyConstraint(
@@ -486,7 +486,7 @@ def upgrade() -> None:
         sa.Column("after", postgresql.JSONB(), nullable=True),
         sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("occurred_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="pk_audit_events"),
         sa.CheckConstraint(
             "(actor_type = 'USER' AND actor_user_id IS NOT NULL) OR "
             "(actor_type = 'SYSTEM' AND actor_user_id IS NULL)",
@@ -587,9 +587,13 @@ def upgrade() -> None:
             AS $$
             BEGIN
                 IF (
-                    NOT ('TEACHER'::user_role = ANY (NEW.roles))
-                    AND EXISTS (
+                    EXISTS (
                         SELECT 1 FROM courses AS c WHERE c.owner_teacher_id = OLD.id
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM unnest(NEW.roles) AS r
+                        WHERE r::text = 'TEACHER'
                     )
                 ) OR EXISTS (
                     SELECT 1
