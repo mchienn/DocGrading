@@ -383,7 +383,7 @@ Rubric/criterion mutation locks the parent rubric and each referencing Assignmen
 
 - [ ] **Step 5: Add AuditEvent append-only trigger**
 
-Create a trigger function that always raises SQLSTATE `23514` for UPDATE or DELETE and attach it BEFORE UPDATE OR DELETE on `audit_events`.
+Create a trigger function that always raises SQLSTATE `23514`; attach it as row-level BEFORE UPDATE OR DELETE and statement-level BEFORE TRUNCATE on `audit_events`, covering direct and CASCADE TRUNCATE. Every PL/pgSQL function pins `search_path = pg_catalog, public, pg_temp` and schema-qualifies application relations, enum types, and helper calls.
 
 - [ ] **Step 6: Implement symmetric downgrade**
 
@@ -425,7 +425,8 @@ Using `pytest.raises(DBAPIError, match=...)` around a nested transaction, assert
 - CriterionVersion INSERT, UPDATE, DELETE and reparent into/out of a frozen RubricVersion;
 - Assignment `rubric_version_id` change after its marker is set;
 - concurrent role, rubric, Assignment and first-Submission races serialize on advisory locks;
-- USER AuditEvent without `actor_user_id`, SYSTEM AuditEvent with one, and AuditEvent UPDATE/DELETE.
+- USER AuditEvent without `actor_user_id`, SYSTEM AuditEvent with one, and AuditEvent UPDATE/DELETE/direct-or-CASCADE TRUNCATE;
+- hostile `pg_temp` tables named `users` or `assignments` cannot shadow public trigger reads/marker updates.
 
 - [ ] **Step 4: Run RED before applying the new migration**
 

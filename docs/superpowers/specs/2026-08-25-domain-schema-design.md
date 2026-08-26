@@ -209,7 +209,7 @@ CHECK yêu cầu:
 - snapshot khi có là JSON object;
 - reason không trắng.
 
-`resource_id` không có FK để AuditEvent tồn tại độc lập với vòng đời entity. Trigger chặn UPDATE và DELETE, biến bảng thành append-only ở tầng database.
+`resource_id` không có FK để AuditEvent tồn tại độc lập với vòng đời entity. Row trigger chặn UPDATE/DELETE và statement trigger chặn TRUNCATE trực tiếp hoặc CASCADE, biến bảng thành append-only ở tầng database.
 
 ## 5. Invariant bất biến rubric
 
@@ -241,7 +241,7 @@ Upgrade:
 1. tạo native enum types;
 2. tạo bảng theo thứ tự dependency;
 3. tạo named indexes, gồm partial unique index job active;
-4. tạo PostgreSQL functions và triggers cho role/ownership, durable first-submission marker, rubric immutability, advisory serialization và AuditEvent append-only.
+4. tạo PostgreSQL functions và triggers cho role/ownership, durable first-submission marker, rubric immutability, advisory serialization và AuditEvent append-only. Mọi function pin `search_path = pg_catalog, public, pg_temp` và schema-qualify application relation/type/helper để `pg_temp` không shadow invariant.
 
 Downgrade:
 
@@ -276,7 +276,8 @@ Test integration chỉ bật bằng biến môi trường riêng để CI hiện
 - chứng minh đổi rubric của Assignment hoặc sửa marker freeze sau Submission bị từ chối;
 - chứng minh owner/membership sai role, gỡ role đang dùng, role array chứa `NULL` và text nghiệp vụ chỉ có whitespace bị từ chối;
 - chứng minh các race role/rubric/Assignment/Submission được serialize bằng advisory lock;
-- chứng minh actor AuditEvent sai constraint và AuditEvent update/delete bị từ chối.
+- chứng minh actor AuditEvent sai constraint và AuditEvent UPDATE/DELETE/TRUNCATE trực tiếp hoặc CASCADE bị từ chối;
+- chứng minh temp table shadow tên `users` hoặc `assignments` không thể đổi role decision hay chuyển freeze marker khỏi bảng `public`.
 
 Test cleanup bằng transaction/fixture hoặc reset schema phù hợp, không phụ thuộc thứ tự test.
 
