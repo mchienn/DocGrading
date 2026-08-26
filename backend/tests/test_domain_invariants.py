@@ -628,6 +628,472 @@ async def _cleanup_domain_rows(
             raise
 
 
+async def _insert_durable_freeze_graph(conn, ids) -> None:
+    now = datetime.now(UTC)
+    due_date = now + timedelta(days=7)
+    await conn.execute(
+        text("""
+            INSERT INTO users (
+                id, email, display_name, password_hash, roles, status, revision
+            )
+            VALUES
+                (
+                    :teacher_id, :teacher_email, 'Durable Freeze Teacher',
+                    'hash_durable_teacher', ARRAY['TEACHER']::user_role[],
+                    'ACTIVE'::user_status, 1
+                ),
+                (
+                    :student_id, :student_email, 'Durable Freeze Student',
+                    'hash_durable_student', ARRAY['STUDENT']::user_role[],
+                    'ACTIVE'::user_status, 1
+                )
+        """),
+        {
+            "teacher_id": ids["teacher_id"],
+            "teacher_email": f"durable_teacher_{uuid.uuid4().hex}@example.com",
+            "student_id": ids["student_id"],
+            "student_email": f"durable_student_{uuid.uuid4().hex}@example.com",
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO courses (
+                id, code, name, term, owner_teacher_id, revision
+            )
+            VALUES (
+                :id, :code, 'Durable Freeze Course', 'Fall 2026',
+                :owner_teacher_id, 1
+            )
+        """),
+        {
+            "id": ids["course_id"],
+            "code": f"DURABLE_{uuid.uuid4().hex}",
+            "owner_teacher_id": ids["teacher_id"],
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO memberships (
+                id, course_id, user_id, role, status
+            )
+            VALUES (
+                :id, :course_id, :user_id,
+                'STUDENT'::membership_role, 'ACTIVE'::membership_status
+            )
+        """),
+        {
+            "id": ids["membership_id"],
+            "course_id": ids["course_id"],
+            "user_id": ids["student_id"],
+        },
+    )
+    for version_id, version_number, name in (
+        (ids["rubric_version_1_id"], 1, "Durable Rubric One"),
+        (ids["rubric_version_2_id"], 2, "Durable Rubric Two"),
+    ):
+        await conn.execute(
+            text("""
+                INSERT INTO rubric_versions (
+                    id, rubric_id, version_number, name, description,
+                    status, calculation_method, total_weight,
+                    owner_user_id, created_by_user_id, published_at, revision
+                )
+                VALUES (
+                    :id, :rubric_id, :version_number, :name,
+                    'Durable freeze rubric', 'PUBLISHED'::rubric_status,
+                    'WEIGHTED_SUM', 100.0, :owner_user_id,
+                    :created_by_user_id, :published_at, 1
+                )
+            """),
+            {
+                "id": version_id,
+                "rubric_id": ids["rubric_id"],
+                "version_number": version_number,
+                "name": name,
+                "owner_user_id": ids["teacher_id"],
+                "created_by_user_id": ids["teacher_id"],
+                "published_at": now,
+            },
+        )
+    for criterion_id, criterion_version_id, rubric_version_id, code in (
+        (
+            ids["criterion_1_id"],
+            ids["criterion_version_1_id"],
+            ids["rubric_version_1_id"],
+            "DURABLE_CRITERION_ONE",
+        ),
+        (
+            ids["criterion_2_id"],
+            ids["criterion_version_2_id"],
+            ids["rubric_version_2_id"],
+            "DURABLE_CRITERION_TWO",
+        ),
+    ):
+        await conn.execute(
+            text("""
+                INSERT INTO criterion_versions (
+                    id, criterion_id, rubric_version_id, code, title,
+                    description, scope, weight, position, is_enabled,
+                    evaluation_method, levels, evaluator_config,
+                    evidence_requirements, revision
+                )
+                VALUES (
+                    :id, :criterion_id, :rubric_version_id, :code,
+                    'Durable Criterion', 'Criterion before first submission',
+                    'SECTION', 100.0, 1, true, 'AI_ASSISTED',
+                    CAST(:levels AS jsonb), CAST(:evaluator_config AS jsonb),
+                    CAST(:evidence_requirements AS jsonb), 1
+                )
+            """),
+            {
+                "id": criterion_version_id,
+                "criterion_id": criterion_id,
+                "rubric_version_id": rubric_version_id,
+                "code": code,
+                "levels": json.dumps([{"name": "Proficient", "score": 100}]),
+                "evaluator_config": json.dumps({"model": "durable-model"}),
+                "evidence_requirements": json.dumps({"required_lines": True}),
+            },
+        )
+    for assignment_id, rubric_version_id, title in (
+        (
+            ids["assignment_1_id"],
+            ids["rubric_version_1_id"],
+            "Durable Assignment One",
+        ),
+        (
+            ids["assignment_2_id"],
+            ids["rubric_version_2_id"],
+            "Durable Assignment Two",
+        ),
+    ):
+        await conn.execute(
+            text("""
+                INSERT INTO assignments (
+                    id, course_id, created_by_teacher_id, rubric_version_id,
+                    title, description, due_at, max_submissions, status,
+                    published_at, closed_at, revision
+                )
+                VALUES (
+                    :id, :course_id, :created_by_teacher_id,
+                    :rubric_version_id, :title, 'Durable freeze assignment',
+                    :due_at, 3, 'OPEN'::assignment_status,
+                    :published_at, NULL, 1
+                )
+            """),
+            {
+                "id": assignment_id,
+                "course_id": ids["course_id"],
+                "created_by_teacher_id": ids["teacher_id"],
+                "rubric_version_id": rubric_version_id,
+                "title": title,
+                "due_at": due_date,
+                "published_at": now,
+            },
+        )
+
+
+def _new_durable_freeze_ids() -> dict[str, uuid.UUID]:
+    return {
+        "teacher_id": uuid.uuid4(),
+        "student_id": uuid.uuid4(),
+        "course_id": uuid.uuid4(),
+        "membership_id": uuid.uuid4(),
+        "rubric_id": uuid.uuid4(),
+        "rubric_version_1_id": uuid.uuid4(),
+        "rubric_version_2_id": uuid.uuid4(),
+        "criterion_1_id": uuid.uuid4(),
+        "criterion_2_id": uuid.uuid4(),
+        "criterion_version_1_id": uuid.uuid4(),
+        "criterion_version_2_id": uuid.uuid4(),
+        "assignment_1_id": uuid.uuid4(),
+        "assignment_2_id": uuid.uuid4(),
+        "submission_id": uuid.uuid4(),
+    }
+
+
+async def _run_durable_freeze_case(operation) -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    try:
+        async with engine.connect() as conn:
+            trans = await conn.begin()
+            try:
+                ids = _new_durable_freeze_ids()
+                await _insert_durable_freeze_graph(conn, ids)
+                await operation(conn, ids)
+            finally:
+                await trans.rollback()
+    finally:
+        await engine.dispose()
+
+
+async def _insert_durable_submission(conn, ids) -> None:
+    await conn.execute(
+        text("""
+            INSERT INTO submissions (id, assignment_id, student_id)
+            VALUES (:id, :assignment_id, :student_id)
+        """),
+        {
+            "id": ids["submission_id"],
+            "assignment_id": ids["assignment_1_id"],
+            "student_id": ids["student_id"],
+        },
+    )
+
+
+async def _run_first_submission_marker_case(conn, ids) -> None:
+    await _insert_durable_submission(conn, ids)
+    marker_1 = await conn.scalar(
+        text("SELECT first_submission_at FROM assignments WHERE id = :id"),
+        {"id": ids["assignment_1_id"]},
+    )
+    assert marker_1 is not None
+
+    await conn.execute(
+        text("""
+            UPDATE submissions
+            SET assignment_id = :assignment_id
+            WHERE id = :id
+        """),
+        {
+            "id": ids["submission_id"],
+            "assignment_id": ids["assignment_2_id"],
+        },
+    )
+    marker_2 = await conn.scalar(
+        text("SELECT first_submission_at FROM assignments WHERE id = :id"),
+        {"id": ids["assignment_2_id"]},
+    )
+    assert marker_2 is not None
+
+    await conn.execute(
+        text("DELETE FROM submissions WHERE id = :id"),
+        {"id": ids["submission_id"]},
+    )
+    assignment_1_after_delete = await conn.scalar(
+        text("SELECT first_submission_at FROM assignments WHERE id = :id"),
+        {"id": ids["assignment_1_id"]},
+    )
+    assignment_2_after_delete = await conn.scalar(
+        text("SELECT first_submission_at FROM assignments WHERE id = :id"),
+        {"id": ids["assignment_2_id"]},
+    )
+    assert assignment_1_after_delete == marker_1
+    assert assignment_2_after_delete == marker_2
+
+
+async def _run_direct_marker_mutation_case(conn, ids) -> None:
+    await _insert_durable_submission(conn, ids)
+    for value in (None, datetime.now(UTC)):
+        with pytest.raises(
+            DBAPIError,
+            match=r"assignment submission freeze is immutable",
+        ):
+            async with conn.begin_nested():
+                await conn.execute(
+                    text("""
+                        UPDATE assignments
+                        SET first_submission_at = :value
+                        WHERE id = :id
+                    """),
+                    {"id": ids["assignment_1_id"], "value": value},
+                )
+
+
+async def _run_rubric_freeze_after_delete_case(conn, ids) -> None:
+    await _insert_durable_submission(conn, ids)
+    await conn.execute(
+        text("DELETE FROM submissions WHERE id = :id"),
+        {"id": ids["submission_id"]},
+    )
+    for statement in (
+        """
+            UPDATE rubric_versions
+            SET name = 'Changed after delete'
+            WHERE id = :id
+        """,
+        """
+            DELETE FROM rubric_versions
+            WHERE id = :id
+        """,
+    ):
+        with pytest.raises(
+            DBAPIError,
+            match=r"rubric version is immutable after first submission",
+        ):
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(statement),
+                    {"id": ids["rubric_version_1_id"]},
+                )
+
+
+async def _run_criterion_freeze_after_delete_case(conn, ids) -> None:
+    await _insert_durable_submission(conn, ids)
+    await conn.execute(
+        text("DELETE FROM submissions WHERE id = :id"),
+        {"id": ids["submission_id"]},
+    )
+    for statement in (
+        """
+            UPDATE criterion_versions
+            SET title = 'Changed after delete'
+            WHERE id = :id
+        """,
+        """
+            DELETE FROM criterion_versions
+            WHERE id = :id
+        """,
+    ):
+        with pytest.raises(
+            DBAPIError,
+            match=r"criterion version is immutable after first submission",
+        ):
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(statement),
+                    {"id": ids["criterion_version_1_id"]},
+                )
+
+
+
+
+async def _run_criterion_insert_into_frozen_case(conn, ids) -> None:
+    await _insert_durable_submission(conn, ids)
+    await conn.execute(
+        text("DELETE FROM submissions WHERE id = :id"),
+        {"id": ids["submission_id"]},
+    )
+    with pytest.raises(
+        DBAPIError,
+        match=r"criterion version is immutable after first submission",
+    ):
+        async with conn.begin_nested():
+            await conn.execute(
+                text("""
+                    INSERT INTO criterion_versions (
+                        id, criterion_id, rubric_version_id, code, title,
+                        description, scope, weight, position, is_enabled,
+                        evaluation_method, levels, evaluator_config,
+                        evidence_requirements, revision
+                    )
+                    VALUES (
+                        :id, :criterion_id, :rubric_version_id,
+                        'DURABLE_INSERTED_CRITERION', 'Inserted Criterion',
+                        'All required criterion fields', 'SECTION', 100.0,
+                        2, true, 'AI_ASSISTED',
+                        CAST(:levels AS jsonb), CAST(:evaluator_config AS jsonb),
+                        CAST(:evidence_requirements AS jsonb), 1
+                    )
+                """),
+                {
+                    "id": uuid.uuid4(),
+                    "criterion_id": uuid.uuid4(),
+                    "rubric_version_id": ids["rubric_version_1_id"],
+                    "levels": json.dumps([{"name": "Proficient", "score": 100}]),
+                    "evaluator_config": json.dumps({"model": "durable-model"}),
+                    "evidence_requirements": json.dumps({"required_lines": True}),
+                },
+            )
+
+
+async def _run_criterion_reparent_into_frozen_case(conn, ids) -> None:
+    await _insert_durable_submission(conn, ids)
+    await conn.execute(
+        text("DELETE FROM submissions WHERE id = :id"),
+        {"id": ids["submission_id"]},
+    )
+    for criterion_id, new_rubric_version_id in (
+        (ids["criterion_version_2_id"], ids["rubric_version_1_id"]),
+        (ids["criterion_version_1_id"], ids["rubric_version_2_id"]),
+    ):
+        with pytest.raises(
+            DBAPIError,
+            match=r"criterion version is immutable after first submission",
+        ):
+            async with conn.begin_nested():
+                await conn.execute(
+                    text("""
+                        UPDATE criterion_versions
+                        SET rubric_version_id = :new_rubric_version_id
+                        WHERE id = :id
+                    """),
+                    {
+                        "id": criterion_id,
+                        "new_rubric_version_id": new_rubric_version_id,
+                    },
+                )
+
+
+async def _run_reassignment_freezes_both_assignments_case(conn, ids) -> None:
+    await _insert_durable_submission(conn, ids)
+    await conn.execute(
+        text("""
+            UPDATE submissions
+            SET assignment_id = :assignment_id
+            WHERE id = :id
+        """),
+        {
+            "id": ids["submission_id"],
+            "assignment_id": ids["assignment_2_id"],
+        },
+    )
+    await conn.execute(
+        text("DELETE FROM submissions WHERE id = :id"),
+        {"id": ids["submission_id"]},
+    )
+
+    for assignment_id, rubric_version_id in (
+        (ids["assignment_1_id"], ids["rubric_version_2_id"]),
+        (ids["assignment_2_id"], ids["rubric_version_1_id"]),
+    ):
+        with pytest.raises(
+            DBAPIError,
+            match=r"assignment rubric is immutable after first submission",
+        ):
+            async with conn.begin_nested():
+                await conn.execute(
+                    text("""
+                        UPDATE assignments
+                        SET rubric_version_id = :rubric_version_id
+                        WHERE id = :assignment_id
+                    """),
+                    {
+                        "assignment_id": assignment_id,
+                        "rubric_version_id": rubric_version_id,
+                    },
+                )
+
+
+def test_postgresql_sets_durable_submission_markers() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_first_submission_marker_case))
+
+
+def test_postgresql_rejects_direct_assignment_submission_freeze_mutation() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_direct_marker_mutation_case))
+
+
+def test_postgresql_preserves_rubric_freeze_after_submission_delete() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_rubric_freeze_after_delete_case))
+
+
+
+def test_postgresql_preserves_criterion_freeze_after_submission_delete() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_criterion_freeze_after_delete_case))
+
+def test_postgresql_rejects_criterion_insert_into_frozen_rubric() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_criterion_insert_into_frozen_case))
+
+
+def test_postgresql_rejects_criterion_reparent_into_frozen_rubric() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_criterion_reparent_into_frozen_case))
+
+
+def test_postgresql_reassignment_freezes_both_assignments_durably() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_reassignment_freezes_both_assignments_case))
+
+
 async def _wait_for_advisory_wait(
     observer_conn,
     worker_pid,
@@ -763,6 +1229,125 @@ async def _run_whitespace_reason_constraint_test() -> None:
 
 def test_postgresql_rejects_whitespace_only_audit_reason() -> None:
     asyncio.run(_run_whitespace_reason_constraint_test())
+
+
+async def _run_whitespace_course_name_constraint_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    teacher_id = uuid.uuid4()
+    course_id = uuid.uuid4()
+    try:
+        async with engine.connect() as conn:
+            trans = await conn.begin()
+            try:
+                await conn.execute(
+                    text("""
+                        INSERT INTO users (
+                            id, email, display_name, password_hash,
+                            roles, status, revision
+                        )
+                        VALUES (
+                            :id, :email, 'Blank Course Teacher',
+                            'hash_blank_course_teacher',
+                            ARRAY['TEACHER']::user_role[],
+                            'ACTIVE'::user_status, 1
+                        )
+                    """),
+                    {
+                        "id": teacher_id,
+                        "email": f"blank_course_{uuid.uuid4().hex}@example.com",
+                    },
+                )
+                with pytest.raises(DBAPIError) as error_info:
+                    async with conn.begin_nested():
+                        await conn.execute(
+                            text("""
+                                INSERT INTO courses (
+                                    id, code, name, term, owner_teacher_id, revision
+                                )
+                                VALUES (
+                                    :id, :code, :name, 'Fall 2026',
+                                    :owner_teacher_id, 1
+                                )
+                            """),
+                            {
+                                "id": course_id,
+                                "code": f"BLANK_{uuid.uuid4().hex}",
+                                "name": " \t\n ",
+                                "owner_teacher_id": teacher_id,
+                            },
+                        )
+                assert (
+                    _constraint_name(
+                        error_info.value,
+                        "ck_courses_name_not_blank",
+                    )
+                    == "ck_courses_name_not_blank"
+                )
+            finally:
+                await trans.rollback()
+    finally:
+        try:
+            await _cleanup_domain_rows(
+                engine,
+                course_ids=(course_id,),
+                user_ids=(teacher_id,),
+            )
+        finally:
+            await engine.dispose()
+
+
+async def _run_whitespace_user_display_name_constraint_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    user_id = uuid.uuid4()
+    try:
+        async with engine.connect() as conn:
+            trans = await conn.begin()
+            try:
+                with pytest.raises(DBAPIError) as error_info:
+                    async with conn.begin_nested():
+                        await conn.execute(
+                            text("""
+                                INSERT INTO users (
+                                    id, email, display_name, password_hash,
+                                    roles, status, revision
+                                )
+                                VALUES (
+                                    :id, :email, :display_name,
+                                    'hash_blank_display_name',
+                                    ARRAY['STUDENT']::user_role[],
+                                    'ACTIVE'::user_status, 1
+                                )
+                            """),
+                            {
+                                "id": user_id,
+                                "email": f"blank_display_{uuid.uuid4().hex}@example.com",
+                                "display_name": "\t\n",
+                            },
+                        )
+                assert (
+                    _constraint_name(
+                        error_info.value,
+                        "ck_users_display_name_not_blank",
+                    )
+                    == "ck_users_display_name_not_blank"
+                )
+            finally:
+                await trans.rollback()
+    finally:
+        try:
+            await _cleanup_domain_rows(engine, user_ids=(user_id,))
+        finally:
+            await engine.dispose()
+
+
+def test_postgresql_rejects_whitespace_only_course_name() -> None:
+    asyncio.run(_run_whitespace_course_name_constraint_test())
+
+
+def test_postgresql_rejects_whitespace_only_user_display_name() -> None:
+    asyncio.run(_run_whitespace_user_display_name_constraint_test())
 
 
 async def _run_role_removal_course_insert_race_test() -> None:

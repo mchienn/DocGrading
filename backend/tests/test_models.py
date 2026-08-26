@@ -1,3 +1,4 @@
+import sqlalchemy as sa
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, inspect
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import configure_mappers
@@ -115,6 +116,68 @@ def test_critical_constraints_and_indexes_have_stable_names() -> None:
         if isinstance(idx, Index)
     }
     assert "uq_analysis_jobs_active_document_rubric" in analysis_jobs_indexes
+
+
+def test_required_text_columns_have_stable_nonblank_constraints() -> None:
+    configure_mappers()
+    expected = {
+        "users": {
+            "ck_users_email_not_blank",
+            "ck_users_display_name_not_blank",
+            "ck_users_password_hash_not_blank",
+        },
+        "courses": {
+            "ck_courses_code_not_blank",
+            "ck_courses_name_not_blank",
+            "ck_courses_term_not_blank",
+        },
+        "assignments": {"ck_assignments_title_not_blank"},
+        "assignment_requirements": {
+            "ck_assignment_requirements_kind_not_blank",
+            "ck_assignment_requirements_label_not_blank",
+        },
+        "rubric_versions": {
+            "ck_rubric_versions_name_not_blank",
+            "ck_rubric_versions_calculation_method_not_blank",
+        },
+        "criterion_versions": {
+            "ck_criterion_versions_code_not_blank",
+            "ck_criterion_versions_title_not_blank",
+            "ck_criterion_versions_description_not_blank",
+            "ck_criterion_versions_evaluation_method_not_blank",
+        },
+        "template_versions": {"ck_template_versions_name_not_blank"},
+        "document_versions": {
+            "ck_document_versions_storage_key_not_blank",
+            "ck_document_versions_original_filename_not_blank",
+            "ck_document_versions_content_type_not_blank",
+        },
+        "audit_events": {
+            "ck_audit_events_resource_type_not_blank",
+            "ck_audit_events_action_not_blank",
+            "ck_audit_events_reason_not_blank",
+        },
+    }
+    actual = {
+        table_name: {
+            constraint.name
+            for constraint in Base.metadata.tables[table_name].constraints
+            if isinstance(constraint, CheckConstraint)
+            and constraint.name
+            and constraint.name.startswith(f"ck_{table_name}_")
+            and constraint.name.endswith("_not_blank")
+        }
+        for table_name in expected
+    }
+    assert actual == expected
+
+
+def test_assignment_first_submission_metadata_is_nullable_timezone() -> None:
+    configure_mappers()
+    column = Base.metadata.tables["assignments"].c.first_submission_at
+    assert column.nullable
+    assert isinstance(column.type, sa.DateTime)
+    assert column.type.timezone
 
 
 def test_criterion_version_nested_json_mutation_tracks_dirty() -> None:
