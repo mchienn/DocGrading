@@ -12,10 +12,8 @@ from app.models.enums import (
     RubricStatus,
     UserRole,
     UserStatus,
-    pg_enum,
 )
 from app.models.identity import User
-from app.models.mixins import RevisionMixin, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.rubric import CriterionVersion, RubricVersion, TemplateVersion
 from app.models.submission import DocumentVersion, Submission
 
@@ -34,15 +32,11 @@ __all__ = [
     "Membership",
     "MembershipRole",
     "MembershipStatus",
-    "RevisionMixin",
     "RubricStatus",
     "RubricVersion",
     "Submission",
     "TemplateVersion",
-    "TimestampMixin",
-    "UUIDPrimaryKeyMixin",
     "User",
     "UserRole",
     "UserStatus",
-    "pg_enum",
 ]
