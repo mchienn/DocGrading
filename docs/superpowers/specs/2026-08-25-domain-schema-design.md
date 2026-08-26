@@ -111,9 +111,11 @@ Unique `(course_id, user_id, role)`. Trigger xác nhận role membership tồn t
 - `rubric_version_id → rubric_versions.id`;
 - `title`, `description`, `due_at`, `max_submissions` mặc định 3;
 - `status`: `DRAFT`, `OPEN`, `CLOSED`, `ARCHIVED`;
-- `published_at`, `closed_at`, `revision`, `created_at`, `updated_at`.
+- `published_at`, `closed_at`, `first_submission_at`, `revision`, `created_at`, `updated_at`.
 
 `max_submissions` nằm trong 1..5. `DRAFT` có `published_at IS NULL`; mọi trạng thái còn lại có `published_at IS NOT NULL`. Publish theo ngôn ngữ PM tracker là lần chuyển đầu từ `DRAFT` sang `OPEN`. T-007/T-008 phải giới hạn Student theo `Membership(role=STUDENT, status=ACTIVE)` và `published_at IS NOT NULL`; T-006 chỉ cung cấp cấu trúc dữ liệu, không tạo query hoặc endpoint.
+
+`first_submission_at` ban đầu là `NULL`, được database đặt đúng một lần khi Assignment nhận Submission đầu tiên và không thể xóa hoặc thay đổi. Marker này lưu sự kiện lịch sử nên vẫn tồn tại khi Submission bị xóa hoặc chuyển sang Assignment khác.
 
 `assignment_requirements` lưu:
 
@@ -213,11 +215,15 @@ CHECK yêu cầu:
 
 PostgreSQL function/trigger là authority vì invariant công bằng không được phép bị bypass bởi bulk ORM update, SQL trực tiếp, worker hoặc migration dữ liệu ứng dụng.
 
-1. Trigger trên `rubric_versions` chặn `UPDATE` và `DELETE` khi tồn tại `assignments` tham chiếu row và Assignment đó có ít nhất một `submissions`.
-2. Trigger trên `criterion_versions` đi qua `rubric_version_id` và áp dụng cùng điều kiện.
-3. Trigger trên `assignments` chặn thay `rubric_version_id` nếu Assignment đã có Submission.
-4. RubricVersion dùng chung bị đóng băng toàn cục từ Submission đầu tiên của bất kỳ Assignment nào đang tham chiếu version đó.
-5. Trước Submission đầu tiên, draft/version hiện hành vẫn có thể cập nhật; thay đổi sau điểm đóng băng phải INSERT RubricVersion/CriterionVersion mới và chỉ áp dụng cho Assignment khác chưa có Submission.
+1. Trigger trên `submissions` đặt `assignments.first_submission_at` bằng thời điểm database khi nhận Submission đầu tiên. Reassignment đặt marker cho Assignment mới; marker của Assignment cũ không bị xóa.
+2. Trigger trên `assignments` chặn thay đổi hoặc xóa `first_submission_at` sau khi marker đã có giá trị.
+3. Trigger trên `rubric_versions` chặn `UPDATE` và `DELETE` khi tồn tại Assignment tham chiếu row có `first_submission_at IS NOT NULL`.
+4. Trigger trên `criterion_versions` chặn `INSERT`, `UPDATE` và `DELETE` nếu parent cũ hoặc parent mới là RubricVersion đã đóng băng. Reparent không được dùng để đưa criterion vào hoặc ra khỏi rubric đã dùng.
+5. Trigger trên `assignments` chặn thay `rubric_version_id` khi `first_submission_at IS NOT NULL`.
+6. RubricVersion dùng chung bị đóng băng toàn cục từ Submission đầu tiên của bất kỳ Assignment nào tham chiếu version đó; xóa hoặc chuyển Submission không làm mất trạng thái đóng băng.
+7. Trước Submission đầu tiên, draft/version hiện hành vẫn có thể cập nhật; thay đổi sau điểm đóng băng phải INSERT RubricVersion/CriterionVersion mới và chỉ áp dụng cho Assignment khác chưa từng nhận Submission.
+
+Các trigger dùng transaction advisory lock theo khóa user, rubric và assignment để serialize role check, tạo Assignment, nhận Submission và thay đổi version. Thứ tự canonical trong một thao tác là rubric/user trước assignment; service nhiều statement ở backlog sau phải pre-acquire theo cùng thứ tự và retry transaction bị PostgreSQL chọn làm deadlock victim.
 
 FK `RESTRICT` tiếp tục bảo vệ việc xóa row đang được tham chiếu. Trigger trả SQLSTATE có thông báo domain ổn định để test xác nhận đúng invariant.
 
@@ -235,7 +241,7 @@ Upgrade:
 1. tạo native enum types;
 2. tạo bảng theo thứ tự dependency;
 3. tạo named indexes, gồm partial unique index job active;
-4. tạo PostgreSQL functions và triggers cho role/ownership, submission membership, rubric immutability và AuditEvent append-only.
+4. tạo PostgreSQL functions và triggers cho role/ownership, durable first-submission marker, rubric immutability, advisory serialization và AuditEvent append-only.
 
 Downgrade:
 
@@ -264,11 +270,13 @@ Test được viết trước model và phải fail vì symbol/table chưa tồn
 Test integration chỉ bật bằng biến môi trường riêng để CI hiện tại không cần thêm database service. Trong stack Docker nghiệm thu, test phải:
 
 - tạo users Teacher/Student, Course, Membership, RubricVersion/CriterionVersion, Assignment và Submission hợp lệ;
-- chứng minh UPDATE/DELETE rubric và criterion sau Submission bị từ chối;
-- chứng minh đổi rubric của Assignment sau Submission bị từ chối;
-- chứng minh owner/membership sai role và gỡ role đang được dùng bị từ chối;
-- chứng minh actor AuditEvent sai constraint bị từ chối;
-- chứng minh AuditEvent không update/delete được.
+- chứng minh marker freeze ban đầu `NULL`, được đặt khi nhận/reassign Submission và không mất sau delete/reassign;
+- chứng minh UPDATE/DELETE rubric và criterion sau Submission bị từ chối kể cả khi Submission đầu tiên đã bị xóa;
+- chứng minh INSERT criterion và reparent vào/ra rubric đã đóng băng bị từ chối;
+- chứng minh đổi rubric của Assignment hoặc sửa marker freeze sau Submission bị từ chối;
+- chứng minh owner/membership sai role, gỡ role đang dùng, role array chứa `NULL` và text nghiệp vụ chỉ có whitespace bị từ chối;
+- chứng minh các race role/rubric/Assignment/Submission được serialize bằng advisory lock;
+- chứng minh actor AuditEvent sai constraint và AuditEvent update/delete bị từ chối.
 
 Test cleanup bằng transaction/fixture hoặc reset schema phù hợp, không phụ thuộc thứ tự test.
 
@@ -294,3 +302,4 @@ Diff cuối không được chứa file dưới `frontend/` hoặc `backend/app/
 - **Không tạo entity ngoài backlog:** evaluator config và snapshot tạm dùng JSONB để không kéo các model Result/Finding/Evidence vào T-006.
 - **SRS tên cũ:** không tạo compatibility alias hoặc bảng song song. Clean cutover theo PM tracker và tài liệu thiết kế canonical tránh hai domain contract.
 - **Rubric validation nhiều row:** total weight bằng 100 và đủ level/evaluator được kiểm tra tại command publish ở backlog sau; T-006 chỉ đặt miền giá trị và invariant không thể bypass sau Submission.
+- **Advisory lock:** trigger bảo vệ invariant và PostgreSQL deadlock detection ngăn silent corruption. Application service nhiều statement phải tuân theo thứ tự lock canonical và retry transaction bị abort; T-006 không tạo service/API.

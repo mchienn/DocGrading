@@ -356,7 +356,7 @@ Set `revision = "20260825_0002"`, `down_revision = "20260825_0001"`, and no bran
 
 - [ ] **Step 2: Create all 12 tables with migration-local definitions**
 
-Mirror the model columns, defaults, named PK/FK/unique/check constraints, and indexes exactly. Do not import ORM model classes into the revision. Use `postgresql.ARRAY`, `postgresql.JSONB`, `postgresql.UUID(as_uuid=True)`, and timezone-aware `sa.DateTime`.
+Mirror the model columns, defaults, named PK/FK/unique/check constraints, and indexes exactly, including nullable timezone `assignments.first_submission_at` and named nonblank checks for required business text. Do not import ORM model classes into the revision. Use `postgresql.ARRAY`, `postgresql.JSONB`, `postgresql.UUID(as_uuid=True)`, and timezone-aware `sa.DateTime`.
 
 - [ ] **Step 3: Add role and ownership trigger functions**
 
@@ -365,24 +365,21 @@ Create PL/pgSQL functions that raise SQLSTATE `23514` with stable messages:
 - `validate_course_owner_role()` — owner contains `TEACHER` in `users.roles`;
 - `validate_membership_role()` — membership role text exists in the target User role array;
 - `prevent_invalid_user_role_removal()` — updated roles cannot invalidate owned Courses or Membership rows;
-- `validate_submission_student_membership()` — Student global role and ACTIVE Student membership exist in Assignment's Course.
+- `validate_submission_student_membership()` — Student global role and ACTIVE Student membership exist in Assignment's Course, then atomically sets the target Assignment's durable `first_submission_at` marker.
 
-Attach BEFORE INSERT/UPDATE triggers to the relevant tables and a BEFORE UPDATE OF roles trigger to users.
+Attach BEFORE INSERT/UPDATE triggers to the relevant tables and a BEFORE UPDATE OF roles trigger to users. Use transaction advisory locks for user, rubric and assignment keys; a multi-key statement locks rubric/user before assignment. Future services with several statements must pre-acquire the same canonical order and retry deadlock victims.
 
 - [ ] **Step 4: Add rubric immutability triggers**
 
-Create separate functions and triggers with these exact conditions:
+Create functions/triggers with these exact durable rules:
 
-```sql
-EXISTS (
-    SELECT 1
-    FROM assignments AS a
-    JOIN submissions AS s ON s.assignment_id = a.id
-    WHERE a.rubric_version_id = OLD.id
-)
-```
+- Assignment `first_submission_at` starts `NULL`, is set once on first Submission/reassignment and cannot later change or clear;
+- RubricVersion `UPDATE`/`DELETE` is rejected when any referencing Assignment has a non-null freeze marker;
+- CriterionVersion `INSERT`/`UPDATE`/`DELETE` checks both old and new parent RubricVersion IDs in deterministic order and rejects if either is frozen;
+- Assignment `rubric_version_id` change is rejected when its freeze marker is non-null;
+- Submission delete/reassignment never clears an existing marker.
 
-for RubricVersion, and the same join using `OLD.rubric_version_id` for CriterionVersion. Both triggers fire BEFORE UPDATE OR DELETE. The Assignment trigger fires BEFORE UPDATE OF `rubric_version_id` and rejects a changed FK when a Submission exists for `OLD.id`. Error messages identify `rubric_version`, `criterion_version`, or `assignment rubric` as immutable after the first submission.
+Rubric/criterion mutation locks the parent rubric and each referencing Assignment in deterministic UUID order. Assignment creation/change shares the rubric lock; Submission shares the Assignment lock. Error messages identify `rubric version`, `criterion version`, `assignment rubric`, or `assignment submission freeze` as immutable after the first Submission.
 
 - [ ] **Step 5: Add AuditEvent append-only trigger**
 
@@ -412,7 +409,7 @@ Use a normal synchronous pytest function calling `asyncio.run`, so no pytest-asy
 
 - [ ] **Step 2: Insert a complete valid graph**
 
-Insert unique Teacher and Student users, Course, ACTIVE Student Membership, two RubricVersions, one CriterionVersion, Assignment, and Submission. Supply UUID parameters and cast literal role arrays/statuses to the named PostgreSQL enum types in raw SQL.
+Insert unique Teacher and Student users, Course, ACTIVE Student Membership, two RubricVersions, CriterionVersions, Assignments and Submissions. Supply UUID parameters and cast literal role arrays/statuses to the named PostgreSQL enum types in raw SQL. Assert each Assignment marker is `NULL` before its first Submission.
 
 - [ ] **Step 3: Assert all mandatory failures behaviorally**
 
@@ -421,12 +418,14 @@ Using `pytest.raises(DBAPIError, match=...)` around a nested transaction, assert
 - Course owned by a User without TEACHER role;
 - Membership whose role is absent from User.roles;
 - removal of a role used by Course ownership or Membership;
+- User role arrays containing `NULL` and required business text containing only whitespace;
 - Submission by a Student without active Course membership;
-- RubricVersion UPDATE and DELETE after a Submission;
-- CriterionVersion UPDATE and DELETE after a Submission;
-- Assignment `rubric_version_id` change after a Submission;
-- USER AuditEvent without `actor_user_id` and SYSTEM AuditEvent with one;
-- AuditEvent UPDATE and DELETE.
+- durable marker creation on insert/reassignment, direct marker mutation, and persistence after Submission delete/reassignment;
+- RubricVersion UPDATE and DELETE after a Submission, including after deleting the first Submission;
+- CriterionVersion INSERT, UPDATE, DELETE and reparent into/out of a frozen RubricVersion;
+- Assignment `rubric_version_id` change after its marker is set;
+- concurrent role, rubric, Assignment and first-Submission races serialize on advisory locks;
+- USER AuditEvent without `actor_user_id`, SYSTEM AuditEvent with one, and AuditEvent UPDATE/DELETE.
 
 - [ ] **Step 4: Run RED before applying the new migration**
 
