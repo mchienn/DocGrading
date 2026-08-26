@@ -508,6 +508,9 @@ def upgrade() -> None:
     )
     op.create_index("ix_audit_events_resource", "audit_events", ["resource_type", "resource_id"])
     op.create_index("ix_audit_events_occurred_at", "audit_events", ["occurred_at"])
+    # Canonical per-statement lock order: rubric/user keys precede assignment;
+    # when both are needed, user precedes assignment. Future multi-statement
+    # services must pre-acquire locks in this order.
     op.execute(
         sa.text(
             """
@@ -690,6 +693,30 @@ def upgrade() -> None:
             """
         )
     )
+    op.execute(
+        sa.text(
+            """
+            CREATE FUNCTION fn_lock_assignment_rubric_insert()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                PERFORM fn_domain_lock('rubric', NEW.rubric_version_id);
+                RETURN NEW;
+            END;
+            $$;
+            """
+        )
+    )
+    op.execute(
+        sa.text(
+            """
+            CREATE TRIGGER trg_lock_assignment_rubric_insert
+            BEFORE INSERT ON assignments
+            FOR EACH ROW EXECUTE FUNCTION fn_lock_assignment_rubric_insert();
+            """
+        )
+    )
 
     op.execute(
         sa.text(
@@ -701,6 +728,7 @@ def upgrade() -> None:
             DECLARE
                 assignment_row record;
             BEGIN
+                PERFORM fn_domain_lock('rubric', OLD.id);
                 FOR assignment_row IN
                     SELECT a.id
                     FROM assignments AS a
@@ -747,6 +775,7 @@ def upgrade() -> None:
             DECLARE
                 assignment_row record;
             BEGIN
+                PERFORM fn_domain_lock('rubric', OLD.rubric_version_id);
                 FOR assignment_row IN
                     SELECT a.id
                     FROM assignments AS a
@@ -791,6 +820,7 @@ def upgrade() -> None:
             LANGUAGE plpgsql
             AS $$
             BEGIN
+                PERFORM fn_domain_lock('rubric', NEW.rubric_version_id);
                 PERFORM fn_domain_lock('assignment', OLD.id);
                 IF NEW.rubric_version_id IS DISTINCT FROM OLD.rubric_version_id
                    AND EXISTS (
@@ -845,6 +875,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(sa.text("DROP TRIGGER IF EXISTS trg_audit_events_append_only ON audit_events"))
+    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_lock_assignment_rubric_insert ON assignments"))
     op.execute(sa.text("DROP TRIGGER IF EXISTS trg_immut_assignment_rubric ON assignments"))
     op.execute(sa.text("DROP TRIGGER IF EXISTS trg_immut_criterion_version ON criterion_versions"))
     op.execute(sa.text("DROP TRIGGER IF EXISTS trg_immut_rubric_version ON rubric_versions"))
@@ -855,6 +886,7 @@ def downgrade() -> None:
 
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_audit_events_append_only()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_assignment_rubric()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_lock_assignment_rubric_insert()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_criterion_version()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_rubric_version()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_validate_submission_student()"))
