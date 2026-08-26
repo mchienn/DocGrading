@@ -914,6 +914,72 @@ async def _run_direct_marker_mutation_case(conn, ids) -> None:
                 )
 
 
+
+async def _run_direct_marker_insert_provenance_case(conn, ids) -> None:
+    with pytest.raises(
+        DBAPIError,
+        match=r"assignment submission freeze is database managed",
+    ) as error_info:
+        async with conn.begin_nested():
+            await conn.execute(
+                text("""
+                    INSERT INTO assignments (
+                        id, course_id, created_by_teacher_id, rubric_version_id,
+                        title, description, due_at, max_submissions, status,
+                        published_at, closed_at, first_submission_at, revision
+                    )
+                    VALUES (
+                        :id, :course_id, :created_by_teacher_id,
+                        :rubric_version_id, 'Direct Marker Insert',
+                        'Must not set marker directly', :due_at, 3,
+                        'OPEN'::assignment_status, :published_at, NULL,
+                        :first_submission_at, 1
+                    )
+                """),
+                {
+                    "id": uuid.uuid4(),
+                    "course_id": ids["course_id"],
+                    "created_by_teacher_id": ids["teacher_id"],
+                    "rubric_version_id": ids["rubric_version_2_id"],
+                    "due_at": datetime.now(UTC) + timedelta(days=7),
+                    "published_at": datetime.now(UTC),
+                    "first_submission_at": datetime.now(UTC) + timedelta(minutes=1),
+                },
+            )
+    assert getattr(error_info.value.orig, "sqlstate", None) == "23514"
+
+
+async def _run_direct_marker_update_provenance_case(conn, ids) -> None:
+    marker_before = await conn.scalar(
+        text("SELECT first_submission_at FROM assignments WHERE id = :id"),
+        {"id": ids["assignment_1_id"]},
+    )
+    assert marker_before is None
+
+    with pytest.raises(
+        DBAPIError,
+        match=r"assignment submission freeze is database managed",
+    ) as error_info:
+        async with conn.begin_nested():
+            await conn.execute(
+                text("""
+                    UPDATE assignments
+                    SET first_submission_at = :first_submission_at
+                    WHERE id = :id
+                """),
+                {
+                    "id": ids["assignment_1_id"],
+                    "first_submission_at": datetime.now(UTC),
+                },
+            )
+    assert getattr(error_info.value.orig, "sqlstate", None) == "23514"
+
+    marker_after = await conn.scalar(
+        text("SELECT first_submission_at FROM assignments WHERE id = :id"),
+        {"id": ids["assignment_1_id"]},
+    )
+    assert marker_after is None
+
 async def _run_rubric_freeze_after_delete_case(conn, ids) -> None:
     await _insert_durable_submission(conn, ids)
     await conn.execute(
@@ -1083,6 +1149,14 @@ def test_postgresql_sets_durable_submission_markers() -> None:
 
 def test_postgresql_rejects_direct_assignment_submission_freeze_mutation() -> None:
     asyncio.run(_run_durable_freeze_case(_run_direct_marker_mutation_case))
+
+
+def test_postgresql_rejects_direct_assignment_marker_insert() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_direct_marker_insert_provenance_case))
+
+
+def test_postgresql_rejects_direct_assignment_marker_update() -> None:
+    asyncio.run(_run_durable_freeze_case(_run_direct_marker_update_provenance_case))
 
 
 def test_postgresql_preserves_rubric_freeze_after_submission_delete() -> None:
