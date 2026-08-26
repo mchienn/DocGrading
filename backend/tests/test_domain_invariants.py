@@ -235,7 +235,7 @@ async def _run_domain_invariants_test() -> None:
                         VALUES (
                             :id, :criterion_id, :rubric_version_id, :code, :title, :description,
                             :scope, :weight, :position, :is_enabled, :evaluation_method,
-                            :levels::jsonb, :evaluator_config::jsonb, :evidence_requirements::jsonb, 1
+                            CAST(:levels AS jsonb), CAST(:evaluator_config AS jsonb), CAST(:evidence_requirements AS jsonb), 1
                         )
                     """),
                     {
