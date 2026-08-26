@@ -122,7 +122,10 @@ def upgrade() -> None:
         sa.Column("roles", postgresql.ARRAY(user_role), nullable=False),
         sa.Column("status", user_status, nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_users"),
-        sa.CheckConstraint("cardinality(roles) > 0", name="ck_users_roles_not_empty"),
+        sa.CheckConstraint(
+            "cardinality(roles) > 0 AND array_position(roles, NULL::user_role) IS NULL",
+            name="ck_users_roles_not_empty",
+        ),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
     )
     op.create_index(
@@ -368,7 +371,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["template_version_id"],
             ["template_versions.id"],
-            name="fk_assignment_requirements_template_version_templates",
+            name="fk_assignment_requirements_template_version_template_versions",
             ondelete="RESTRICT",
         ),
     )
@@ -495,7 +498,7 @@ def upgrade() -> None:
         sa.CheckConstraint("before IS NOT NULL OR after IS NOT NULL", name="ck_audit_events_snapshots"),
         sa.CheckConstraint("before IS NULL OR jsonb_typeof(before) = 'object'", name="ck_audit_events_before_object"),
         sa.CheckConstraint("after IS NULL OR jsonb_typeof(after) = 'object'", name="ck_audit_events_after_object"),
-        sa.CheckConstraint("length(trim(reason)) > 0", name="ck_audit_events_reason_not_blank"),
+        sa.CheckConstraint("reason !~ '^[[:space:]]*$'", name="ck_audit_events_reason_not_blank"),
         sa.ForeignKeyConstraint(
             ["actor_user_id"],
             ["users.id"],
@@ -505,6 +508,22 @@ def upgrade() -> None:
     )
     op.create_index("ix_audit_events_resource", "audit_events", ["resource_type", "resource_id"])
     op.create_index("ix_audit_events_occurred_at", "audit_events", ["occurred_at"])
+    op.execute(
+        sa.text(
+            """
+            CREATE FUNCTION fn_domain_lock(lock_scope text, entity_id uuid)
+            RETURNS void
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                PERFORM pg_advisory_xact_lock(
+                    hashtextextended(lock_scope || ':' || entity_id::text, 0)
+                );
+            END;
+            $$;
+            """
+        )
+    )
 
     op.execute(
         sa.text(
@@ -514,6 +533,7 @@ def upgrade() -> None:
             LANGUAGE plpgsql
             AS $$
             BEGIN
+                PERFORM fn_domain_lock('user', NEW.owner_teacher_id);
                 IF NOT EXISTS (
                     SELECT 1
                     FROM users AS u
@@ -548,6 +568,7 @@ def upgrade() -> None:
             LANGUAGE plpgsql
             AS $$
             BEGIN
+                PERFORM fn_domain_lock('user', NEW.user_id);
                 IF NOT EXISTS (
                     SELECT 1
                     FROM users AS u
@@ -586,6 +607,7 @@ def upgrade() -> None:
             LANGUAGE plpgsql
             AS $$
             BEGIN
+                PERFORM fn_domain_lock('user', NEW.id);
                 IF (
                     EXISTS (
                         SELECT 1 FROM courses AS c WHERE c.owner_teacher_id = OLD.id
@@ -633,6 +655,8 @@ def upgrade() -> None:
             LANGUAGE plpgsql
             AS $$
             BEGIN
+                PERFORM fn_domain_lock('user', NEW.student_id);
+                PERFORM fn_domain_lock('assignment', NEW.assignment_id);
                 IF NOT EXISTS (
                     SELECT 1
                     FROM users AS u
@@ -674,17 +698,26 @@ def upgrade() -> None:
             RETURNS trigger
             LANGUAGE plpgsql
             AS $$
+            DECLARE
+                assignment_row record;
             BEGIN
-                IF EXISTS (
-                    SELECT 1
+                FOR assignment_row IN
+                    SELECT a.id
                     FROM assignments AS a
-                    JOIN submissions AS s ON s.assignment_id = a.id
                     WHERE a.rubric_version_id = OLD.id
-                ) THEN
-                    RAISE EXCEPTION USING
-                        ERRCODE = '23514',
-                        MESSAGE = 'rubric version is immutable after first submission';
-                END IF;
+                    ORDER BY a.id
+                LOOP
+                    PERFORM fn_domain_lock('assignment', assignment_row.id);
+                    IF EXISTS (
+                        SELECT 1
+                        FROM submissions AS s
+                        WHERE s.assignment_id = assignment_row.id
+                    ) THEN
+                        RAISE EXCEPTION USING
+                            ERRCODE = '23514',
+                            MESSAGE = 'rubric version is immutable after first submission';
+                    END IF;
+                END LOOP;
                 IF TG_OP = 'DELETE' THEN
                     RETURN OLD;
                 END IF;
@@ -711,17 +744,26 @@ def upgrade() -> None:
             RETURNS trigger
             LANGUAGE plpgsql
             AS $$
+            DECLARE
+                assignment_row record;
             BEGIN
-                IF EXISTS (
-                    SELECT 1
+                FOR assignment_row IN
+                    SELECT a.id
                     FROM assignments AS a
-                    JOIN submissions AS s ON s.assignment_id = a.id
                     WHERE a.rubric_version_id = OLD.rubric_version_id
-                ) THEN
-                    RAISE EXCEPTION USING
-                        ERRCODE = '23514',
-                        MESSAGE = 'criterion version is immutable after first submission';
-                END IF;
+                    ORDER BY a.id
+                LOOP
+                    PERFORM fn_domain_lock('assignment', assignment_row.id);
+                    IF EXISTS (
+                        SELECT 1
+                        FROM submissions AS s
+                        WHERE s.assignment_id = assignment_row.id
+                    ) THEN
+                        RAISE EXCEPTION USING
+                            ERRCODE = '23514',
+                            MESSAGE = 'criterion version is immutable after first submission';
+                    END IF;
+                END LOOP;
                 IF TG_OP = 'DELETE' THEN
                     RETURN OLD;
                 END IF;
@@ -749,6 +791,7 @@ def upgrade() -> None:
             LANGUAGE plpgsql
             AS $$
             BEGIN
+                PERFORM fn_domain_lock('assignment', OLD.id);
                 IF NEW.rubric_version_id IS DISTINCT FROM OLD.rubric_version_id
                    AND EXISTS (
                        SELECT 1 FROM submissions AS s WHERE s.assignment_id = OLD.id
@@ -818,6 +861,7 @@ def downgrade() -> None:
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_prevent_role_removal()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_validate_membership_role()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_validate_course_owner()"))
+    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_domain_lock(text, uuid)"))
 
     op.drop_index("ix_audit_events_occurred_at", table_name="audit_events")
     op.drop_index("ix_audit_events_resource", table_name="audit_events")

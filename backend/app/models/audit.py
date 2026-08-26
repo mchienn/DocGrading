@@ -37,7 +37,7 @@ class AuditEvent(UUIDPrimaryKeyMixin, Base):
             name="ck_audit_events_after_object",
         ),
         sa.CheckConstraint(
-            "length(trim(reason)) > 0",
+            "reason !~ '^[[:space:]]*$'",
             name="ck_audit_events_reason_not_blank",
         ),
         sa.Index("ix_audit_events_resource", "resource_type", "resource_id"),

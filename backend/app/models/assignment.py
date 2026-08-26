@@ -178,7 +178,7 @@ class AssignmentRequirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         sa.ForeignKey(
             "template_versions.id",
             ondelete="RESTRICT",
-            name="fk_assignment_requirements_template_version_templates",
+            name="fk_assignment_requirements_template_version_template_versions",
         ),
         nullable=True,
     )

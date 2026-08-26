@@ -22,7 +22,11 @@ if TYPE_CHECKING:
 class User(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
     __tablename__ = "users"
     __table_args__ = (
-        sa.CheckConstraint("cardinality(roles) > 0", name="ck_users_roles_not_empty"),
+        sa.CheckConstraint(
+            "cardinality(roles) > 0 "
+            "AND array_position(roles, NULL::user_role) IS NULL",
+            name="ck_users_roles_not_empty",
+        ),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
         sa.Index(
             "uq_users_email_lower",
