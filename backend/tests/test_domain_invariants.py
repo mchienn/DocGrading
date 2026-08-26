@@ -1150,3 +1150,262 @@ async def _run_first_submission_rubric_update_race_test() -> None:
 
 def test_postgresql_serializes_first_submission_and_rubric_update() -> None:
     asyncio.run(_run_first_submission_rubric_update_race_test())
+
+
+async def _insert_rubric_race_prerequisites(conn, ids) -> None:
+    now = datetime.now(UTC)
+    await conn.execute(
+        text("""
+            INSERT INTO users (
+                id, email, display_name, password_hash,
+                roles, status, revision
+            )
+            VALUES
+                (
+                    :teacher_id, :teacher_email, 'Scope Race Teacher',
+                    'hash_scope_race_teacher',
+                    ARRAY['TEACHER']::user_role[],
+                    'ACTIVE'::user_status, 1
+                ),
+                (
+                    :student_id, :student_email, 'Scope Race Student',
+                    'hash_scope_race_student',
+                    ARRAY['STUDENT']::user_role[],
+                    'ACTIVE'::user_status, 1
+                )
+        """),
+        {
+            "teacher_id": ids["teacher_id"],
+            "teacher_email": f"scope_teacher_{uuid.uuid4().hex}@example.com",
+            "student_id": ids["student_id"],
+            "student_email": f"scope_student_{uuid.uuid4().hex}@example.com",
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO courses (
+                id, code, name, term, owner_teacher_id, revision
+            )
+            VALUES (
+                :id, :code, 'Scope Race Course', 'Fall 2026',
+                :owner_teacher_id, 1
+            )
+        """),
+        {
+            "id": ids["course_id"],
+            "code": f"SCOPE_{uuid.uuid4().hex}",
+            "owner_teacher_id": ids["teacher_id"],
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO memberships (
+                id, course_id, user_id, role, status
+            )
+            VALUES (
+                :id, :course_id, :user_id,
+                'STUDENT'::membership_role,
+                'ACTIVE'::membership_status
+            )
+        """),
+        {
+            "id": ids["membership_id"],
+            "course_id": ids["course_id"],
+            "user_id": ids["student_id"],
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO rubric_versions (
+                id, rubric_id, version_number, name, description,
+                status, calculation_method, total_weight,
+                owner_user_id, created_by_user_id, published_at, revision
+            )
+            VALUES (
+                :id, :rubric_id, 1, 'Scope Race Rubric',
+                'Initial scope race rubric',
+                'PUBLISHED'::rubric_status, 'WEIGHTED_SUM', 100.0,
+                :owner_user_id, :created_by_user_id, :published_at, 1
+            )
+        """),
+        {
+            "id": ids["rubric_version_id"],
+            "rubric_id": ids["rubric_id"],
+            "owner_user_id": ids["teacher_id"],
+            "created_by_user_id": ids["teacher_id"],
+            "published_at": now,
+        },
+    )
+    await conn.execute(
+        text("""
+            INSERT INTO criterion_versions (
+                id, criterion_id, rubric_version_id, code, title,
+                description, scope, weight, position, is_enabled,
+                evaluation_method, levels, evaluator_config,
+                evidence_requirements, revision
+            )
+            VALUES (
+                :id, :criterion_id, :rubric_version_id, 'SCOPE_CRITERION',
+                'Scope Race Criterion', 'Criterion for scope race test',
+                'SECTION', 100.0, 1, true, 'AI_ASSISTED',
+                CAST(:levels AS jsonb), CAST(:evaluator_config AS jsonb),
+                CAST(:evidence_requirements AS jsonb), 1
+            )
+        """),
+        {
+            "id": ids["criterion_version_id"],
+            "criterion_id": ids["criterion_id"],
+            "rubric_version_id": ids["rubric_version_id"],
+            "levels": json.dumps([{"name": "Proficient", "score": 100}]),
+            "evaluator_config": json.dumps({"model": "scope-race-model"}),
+            "evidence_requirements": json.dumps({"required_lines": True}),
+        },
+    )
+
+
+async def _run_new_assignment_rubric_update_race_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    ids = {
+        "teacher_id": uuid.uuid4(),
+        "student_id": uuid.uuid4(),
+        "course_id": uuid.uuid4(),
+        "membership_id": uuid.uuid4(),
+        "rubric_id": uuid.uuid4(),
+        "rubric_version_id": uuid.uuid4(),
+        "criterion_id": uuid.uuid4(),
+        "criterion_version_id": uuid.uuid4(),
+        "assignment_id": uuid.uuid4(),
+        "submission_id": uuid.uuid4(),
+    }
+    conn_a = None
+    conn_b = None
+    observer_conn = None
+    trans_a = None
+    trans_b = None
+    update_task = None
+    worker_pid_a = None
+    worker_pid_b = None
+    now = datetime.now(UTC)
+    due_date = now + timedelta(days=7)
+
+    try:
+        async with engine.connect() as setup_conn:
+            setup_trans = await setup_conn.begin()
+            await _insert_rubric_race_prerequisites(setup_conn, ids)
+            await setup_trans.commit()
+
+        conn_a = await engine.connect()
+        trans_a = await conn_a.begin()
+        worker_pid_a = await conn_a.scalar(text("SELECT pg_backend_pid()"))
+        await conn_a.execute(
+            text("""
+                INSERT INTO assignments (
+                    id, course_id, created_by_teacher_id, rubric_version_id,
+                    title, description, due_at, max_submissions, status,
+                    published_at, closed_at, revision
+                )
+                VALUES (
+                    :id, :course_id, :created_by_teacher_id,
+                    :rubric_version_id, 'Scope Race Assignment',
+                    'Assignment inserted during rubric race', :due_at, 3,
+                    'OPEN'::assignment_status, :published_at, NULL, 1
+                )
+            """),
+            {
+                "id": ids["assignment_id"],
+                "course_id": ids["course_id"],
+                "created_by_teacher_id": ids["teacher_id"],
+                "rubric_version_id": ids["rubric_version_id"],
+                "due_at": due_date,
+                "published_at": now,
+            },
+        )
+        await conn_a.execute(
+            text("""
+                INSERT INTO submissions (id, assignment_id, student_id)
+                VALUES (:id, :assignment_id, :student_id)
+            """),
+            {
+                "id": ids["submission_id"],
+                "assignment_id": ids["assignment_id"],
+                "student_id": ids["student_id"],
+            },
+        )
+
+        conn_b = await engine.connect()
+        trans_b = await conn_b.begin()
+        worker_pid_b = await conn_b.scalar(text("SELECT pg_backend_pid()"))
+        await conn_b.execute(text("SET LOCAL lock_timeout = '5000ms'"))
+        observer_conn = await engine.connect()
+        assert worker_pid_a != worker_pid_b
+
+        update_task = asyncio.create_task(
+            conn_b.execute(
+                text("""
+                    UPDATE rubric_versions
+                    SET name = 'Updated During New Assignment Race'
+                    WHERE id = :id
+                """),
+                {"id": ids["rubric_version_id"]},
+            )
+        )
+
+        await _wait_for_advisory_wait(
+            observer_conn,
+            worker_pid_b,
+            update_task,
+            "rubric update",
+        )
+
+        await trans_a.commit()
+        trans_a = None
+
+        with pytest.raises(
+            DBAPIError,
+            match=r"rubric version is immutable after first submission",
+        ):
+            await asyncio.wait_for(update_task, timeout=2.0)
+        await trans_b.rollback()
+        trans_b = None
+
+        async with engine.connect() as verify_conn:
+            rubric_name = await verify_conn.scalar(
+                text("SELECT name FROM rubric_versions WHERE id = :id"),
+                {"id": ids["rubric_version_id"]},
+            )
+        assert rubric_name == "Scope Race Rubric"
+    finally:
+        try:
+            if update_task is not None and not update_task.done():
+                update_task.cancel()
+                try:
+                    await update_task
+                except asyncio.CancelledError:
+                    pass
+            if trans_a is not None:
+                await trans_a.rollback()
+            if trans_b is not None:
+                await trans_b.rollback()
+            if conn_a is not None:
+                await conn_a.close()
+            if conn_b is not None:
+                await conn_b.close()
+            if observer_conn is not None:
+                await observer_conn.close()
+            await _cleanup_domain_rows(
+                engine,
+                submission_ids=(ids["submission_id"],),
+                assignment_ids=(ids["assignment_id"],),
+                criterion_version_ids=(ids["criterion_version_id"],),
+                rubric_version_ids=(ids["rubric_version_id"],),
+                membership_ids=(ids["membership_id"],),
+                course_ids=(ids["course_id"],),
+                user_ids=(ids["teacher_id"], ids["student_id"]),
+            )
+        finally:
+            await engine.dispose()
+
+
+def test_postgresql_serializes_new_assignment_and_rubric_update() -> None:
+    asyncio.run(_run_new_assignment_rubric_update_race_test())
