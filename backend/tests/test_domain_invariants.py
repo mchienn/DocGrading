@@ -620,9 +620,48 @@ async def _cleanup_domain_rows(
                     {"id": row_id},
                 )
             await trans.commit()
-        except BaseException:
+        except Exception:
             await trans.rollback()
             raise
+
+
+async def _wait_for_advisory_wait(
+    observer_conn,
+    worker_pid,
+    task,
+    operation: str,
+) -> None:
+    async def poll() -> None:
+        while True:
+            if task.done():
+                try:
+                    task.result()
+                except Exception as error:
+                    pytest.fail(
+                        f"{operation} completed before advisory wait: {error}"
+                    )
+                pytest.fail(f"{operation} completed before advisory wait")
+
+            waiting = await observer_conn.scalar(
+                text("""
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_locks
+                        WHERE pid = :pid
+                          AND locktype = 'advisory'
+                          AND granted = false
+                    )
+                """),
+                {"pid": worker_pid},
+            )
+            if waiting:
+                return
+            await asyncio.sleep(0.02)
+
+    try:
+        await asyncio.wait_for(poll(), timeout=2.0)
+    except asyncio.TimeoutError:
+        pytest.fail(f"timed out waiting for {operation} advisory lock wait")
 
 
 async def _run_null_role_constraint_test() -> None:
@@ -661,8 +700,10 @@ async def _run_null_role_constraint_test() -> None:
             finally:
                 await trans.rollback()
     finally:
-        await _cleanup_domain_rows(engine, user_ids=(user_id,))
-        await engine.dispose()
+        try:
+            await _cleanup_domain_rows(engine, user_ids=(user_id,))
+        finally:
+            await engine.dispose()
 
 
 def test_postgresql_rejects_null_role_array_member() -> None:
@@ -707,8 +748,10 @@ async def _run_whitespace_reason_constraint_test() -> None:
             finally:
                 await trans.rollback()
     finally:
-        await _cleanup_domain_rows(engine, audit_event_ids=(audit_event_id,))
-        await engine.dispose()
+        try:
+            await _cleanup_domain_rows(engine, audit_event_ids=(audit_event_id,))
+        finally:
+            await engine.dispose()
 
 
 def test_postgresql_rejects_whitespace_only_audit_reason() -> None:
@@ -722,9 +765,12 @@ async def _run_role_removal_course_insert_race_test() -> None:
     course_id = uuid.uuid4()
     conn_a = None
     conn_b = None
+    observer_conn = None
     trans_a = None
     trans_b = None
     insert_task = None
+    worker_pid_a = None
+    worker_pid_b = None
 
     try:
         async with engine.connect() as setup_conn:
@@ -750,6 +796,7 @@ async def _run_role_removal_course_insert_race_test() -> None:
 
         conn_a = await engine.connect()
         trans_a = await conn_a.begin()
+        worker_pid_a = await conn_a.scalar(text("SELECT pg_backend_pid()"))
         await conn_a.execute(
             text("""
                 UPDATE users
@@ -761,7 +808,10 @@ async def _run_role_removal_course_insert_race_test() -> None:
 
         conn_b = await engine.connect()
         trans_b = await conn_b.begin()
-        await conn_b.execute(text("SET LOCAL lock_timeout = '2000ms'"))
+        worker_pid_b = await conn_b.scalar(text("SELECT pg_backend_pid()"))
+        await conn_b.execute(text("SET LOCAL lock_timeout = '5000ms'"))
+        observer_conn = await engine.connect()
+        assert worker_pid_a != worker_pid_b
 
         insert_task = asyncio.create_task(
             conn_b.execute(
@@ -782,16 +832,12 @@ async def _run_role_removal_course_insert_race_test() -> None:
             )
         )
 
-        try:
-            await asyncio.wait_for(asyncio.shield(insert_task), timeout=0.25)
-        except asyncio.TimeoutError:
-            pass
-        except BaseException as error:
-            pytest.fail(f"course insert completed with an early error: {error}")
-        else:
-            pytest.fail(
-                "course insert must remain blocked while role removal is open"
-            )
+        await _wait_for_advisory_wait(
+            observer_conn,
+            worker_pid_b,
+            insert_task,
+            "course insert",
+        )
 
         await trans_a.commit()
         trans_a = None
@@ -811,26 +857,30 @@ async def _run_role_removal_course_insert_race_test() -> None:
             )
         assert course_count == 0
     finally:
-        if insert_task is not None and not insert_task.done():
-            insert_task.cancel()
-            try:
-                await insert_task
-            except asyncio.CancelledError:
-                pass
-        if trans_a is not None:
-            await trans_a.rollback()
-        if trans_b is not None:
-            await trans_b.rollback()
-        if conn_a is not None:
-            await conn_a.close()
-        if conn_b is not None:
-            await conn_b.close()
-        await _cleanup_domain_rows(
-            engine,
-            course_ids=(course_id,),
-            user_ids=(teacher_id,),
-        )
-        await engine.dispose()
+        try:
+            if insert_task is not None and not insert_task.done():
+                insert_task.cancel()
+                try:
+                    await insert_task
+                except asyncio.CancelledError:
+                    pass
+            if trans_a is not None:
+                await trans_a.rollback()
+            if trans_b is not None:
+                await trans_b.rollback()
+            if conn_a is not None:
+                await conn_a.close()
+            if conn_b is not None:
+                await conn_b.close()
+            if observer_conn is not None:
+                await observer_conn.close()
+            await _cleanup_domain_rows(
+                engine,
+                course_ids=(course_id,),
+                user_ids=(teacher_id,),
+            )
+        finally:
+            await engine.dispose()
 
 
 def test_postgresql_serializes_role_removal_and_course_insert() -> None:
@@ -987,9 +1037,12 @@ async def _run_first_submission_rubric_update_race_test() -> None:
     }
     conn_a = None
     conn_b = None
+    observer_conn = None
     trans_a = None
     trans_b = None
     update_task = None
+    worker_pid_a = None
+    worker_pid_b = None
 
     try:
         async with engine.connect() as setup_conn:
@@ -999,6 +1052,7 @@ async def _run_first_submission_rubric_update_race_test() -> None:
 
         conn_a = await engine.connect()
         trans_a = await conn_a.begin()
+        worker_pid_a = await conn_a.scalar(text("SELECT pg_backend_pid()"))
         await conn_a.execute(
             text("""
                 INSERT INTO submissions (id, assignment_id, student_id)
@@ -1013,7 +1067,11 @@ async def _run_first_submission_rubric_update_race_test() -> None:
 
         conn_b = await engine.connect()
         trans_b = await conn_b.begin()
-        await conn_b.execute(text("SET LOCAL lock_timeout = '2000ms'"))
+        worker_pid_b = await conn_b.scalar(text("SELECT pg_backend_pid()"))
+        await conn_b.execute(text("SET LOCAL lock_timeout = '5000ms'"))
+        observer_conn = await engine.connect()
+        assert worker_pid_a != worker_pid_b
+
         update_task = asyncio.create_task(
             conn_b.execute(
                 text("""
@@ -1025,16 +1083,12 @@ async def _run_first_submission_rubric_update_race_test() -> None:
             )
         )
 
-        try:
-            await asyncio.wait_for(asyncio.shield(update_task), timeout=0.25)
-        except asyncio.TimeoutError:
-            pass
-        except BaseException as error:
-            pytest.fail(f"rubric update completed with an early error: {error}")
-        else:
-            pytest.fail(
-                "rubric update must remain blocked while first submission is open"
-            )
+        await _wait_for_advisory_wait(
+            observer_conn,
+            worker_pid_b,
+            update_task,
+            "rubric update",
+        )
 
         await trans_a.commit()
         trans_a = None
@@ -1054,31 +1108,35 @@ async def _run_first_submission_rubric_update_race_test() -> None:
             )
         assert rubric_name == "Race Rubric"
     finally:
-        if update_task is not None and not update_task.done():
-            update_task.cancel()
-            try:
-                await update_task
-            except asyncio.CancelledError:
-                pass
-        if trans_a is not None:
-            await trans_a.rollback()
-        if trans_b is not None:
-            await trans_b.rollback()
-        if conn_a is not None:
-            await conn_a.close()
-        if conn_b is not None:
-            await conn_b.close()
-        await _cleanup_domain_rows(
-            engine,
-            submission_ids=(ids["submission_id"],),
-            assignment_ids=(ids["assignment_id"],),
-            criterion_version_ids=(ids["criterion_version_id"],),
-            rubric_version_ids=(ids["rubric_version_id"],),
-            membership_ids=(ids["membership_id"],),
-            course_ids=(ids["course_id"],),
-            user_ids=(ids["teacher_id"], ids["student_id"]),
-        )
-        await engine.dispose()
+        try:
+            if update_task is not None and not update_task.done():
+                update_task.cancel()
+                try:
+                    await update_task
+                except asyncio.CancelledError:
+                    pass
+            if trans_a is not None:
+                await trans_a.rollback()
+            if trans_b is not None:
+                await trans_b.rollback()
+            if conn_a is not None:
+                await conn_a.close()
+            if conn_b is not None:
+                await conn_b.close()
+            if observer_conn is not None:
+                await observer_conn.close()
+            await _cleanup_domain_rows(
+                engine,
+                submission_ids=(ids["submission_id"],),
+                assignment_ids=(ids["assignment_id"],),
+                criterion_version_ids=(ids["criterion_version_id"],),
+                rubric_version_ids=(ids["rubric_version_id"],),
+                membership_ids=(ids["membership_id"],),
+                course_ids=(ids["course_id"],),
+                user_ids=(ids["teacher_id"], ids["student_id"]),
+            )
+        finally:
+            await engine.dispose()
 
 
 def test_postgresql_serializes_first_submission_and_rubric_update() -> None:
