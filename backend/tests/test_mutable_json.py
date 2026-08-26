@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import pickle
-import uuid
 import weakref
 
 import pytest
-import sqlalchemy as sa
 from sqlalchemy import inspect
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.models.mixins import (
@@ -171,7 +169,7 @@ def test_moving_wrapped_subtree_reparents_descendants() -> None:
 
 def test_pickle_roundtrip_and_post_unpickle_mutation() -> None:
     m1 = SampleModel(data={"config": {"retries": 3, "tags": ["a", "b"]}})
-    state1 = inspect(m1)
+    inspect(m1)
     # Ensure _parents exists on m1.data by accessing / using it in ORM
     assert hasattr(m1.data, "_parents")
 

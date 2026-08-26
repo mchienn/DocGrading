@@ -3,9 +3,9 @@
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision: str = "20260825_0002"
 down_revision: str | None = "20260825_0001"
@@ -113,9 +113,21 @@ def upgrade() -> None:
     op.create_table(
         "users",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("revision", sa.Integer(), server_default=sa.text("1"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "revision", sa.Integer(), server_default=sa.text("1"), nullable=False
+        ),
         sa.Column("email", sa.String(length=320), nullable=False),
         sa.Column("display_name", sa.String(length=255), nullable=False),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
@@ -138,9 +150,21 @@ def upgrade() -> None:
     op.create_table(
         "courses",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("revision", sa.Integer(), server_default=sa.text("1"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "revision", sa.Integer(), server_default=sa.text("1"), nullable=False
+        ),
         sa.Column("code", sa.String(length=64), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("term", sa.String(length=128), nullable=False),
@@ -159,14 +183,26 @@ def upgrade() -> None:
     op.create_table(
         "memberships",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("course_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("role", membership_role, nullable=False),
         sa.Column("status", membership_status, nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_memberships"),
-        sa.UniqueConstraint("course_id", "user_id", "role", name="uq_memberships_course_user_role"),
+        sa.UniqueConstraint(
+            "course_id", "user_id", "role", name="uq_memberships_course_user_role"
+        ),
         sa.ForeignKeyConstraint(
             ["course_id"],
             ["courses.id"],
@@ -184,24 +220,53 @@ def upgrade() -> None:
     op.create_table(
         "rubric_versions",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("revision", sa.Integer(), server_default=sa.text("1"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "revision", sa.Integer(), server_default=sa.text("1"), nullable=False
+        ),
         sa.Column("rubric_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("version_number", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("status", rubric_status, nullable=False),
-        sa.Column("calculation_method", sa.String(length=64), server_default=sa.text("'WEIGHTED_SUM'"), nullable=False),
-        sa.Column("total_weight", sa.Numeric(precision=6, scale=2), server_default=sa.text("0.00"), nullable=False),
+        sa.Column(
+            "calculation_method",
+            sa.String(length=64),
+            server_default=sa.text("'WEIGHTED_SUM'"),
+            nullable=False,
+        ),
+        sa.Column(
+            "total_weight",
+            sa.Numeric(precision=6, scale=2),
+            server_default=sa.text("0.00"),
+            nullable=False,
+        ),
         sa.Column("owner_user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("created_by_user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("source_version_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_rubric_versions"),
-        sa.UniqueConstraint("rubric_id", "version_number", name="uq_rubric_versions_rubric_version"),
-        sa.CheckConstraint("version_number > 0", name="ck_rubric_versions_version_number_positive"),
-        sa.CheckConstraint("total_weight >= 0.00 AND total_weight <= 100.00", name="ck_rubric_versions_total_weight_range"),
+        sa.UniqueConstraint(
+            "rubric_id", "version_number", name="uq_rubric_versions_rubric_version"
+        ),
+        sa.CheckConstraint(
+            "version_number > 0", name="ck_rubric_versions_version_number_positive"
+        ),
+        sa.CheckConstraint(
+            "total_weight >= 0.00 AND total_weight <= 100.00",
+            name="ck_rubric_versions_total_weight_range",
+        ),
         sa.CheckConstraint(
             "(status = 'DRAFT' AND published_at IS NULL) OR "
             "(status IN ('PUBLISHED', 'ARCHIVED') AND published_at IS NOT NULL)",
@@ -231,9 +296,21 @@ def upgrade() -> None:
     op.create_table(
         "criterion_versions",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("revision", sa.Integer(), server_default=sa.text("1"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "revision", sa.Integer(), server_default=sa.text("1"), nullable=False
+        ),
         sa.Column("criterion_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("rubric_version_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("code", sa.String(length=64), nullable=False),
@@ -242,21 +319,66 @@ def upgrade() -> None:
         sa.Column("scope", sa.String(length=255), nullable=True),
         sa.Column("weight", sa.Numeric(precision=6, scale=2), nullable=False),
         sa.Column("position", sa.Integer(), nullable=False),
-        sa.Column("is_enabled", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+        sa.Column(
+            "is_enabled", sa.Boolean(), server_default=sa.text("true"), nullable=False
+        ),
         sa.Column("evaluation_method", sa.String(length=64), nullable=False),
-        sa.Column("levels", postgresql.JSONB(), server_default=sa.text("'[]'::jsonb"), nullable=False),
-        sa.Column("evaluator_config", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
-        sa.Column("evidence_requirements", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
+        sa.Column(
+            "levels",
+            postgresql.JSONB(),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "evaluator_config",
+            postgresql.JSONB(),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "evidence_requirements",
+            postgresql.JSONB(),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_criterion_versions"),
-        sa.UniqueConstraint("rubric_version_id", "criterion_id", name="uq_criterion_versions_rubric_version_criterion"),
-        sa.UniqueConstraint("rubric_version_id", "code", name="uq_criterion_versions_rubric_version_code"),
-        sa.UniqueConstraint("rubric_version_id", "position", name="uq_criterion_versions_rubric_version_position"),
-        sa.CheckConstraint("weight >= 0.00 AND weight <= 100.00", name="ck_criterion_versions_weight_range"),
-        sa.CheckConstraint("position > 0", name="ck_criterion_versions_position_positive"),
-        sa.CheckConstraint("revision > 0", name="ck_criterion_versions_revision_positive"),
-        sa.CheckConstraint("jsonb_typeof(levels) = 'array'", name="ck_criterion_versions_levels_is_array"),
-        sa.CheckConstraint("jsonb_typeof(evaluator_config) = 'object'", name="ck_criterion_versions_evaluator_config_is_object"),
-        sa.CheckConstraint("jsonb_typeof(evidence_requirements) = 'object'", name="ck_criterion_versions_evidence_requirements_is_object"),
+        sa.UniqueConstraint(
+            "rubric_version_id",
+            "criterion_id",
+            name="uq_criterion_versions_rubric_version_criterion",
+        ),
+        sa.UniqueConstraint(
+            "rubric_version_id",
+            "code",
+            name="uq_criterion_versions_rubric_version_code",
+        ),
+        sa.UniqueConstraint(
+            "rubric_version_id",
+            "position",
+            name="uq_criterion_versions_rubric_version_position",
+        ),
+        sa.CheckConstraint(
+            "weight >= 0.00 AND weight <= 100.00",
+            name="ck_criterion_versions_weight_range",
+        ),
+        sa.CheckConstraint(
+            "position > 0", name="ck_criterion_versions_position_positive"
+        ),
+        sa.CheckConstraint(
+            "revision > 0", name="ck_criterion_versions_revision_positive"
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(levels) = 'array'",
+            name="ck_criterion_versions_levels_is_array",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(evaluator_config) = 'object'",
+            name="ck_criterion_versions_evaluator_config_is_object",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(evidence_requirements) = 'object'",
+            name="ck_criterion_versions_evidence_requirements_is_object",
+        ),
         sa.ForeignKeyConstraint(
             ["rubric_version_id"],
             ["rubric_versions.id"],
@@ -274,15 +396,37 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("owner_user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("created_by_user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("structure", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
+        sa.Column(
+            "structure",
+            postgresql.JSONB(),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
         sa.Column("storage_key", sa.String(length=1024), nullable=True),
         sa.Column("sha256", sa.String(length=64), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_template_versions"),
-        sa.UniqueConstraint("template_id", "version_number", name="uq_template_versions_template_version"),
-        sa.CheckConstraint("version_number > 0", name="ck_template_versions_version_number_positive"),
-        sa.CheckConstraint("jsonb_typeof(structure) = 'object'", name="ck_template_versions_structure_is_object"),
-        sa.CheckConstraint("sha256 IS NULL OR sha256 ~ '^[0-9a-f]{64}$'", name="ck_template_versions_sha256_format"),
+        sa.UniqueConstraint(
+            "template_id",
+            "version_number",
+            name="uq_template_versions_template_version",
+        ),
+        sa.CheckConstraint(
+            "version_number > 0", name="ck_template_versions_version_number_positive"
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(structure) = 'object'",
+            name="ck_template_versions_structure_is_object",
+        ),
+        sa.CheckConstraint(
+            "sha256 IS NULL OR sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_template_versions_sha256_format",
+        ),
         sa.ForeignKeyConstraint(
             ["owner_user_id"],
             ["users.id"],
@@ -300,25 +444,45 @@ def upgrade() -> None:
     op.create_table(
         "assignments",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("revision", sa.Integer(), server_default=sa.text("1"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "revision", sa.Integer(), server_default=sa.text("1"), nullable=False
+        ),
         sa.Column("course_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_by_teacher_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column(
+            "created_by_teacher_id", postgresql.UUID(as_uuid=True), nullable=False
+        ),
         sa.Column("rubric_version_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("due_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("max_submissions", sa.Integer(), server_default=sa.text("3"), nullable=False),
+        sa.Column(
+            "max_submissions", sa.Integer(), server_default=sa.text("3"), nullable=False
+        ),
         sa.Column("status", assignment_status, nullable=False),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_assignments"),
-        sa.CheckConstraint("max_submissions >= 1 AND max_submissions <= 5", name="ck_assignments_max_submissions"),
+        sa.CheckConstraint(
+            "max_submissions >= 1 AND max_submissions <= 5",
+            name="ck_assignments_max_submissions",
+        ),
         sa.CheckConstraint(
             "(status = 'DRAFT' AND published_at IS NULL AND closed_at IS NULL) OR "
             "(status = 'OPEN' AND published_at IS NOT NULL AND closed_at IS NULL) OR "
-            "(status IN ('CLOSED', 'ARCHIVED') AND published_at IS NOT NULL AND closed_at IS NOT NULL)",
+            "(status IN ('CLOSED', 'ARCHIVED') AND published_at IS NOT NULL "
+            "AND closed_at IS NOT NULL)",
             name="ck_assignments_publication_state",
         ),
         sa.CheckConstraint("revision > 0", name="ck_assignments_revision_positive"),
@@ -345,23 +509,50 @@ def upgrade() -> None:
     op.create_table(
         "assignment_requirements",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("assignment_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("kind", sa.String(length=32), nullable=False),
         sa.Column("label", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("is_required", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+        sa.Column(
+            "is_required", sa.Boolean(), server_default=sa.text("true"), nullable=False
+        ),
         sa.Column("position", sa.Integer(), nullable=False),
         sa.Column("max_file_size_bytes", sa.BigInteger(), nullable=True),
         sa.Column("max_page_count", sa.Integer(), nullable=True),
-        sa.Column("text_layer_required", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+        sa.Column(
+            "text_layer_required",
+            sa.Boolean(),
+            server_default=sa.text("true"),
+            nullable=False,
+        ),
         sa.Column("template_version_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_assignment_requirements"),
-        sa.UniqueConstraint("assignment_id", "position", name="uq_assignment_requirements_position"),
-        sa.CheckConstraint("position > 0", name="ck_assignment_requirements_position_positive"),
-        sa.CheckConstraint("max_file_size_bytes IS NULL OR max_file_size_bytes > 0", name="ck_assignment_requirements_max_file_size_bytes_positive"),
-        sa.CheckConstraint("max_page_count IS NULL OR max_page_count > 0", name="ck_assignment_requirements_max_page_count_positive"),
+        sa.UniqueConstraint(
+            "assignment_id", "position", name="uq_assignment_requirements_position"
+        ),
+        sa.CheckConstraint(
+            "position > 0", name="ck_assignment_requirements_position_positive"
+        ),
+        sa.CheckConstraint(
+            "max_file_size_bytes IS NULL OR max_file_size_bytes > 0",
+            name="ck_assignment_requirements_max_file_size_bytes_positive",
+        ),
+        sa.CheckConstraint(
+            "max_page_count IS NULL OR max_page_count > 0",
+            name="ck_assignment_requirements_max_page_count_positive",
+        ),
         sa.ForeignKeyConstraint(
             ["assignment_id"],
             ["assignments.id"],
@@ -379,12 +570,24 @@ def upgrade() -> None:
     op.create_table(
         "submissions",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("assignment_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("student_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_submissions"),
-        sa.UniqueConstraint("assignment_id", "student_id", name="uq_submissions_assignment_student"),
+        sa.UniqueConstraint(
+            "assignment_id", "student_id", name="uq_submissions_assignment_student"
+        ),
         sa.ForeignKeyConstraint(
             ["assignment_id"],
             ["assignments.id"],
@@ -402,8 +605,18 @@ def upgrade() -> None:
     op.create_table(
         "document_versions",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("submission_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("version_number", sa.Integer(), nullable=False),
         sa.Column("previous_version_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -417,12 +630,27 @@ def upgrade() -> None:
         sa.Column("failure_code", sa.String(length=64), nullable=True),
         sa.Column("failure_detail", sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_document_versions"),
-        sa.UniqueConstraint("submission_id", "version_number", name="uq_document_versions_submission_version"),
-        sa.UniqueConstraint("submission_id", "sha256", name="uq_document_versions_submission_sha256"),
-        sa.CheckConstraint("version_number > 0", name="ck_document_versions_version_number_positive"),
-        sa.CheckConstraint("size_bytes > 0", name="ck_document_versions_size_bytes_positive"),
-        sa.CheckConstraint("page_count IS NULL OR page_count > 0", name="ck_document_versions_page_count_positive"),
-        sa.CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_document_versions_sha256_format"),
+        sa.UniqueConstraint(
+            "submission_id",
+            "version_number",
+            name="uq_document_versions_submission_version",
+        ),
+        sa.UniqueConstraint(
+            "submission_id", "sha256", name="uq_document_versions_submission_sha256"
+        ),
+        sa.CheckConstraint(
+            "version_number > 0", name="ck_document_versions_version_number_positive"
+        ),
+        sa.CheckConstraint(
+            "size_bytes > 0", name="ck_document_versions_size_bytes_positive"
+        ),
+        sa.CheckConstraint(
+            "page_count IS NULL OR page_count > 0",
+            name="ck_document_versions_page_count_positive",
+        ),
+        sa.CheckConstraint(
+            "sha256 ~ '^[0-9a-f]{64}$'", name="ck_document_versions_sha256_format"
+        ),
         sa.ForeignKeyConstraint(
             ["submission_id"],
             ["submissions.id"],
@@ -440,22 +668,51 @@ def upgrade() -> None:
     op.create_table(
         "analysis_jobs",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("document_version_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("rubric_version_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("status", analysis_job_status, nullable=False),
-        sa.Column("attempt_count", sa.Integer(), server_default=sa.text("0"), nullable=False),
-        sa.Column("max_attempts", sa.Integer(), server_default=sa.text("3"), nullable=False),
-        sa.Column("snapshot", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb"), nullable=False),
-        sa.Column("queued_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "attempt_count", sa.Integer(), server_default=sa.text("0"), nullable=False
+        ),
+        sa.Column(
+            "max_attempts", sa.Integer(), server_default=sa.text("3"), nullable=False
+        ),
+        sa.Column(
+            "snapshot",
+            postgresql.JSONB(),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "queued_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("error_code", sa.String(length=64), nullable=True),
         sa.Column("error_detail", sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_analysis_jobs"),
-        sa.CheckConstraint("max_attempts > 0 AND attempt_count >= 0 AND attempt_count <= max_attempts", name="ck_analysis_jobs_attempts"),
-        sa.CheckConstraint("jsonb_typeof(snapshot) = 'object'", name="ck_analysis_jobs_snapshot_object"),
+        sa.CheckConstraint(
+            "max_attempts > 0 AND attempt_count >= 0 AND attempt_count <= max_attempts",
+            name="ck_analysis_jobs_attempts",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(snapshot) = 'object'", name="ck_analysis_jobs_snapshot_object"
+        ),
         sa.ForeignKeyConstraint(
             ["document_version_id"],
             ["document_versions.id"],
@@ -488,17 +745,32 @@ def upgrade() -> None:
         sa.Column("before", postgresql.JSONB(), nullable=True),
         sa.Column("after", postgresql.JSONB(), nullable=True),
         sa.Column("reason", sa.Text(), nullable=False),
-        sa.Column("occurred_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "occurred_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_audit_events"),
         sa.CheckConstraint(
             "(actor_type = 'USER' AND actor_user_id IS NOT NULL) OR "
             "(actor_type = 'SYSTEM' AND actor_user_id IS NULL)",
             name="ck_audit_events_actor",
         ),
-        sa.CheckConstraint("before IS NOT NULL OR after IS NOT NULL", name="ck_audit_events_snapshots"),
-        sa.CheckConstraint("before IS NULL OR jsonb_typeof(before) = 'object'", name="ck_audit_events_before_object"),
-        sa.CheckConstraint("after IS NULL OR jsonb_typeof(after) = 'object'", name="ck_audit_events_after_object"),
-        sa.CheckConstraint("reason !~ '^[[:space:]]*$'", name="ck_audit_events_reason_not_blank"),
+        sa.CheckConstraint(
+            "before IS NOT NULL OR after IS NOT NULL", name="ck_audit_events_snapshots"
+        ),
+        sa.CheckConstraint(
+            "before IS NULL OR jsonb_typeof(before) = 'object'",
+            name="ck_audit_events_before_object",
+        ),
+        sa.CheckConstraint(
+            "after IS NULL OR jsonb_typeof(after) = 'object'",
+            name="ck_audit_events_after_object",
+        ),
+        sa.CheckConstraint(
+            "reason !~ '^[[:space:]]*$'", name="ck_audit_events_reason_not_blank"
+        ),
         sa.ForeignKeyConstraint(
             ["actor_user_id"],
             ["users.id"],
@@ -506,14 +778,14 @@ def upgrade() -> None:
             ondelete="RESTRICT",
         ),
     )
-    op.create_index("ix_audit_events_resource", "audit_events", ["resource_type", "resource_id"])
+    op.create_index(
+        "ix_audit_events_resource", "audit_events", ["resource_type", "resource_id"]
+    )
     op.create_index("ix_audit_events_occurred_at", "audit_events", ["occurred_at"])
     # Canonical per-statement lock order: rubric/user keys precede assignment;
     # when both are needed, user precedes assignment. Future multi-statement
     # services must pre-acquire locks in this order.
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_domain_lock(lock_scope text, entity_id uuid)
             RETURNS void
             LANGUAGE plpgsql
@@ -524,13 +796,9 @@ def upgrade() -> None:
                 );
             END;
             $$;
-            """
-        )
-    )
+            """))
 
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_validate_course_owner()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -550,22 +818,14 @@ def upgrade() -> None:
                 RETURN NEW;
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_validate_course_owner
             BEFORE INSERT OR UPDATE OF owner_teacher_id ON courses
             FOR EACH ROW EXECUTE FUNCTION fn_validate_course_owner();
-            """
-        )
-    )
+            """))
 
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_validate_membership_role()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -589,22 +849,14 @@ def upgrade() -> None:
                 RETURN NEW;
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_validate_membership_role
             BEFORE INSERT OR UPDATE OF user_id, role ON memberships
             FOR EACH ROW EXECUTE FUNCTION fn_validate_membership_role();
-            """
-        )
-    )
+            """))
 
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_prevent_role_removal()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -637,22 +889,14 @@ def upgrade() -> None:
                 RETURN NEW;
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_prevent_role_removal
             BEFORE UPDATE OF roles ON users
             FOR EACH ROW EXECUTE FUNCTION fn_prevent_role_removal();
-            """
-        )
-    )
+            """))
 
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_validate_submission_student()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -681,21 +925,13 @@ def upgrade() -> None:
                 RETURN NEW;
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_validate_submission_student
             BEFORE INSERT OR UPDATE OF assignment_id, student_id ON submissions
             FOR EACH ROW EXECUTE FUNCTION fn_validate_submission_student();
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE FUNCTION fn_lock_assignment_rubric_insert()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -705,22 +941,14 @@ def upgrade() -> None:
                 RETURN NEW;
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_lock_assignment_rubric_insert
             BEFORE INSERT ON assignments
             FOR EACH ROW EXECUTE FUNCTION fn_lock_assignment_rubric_insert();
-            """
-        )
-    )
+            """))
 
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_immut_rubric_version()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -743,7 +971,8 @@ def upgrade() -> None:
                     ) THEN
                         RAISE EXCEPTION USING
                             ERRCODE = '23514',
-                            MESSAGE = 'rubric version is immutable after first submission';
+                            MESSAGE = 'rubric version is immutable '
+                                || 'after first submission';
                     END IF;
                 END LOOP;
                 IF TG_OP = 'DELETE' THEN
@@ -752,22 +981,14 @@ def upgrade() -> None:
                 RETURN NEW;
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_immut_rubric_version
             BEFORE UPDATE OR DELETE ON rubric_versions
             FOR EACH ROW EXECUTE FUNCTION fn_immut_rubric_version();
-            """
-        )
-    )
+            """))
 
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_immut_criterion_version()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -790,7 +1011,8 @@ def upgrade() -> None:
                     ) THEN
                         RAISE EXCEPTION USING
                             ERRCODE = '23514',
-                            MESSAGE = 'criterion version is immutable after first submission';
+                            MESSAGE = 'criterion version is immutable '
+                                || 'after first submission';
                     END IF;
                 END LOOP;
                 IF TG_OP = 'DELETE' THEN
@@ -799,22 +1021,14 @@ def upgrade() -> None:
                 RETURN NEW;
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_immut_criterion_version
             BEFORE UPDATE OR DELETE ON criterion_versions
             FOR EACH ROW EXECUTE FUNCTION fn_immut_criterion_version();
-            """
-        )
-    )
+            """))
 
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_immut_assignment_rubric()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -828,27 +1042,20 @@ def upgrade() -> None:
                    ) THEN
                     RAISE EXCEPTION USING
                         ERRCODE = '23514',
-                        MESSAGE = 'assignment rubric is immutable after first submission';
+                        MESSAGE = 'assignment rubric is immutable '
+                            || 'after first submission';
                 END IF;
                 RETURN NEW;
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_immut_assignment_rubric
             BEFORE UPDATE OF rubric_version_id ON assignments
             FOR EACH ROW EXECUTE FUNCTION fn_immut_assignment_rubric();
-            """
-        )
-    )
+            """))
 
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             CREATE FUNCTION fn_audit_events_append_only()
             RETURNS trigger
             LANGUAGE plpgsql
@@ -859,29 +1066,41 @@ def upgrade() -> None:
                     MESSAGE = 'audit events are append-only';
             END;
             $$;
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
+            """))
+    op.execute(sa.text("""
             CREATE TRIGGER trg_audit_events_append_only
             BEFORE UPDATE OR DELETE ON audit_events
             FOR EACH ROW EXECUTE FUNCTION fn_audit_events_append_only();
-            """
-        )
-    )
+            """))
 
 
 def downgrade() -> None:
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_audit_events_append_only ON audit_events"))
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_lock_assignment_rubric_insert ON assignments"))
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_immut_assignment_rubric ON assignments"))
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_immut_criterion_version ON criterion_versions"))
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_immut_rubric_version ON rubric_versions"))
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_validate_submission_student ON submissions"))
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_audit_events_append_only ON audit_events")
+    )
+    op.execute(
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_lock_assignment_rubric_insert ON assignments"
+        )
+    )
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_immut_assignment_rubric ON assignments")
+    )
+    op.execute(
+        sa.text(
+            "DROP TRIGGER IF EXISTS trg_immut_criterion_version ON criterion_versions"
+        )
+    )
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_immut_rubric_version ON rubric_versions")
+    )
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_validate_submission_student ON submissions")
+    )
     op.execute(sa.text("DROP TRIGGER IF EXISTS trg_prevent_role_removal ON users"))
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_validate_membership_role ON memberships"))
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_validate_membership_role ON memberships")
+    )
     op.execute(sa.text("DROP TRIGGER IF EXISTS trg_validate_course_owner ON courses"))
 
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_audit_events_append_only()"))

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import os
 import uuid
@@ -558,9 +559,8 @@ def test_postgresql_domain_invariants() -> None:
 def _constraint_name(error: DBAPIError, expected: str) -> str | None:
     original = error.orig
     diagnostic = getattr(original, "diag", None)
-    actual = (
-        getattr(diagnostic, "constraint_name", None)
-        or getattr(original, "constraint_name", None)
+    actual = getattr(diagnostic, "constraint_name", None) or getattr(
+        original, "constraint_name", None
     )
     if actual is not None:
         return actual
@@ -640,9 +640,7 @@ async def _wait_for_advisory_wait(
                 try:
                     task.result()
                 except Exception as error:
-                    pytest.fail(
-                        f"{operation} completed before advisory wait: {error}"
-                    )
+                    pytest.fail(f"{operation} completed before advisory wait: {error}")
                 pytest.fail(f"{operation} completed before advisory wait")
 
             waiting = await observer_conn.scalar(
@@ -663,7 +661,7 @@ async def _wait_for_advisory_wait(
 
     try:
         await asyncio.wait_for(poll(), timeout=2.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pytest.fail(f"timed out waiting for {operation} advisory lock wait")
 
 
@@ -869,10 +867,8 @@ async def _run_role_removal_course_insert_race_test() -> None:
         try:
             if insert_task is not None and not insert_task.done():
                 insert_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await insert_task
-                except asyncio.CancelledError:
-                    pass
             if trans_a is not None:
                 await trans_a.rollback()
             if trans_b is not None:
@@ -1120,10 +1116,8 @@ async def _run_first_submission_rubric_update_race_test() -> None:
         try:
             if update_task is not None and not update_task.done():
                 update_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await update_task
-                except asyncio.CancelledError:
-                    pass
             if trans_a is not None:
                 await trans_a.rollback()
             if trans_b is not None:
@@ -1379,10 +1373,8 @@ async def _run_new_assignment_rubric_update_race_test() -> None:
         try:
             if update_task is not None and not update_task.done():
                 update_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await update_task
-                except asyncio.CancelledError:
-                    pass
             if trans_a is not None:
                 await trans_a.rollback()
             if trans_b is not None:
