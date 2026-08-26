@@ -914,7 +914,6 @@ async def _run_direct_marker_mutation_case(conn, ids) -> None:
                 )
 
 
-
 async def _run_direct_marker_insert_provenance_case(conn, ids) -> None:
     with pytest.raises(
         DBAPIError,
@@ -979,6 +978,7 @@ async def _run_direct_marker_update_provenance_case(conn, ids) -> None:
         {"id": ids["assignment_1_id"]},
     )
     assert marker_after is None
+
 
 async def _run_rubric_freeze_after_delete_case(conn, ids) -> None:
     await _insert_durable_submission(conn, ids)
