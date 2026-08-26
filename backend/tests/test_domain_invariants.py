@@ -1,8 +1,8 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
 import json
 import os
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -40,14 +40,20 @@ async def _run_domain_invariants_test() -> None:
                 submission_id = uuid.uuid4()
                 audit_event_id = uuid.uuid4()
 
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 due_date = now + timedelta(days=7)
 
                 # Insert valid TEACHER user
                 await conn.execute(
                     text("""
-                        INSERT INTO users (id, email, display_name, password_hash, roles, status, revision)
-                        VALUES (:id, :email, :display_name, :password_hash, ARRAY['TEACHER']::user_role[], 'ACTIVE'::user_status, 1)
+                        INSERT INTO users (
+                            id, email, display_name, password_hash,
+                            roles, status, revision
+                        )
+                        VALUES (
+                            :id, :email, :display_name, :password_hash,
+                            ARRAY['TEACHER']::user_role[], 'ACTIVE'::user_status, 1
+                        )
                     """),
                     {
                         "id": teacher_id,
@@ -60,8 +66,14 @@ async def _run_domain_invariants_test() -> None:
                 # Insert valid STUDENT user (enrolled)
                 await conn.execute(
                     text("""
-                        INSERT INTO users (id, email, display_name, password_hash, roles, status, revision)
-                        VALUES (:id, :email, :display_name, :password_hash, ARRAY['STUDENT']::user_role[], 'ACTIVE'::user_status, 1)
+                        INSERT INTO users (
+                            id, email, display_name, password_hash,
+                            roles, status, revision
+                        )
+                        VALUES (
+                            :id, :email, :display_name, :password_hash,
+                            ARRAY['STUDENT']::user_role[], 'ACTIVE'::user_status, 1
+                        )
                     """),
                     {
                         "id": student_id,
@@ -74,8 +86,14 @@ async def _run_domain_invariants_test() -> None:
                 # Insert second STUDENT user (unenrolled)
                 await conn.execute(
                     text("""
-                        INSERT INTO users (id, email, display_name, password_hash, roles, status, revision)
-                        VALUES (:id, :email, :display_name, :password_hash, ARRAY['STUDENT']::user_role[], 'ACTIVE'::user_status, 1)
+                        INSERT INTO users (
+                            id, email, display_name, password_hash,
+                            roles, status, revision
+                        )
+                        VALUES (
+                            :id, :email, :display_name, :password_hash,
+                            ARRAY['STUDENT']::user_role[], 'ACTIVE'::user_status, 1
+                        )
                     """),
                     {
                         "id": unenrolled_student_id,
@@ -86,12 +104,19 @@ async def _run_domain_invariants_test() -> None:
                 )
 
                 # 2. Reject Course owned by non-Teacher
-                with pytest.raises(DBAPIError, match=r"course owner must have TEACHER role"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"course owner must have TEACHER role",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
-                                INSERT INTO courses (id, code, name, term, owner_teacher_id, revision)
-                                VALUES (:id, :code, :name, :term, :owner_teacher_id, 1)
+                                INSERT INTO courses (
+                                    id, code, name, term, owner_teacher_id, revision
+                                )
+                                VALUES (
+                                    :id, :code, :name, :term, :owner_teacher_id, 1
+                                )
                             """),
                             {
                                 "id": uuid.uuid4(),
@@ -105,8 +130,12 @@ async def _run_domain_invariants_test() -> None:
                 # Insert valid Course owned by Teacher
                 await conn.execute(
                     text("""
-                        INSERT INTO courses (id, code, name, term, owner_teacher_id, revision)
-                        VALUES (:id, :code, :name, :term, :owner_teacher_id, 1)
+                        INSERT INTO courses (
+                            id, code, name, term, owner_teacher_id, revision
+                        )
+                        VALUES (
+                            :id, :code, :name, :term, :owner_teacher_id, 1
+                        )
                     """),
                     {
                         "id": course_id,
@@ -118,12 +147,21 @@ async def _run_domain_invariants_test() -> None:
                 )
 
                 # 3. Reject Membership whose role is absent from User.roles
-                with pytest.raises(DBAPIError, match=r"membership role must be present in user roles"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"membership role must be present in user roles",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
-                                INSERT INTO memberships (id, course_id, user_id, role, status)
-                                VALUES (:id, :course_id, :user_id, 'TEACHER'::membership_role, 'ACTIVE'::membership_status)
+                                INSERT INTO memberships (
+                                    id, course_id, user_id, role, status
+                                )
+                                VALUES (
+                                    :id, :course_id, :user_id,
+                                    'TEACHER'::membership_role,
+                                    'ACTIVE'::membership_status
+                                )
                             """),
                             {
                                 "id": uuid.uuid4(),
@@ -135,8 +173,14 @@ async def _run_domain_invariants_test() -> None:
                 # Insert valid active Student Membership
                 await conn.execute(
                     text("""
-                        INSERT INTO memberships (id, course_id, user_id, role, status)
-                        VALUES (:id, :course_id, :user_id, 'STUDENT'::membership_role, 'ACTIVE'::membership_status)
+                        INSERT INTO memberships (
+                            id, course_id, user_id, role, status
+                        )
+                        VALUES (
+                            :id, :course_id, :user_id,
+                            'STUDENT'::membership_role,
+                            'ACTIVE'::membership_status
+                        )
                     """),
                     {
                         "id": membership_id,
@@ -145,8 +189,12 @@ async def _run_domain_invariants_test() -> None:
                     },
                 )
 
-                # 4. Reject removal of a User role still used by Course ownership or Membership
-                with pytest.raises(DBAPIError, match=r"cannot remove role used by course or membership"):
+                # 4. Reject removal of a User role still used by Course ownership
+                # or Membership
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"cannot remove role used by course or membership",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -157,7 +205,10 @@ async def _run_domain_invariants_test() -> None:
                             {"id": teacher_id},
                         )
 
-                with pytest.raises(DBAPIError, match=r"cannot remove role used by course or membership"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"cannot remove role used by course or membership",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -172,13 +223,15 @@ async def _run_domain_invariants_test() -> None:
                 await conn.execute(
                     text("""
                         INSERT INTO rubric_versions (
-                            id, rubric_id, version_number, name, description, status,
-                            calculation_method, total_weight, owner_user_id, created_by_user_id,
-                            published_at, revision
+                            id, rubric_id, version_number, name, description,
+                            status, calculation_method, total_weight,
+                            owner_user_id, created_by_user_id, published_at,
+                            revision
                         )
                         VALUES (
-                            :id, :rubric_id, :version_number, :name, :description, 'PUBLISHED'::rubric_status,
-                            :calculation_method, :total_weight, :owner_user_id, :created_by_user_id,
+                            :id, :rubric_id, :version_number, :name, :description,
+                            'PUBLISHED'::rubric_status, :calculation_method,
+                            :total_weight, :owner_user_id, :created_by_user_id,
                             :published_at, 1
                         )
                     """),
@@ -200,13 +253,15 @@ async def _run_domain_invariants_test() -> None:
                 await conn.execute(
                     text("""
                         INSERT INTO rubric_versions (
-                            id, rubric_id, version_number, name, description, status,
-                            calculation_method, total_weight, owner_user_id, created_by_user_id,
-                            published_at, revision
+                            id, rubric_id, version_number, name, description,
+                            status, calculation_method, total_weight,
+                            owner_user_id, created_by_user_id, published_at,
+                            revision
                         )
                         VALUES (
-                            :id, :rubric_id, :version_number, :name, :description, 'PUBLISHED'::rubric_status,
-                            :calculation_method, :total_weight, :owner_user_id, :created_by_user_id,
+                            :id, :rubric_id, :version_number, :name, :description,
+                            'PUBLISHED'::rubric_status, :calculation_method,
+                            :total_weight, :owner_user_id, :created_by_user_id,
                             :published_at, 1
                         )
                     """),
@@ -228,14 +283,17 @@ async def _run_domain_invariants_test() -> None:
                 await conn.execute(
                     text("""
                         INSERT INTO criterion_versions (
-                            id, criterion_id, rubric_version_id, code, title, description,
-                            scope, weight, position, is_enabled, evaluation_method,
-                            levels, evaluator_config, evidence_requirements, revision
+                            id, criterion_id, rubric_version_id, code, title,
+                            description, scope, weight, position, is_enabled,
+                            evaluation_method, levels, evaluator_config,
+                            evidence_requirements, revision
                         )
                         VALUES (
-                            :id, :criterion_id, :rubric_version_id, :code, :title, :description,
-                            :scope, :weight, :position, :is_enabled, :evaluation_method,
-                            CAST(:levels AS jsonb), CAST(:evaluator_config AS jsonb), CAST(:evidence_requirements AS jsonb), 1
+                            :id, :criterion_id, :rubric_version_id, :code, :title,
+                            :description, :scope, :weight, :position, :is_enabled,
+                            :evaluation_method, CAST(:levels AS jsonb),
+                            CAST(:evaluator_config AS jsonb),
+                            CAST(:evidence_requirements AS jsonb), 1
                         )
                     """),
                     {
@@ -244,7 +302,9 @@ async def _run_domain_invariants_test() -> None:
                         "rubric_version_id": rubric_version_1_id,
                         "code": "CRIT_CODE_QUALITY",
                         "title": "Code Quality and Design",
-                        "description": "Evaluates clarity, architecture, and maintainability",
+                        "description": (
+                            "Evaluates clarity, architecture, and maintainability"
+                        ),
                         "scope": "SECTION",
                         "weight": 100.0,
                         "position": 1,
@@ -265,9 +325,9 @@ async def _run_domain_invariants_test() -> None:
                             published_at, closed_at, revision
                         )
                         VALUES (
-                            :id, :course_id, :created_by_teacher_id, :rubric_version_id,
-                            :title, :description, :due_at, 3, 'OPEN'::assignment_status,
-                            :published_at, NULL, 1
+                            :id, :course_id, :created_by_teacher_id,
+                            :rubric_version_id, :title, :description, :due_at, 3,
+                            'OPEN'::assignment_status, :published_at, NULL, 1
                         )
                     """),
                     {
@@ -282,8 +342,12 @@ async def _run_domain_invariants_test() -> None:
                     },
                 )
 
-                # 5. Reject Submission by Student without ACTIVE Student Membership in Assignment's Course
-                with pytest.raises(DBAPIError, match=r"student must have active course membership"):
+                # 5. Reject Submission by Student without ACTIVE Student
+                # Membership in Assignment's Course
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"student must have active course membership",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -310,8 +374,12 @@ async def _run_domain_invariants_test() -> None:
                     },
                 )
 
-                # 6. After valid Submission, reject UPDATE/DELETE of rubric version and criterion, and assignment rubric change
-                with pytest.raises(DBAPIError, match=r"rubric version is immutable after first submission"):
+                # 6. After valid Submission, reject UPDATE/DELETE of rubric
+                # version and criterion, and assignment rubric change
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"rubric version is immutable after first submission",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -322,7 +390,10 @@ async def _run_domain_invariants_test() -> None:
                             {"id": rubric_version_1_id},
                         )
 
-                with pytest.raises(DBAPIError, match=r"rubric version is immutable after first submission"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"rubric version is immutable after first submission",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -332,7 +403,10 @@ async def _run_domain_invariants_test() -> None:
                             {"id": rubric_version_1_id},
                         )
 
-                with pytest.raises(DBAPIError, match=r"criterion version is immutable after first submission"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"criterion version is immutable after first submission",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -343,7 +417,10 @@ async def _run_domain_invariants_test() -> None:
                             {"id": criterion_version_1_id},
                         )
 
-                with pytest.raises(DBAPIError, match=r"criterion version is immutable after first submission"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"criterion version is immutable after first submission",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -353,7 +430,10 @@ async def _run_domain_invariants_test() -> None:
                             {"id": criterion_version_1_id},
                         )
 
-                with pytest.raises(DBAPIError, match=r"assignment rubric is immutable after first submission"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"assignment rubric is immutable after first submission",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -367,18 +447,22 @@ async def _run_domain_invariants_test() -> None:
                             },
                         )
 
-                # 7. Audit actor constraint rejects USER/null actor and SYSTEM/non-null actor
+                # 7. Audit actor constraint rejects USER/null actor and
+                # SYSTEM/non-null actor
                 with pytest.raises(DBAPIError, match=r"ck_audit_events_actor"):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
                                 INSERT INTO audit_events (
-                                    id, resource_type, resource_id, action, actor_type,
-                                    actor_user_id, before, after, reason
+                                    id, resource_type, resource_id, action,
+                                    actor_type, actor_user_id, before, after,
+                                    reason
                                 )
                                 VALUES (
-                                    :id, 'COURSE', :resource_id, 'UPDATE', 'USER'::audit_actor_type,
-                                    NULL, '{"name": "Old"}'::jsonb, '{"name": "New"}'::jsonb, 'Update course'
+                                    :id, 'COURSE', :resource_id, 'UPDATE',
+                                    'USER'::audit_actor_type, NULL,
+                                    '{"name": "Old"}'::jsonb,
+                                    '{"name": "New"}'::jsonb, 'Update course'
                                 )
                             """),
                             {
@@ -392,12 +476,16 @@ async def _run_domain_invariants_test() -> None:
                         await conn.execute(
                             text("""
                                 INSERT INTO audit_events (
-                                    id, resource_type, resource_id, action, actor_type,
-                                    actor_user_id, before, after, reason
+                                    id, resource_type, resource_id, action,
+                                    actor_type, actor_user_id, before, after,
+                                    reason
                                 )
                                 VALUES (
-                                    :id, 'COURSE', :resource_id, 'UPDATE', 'SYSTEM'::audit_actor_type,
-                                    :actor_user_id, '{"name": "Old"}'::jsonb, '{"name": "New"}'::jsonb, 'System auto-update'
+                                    :id, 'COURSE', :resource_id, 'UPDATE',
+                                    'SYSTEM'::audit_actor_type, :actor_user_id,
+                                    '{"name": "Old"}'::jsonb,
+                                    '{"name": "New"}'::jsonb,
+                                    'System auto-update'
                                 )
                             """),
                             {
@@ -407,7 +495,8 @@ async def _run_domain_invariants_test() -> None:
                             },
                         )
 
-                # 8. Insert valid SYSTEM AuditEvent with before/after object and nonblank reason
+                # 8. Insert valid SYSTEM AuditEvent with before/after object
+                # and nonblank reason
                 await conn.execute(
                     text("""
                         INSERT INTO audit_events (
@@ -415,8 +504,11 @@ async def _run_domain_invariants_test() -> None:
                             actor_user_id, before, after, reason
                         )
                         VALUES (
-                            :id, 'ASSIGNMENT', :resource_id, 'PUBLISH', 'SYSTEM'::audit_actor_type,
-                            NULL, '{"status": "DRAFT"}'::jsonb, '{"status": "OPEN"}'::jsonb, 'Automated scheduler publish'
+                            :id, 'ASSIGNMENT', :resource_id, 'PUBLISH',
+                            'SYSTEM'::audit_actor_type, NULL,
+                            '{"status": "DRAFT"}'::jsonb,
+                            '{"status": "OPEN"}'::jsonb,
+                            'Automated scheduler publish'
                         )
                     """),
                     {
@@ -426,7 +518,10 @@ async def _run_domain_invariants_test() -> None:
                 )
 
                 # Reject UPDATE and DELETE on audit events (append-only)
-                with pytest.raises(DBAPIError, match=r"audit events are append-only"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"audit events are append-only",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
@@ -437,7 +532,10 @@ async def _run_domain_invariants_test() -> None:
                             {"id": audit_event_id},
                         )
 
-                with pytest.raises(DBAPIError, match=r"audit events are append-only"):
+                with pytest.raises(
+                    DBAPIError,
+                    match=r"audit events are append-only",
+                ):
                     async with conn.begin_nested():
                         await conn.execute(
                             text("""
