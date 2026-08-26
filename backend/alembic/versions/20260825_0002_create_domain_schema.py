@@ -143,13 +143,11 @@ def upgrade() -> None:
             name="ck_users_email_not_blank",
         ),
         sa.CheckConstraint(
-            "length(btrim(display_name)) > 0 "
-            "AND display_name !~ '^[[:space:]]*$'",
+            "length(btrim(display_name)) > 0 " "AND display_name !~ '^[[:space:]]*$'",
             name="ck_users_display_name_not_blank",
         ),
         sa.CheckConstraint(
-            "length(btrim(password_hash)) > 0 "
-            "AND password_hash !~ '^[[:space:]]*$'",
+            "length(btrim(password_hash)) > 0 " "AND password_hash !~ '^[[:space:]]*$'",
             name="ck_users_password_hash_not_blank",
         ),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
@@ -401,8 +399,7 @@ def upgrade() -> None:
             name="ck_criterion_versions_title_not_blank",
         ),
         sa.CheckConstraint(
-            "length(btrim(description)) > 0 "
-            "AND description !~ '^[[:space:]]*$'",
+            "length(btrim(description)) > 0 " "AND description !~ '^[[:space:]]*$'",
             name="ck_criterion_versions_description_not_blank",
         ),
         sa.CheckConstraint(
@@ -524,9 +521,7 @@ def upgrade() -> None:
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("due_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column(
-            "first_submission_at", sa.DateTime(timezone=True), nullable=True
-        ),
+        sa.Column("first_submission_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "max_submissions", sa.Integer(), server_default=sa.text("3"), nullable=False
         ),
@@ -724,8 +719,7 @@ def upgrade() -> None:
             "sha256 ~ '^[0-9a-f]{64}$'", name="ck_document_versions_sha256_format"
         ),
         sa.CheckConstraint(
-            "length(btrim(storage_key)) > 0 "
-            "AND storage_key !~ '^[[:space:]]*$'",
+            "length(btrim(storage_key)) > 0 " "AND storage_key !~ '^[[:space:]]*$'",
             name="ck_document_versions_storage_key_not_blank",
         ),
         sa.CheckConstraint(
@@ -734,8 +728,7 @@ def upgrade() -> None:
             name="ck_document_versions_original_filename_not_blank",
         ),
         sa.CheckConstraint(
-            "length(btrim(content_type)) > 0 "
-            "AND content_type !~ '^[[:space:]]*$'",
+            "length(btrim(content_type)) > 0 " "AND content_type !~ '^[[:space:]]*$'",
             name="ck_document_versions_content_type_not_blank",
         ),
         sa.ForeignKeyConstraint(
@@ -859,8 +852,7 @@ def upgrade() -> None:
             "reason !~ '^[[:space:]]*$'", name="ck_audit_events_reason_not_blank"
         ),
         sa.CheckConstraint(
-            "length(btrim(resource_type)) > 0 "
-            "AND resource_type !~ '^[[:space:]]*$'",
+            "length(btrim(resource_type)) > 0 " "AND resource_type !~ '^[[:space:]]*$'",
             name="ck_audit_events_resource_type_not_blank",
         ),
         sa.CheckConstraint(
@@ -1055,7 +1047,8 @@ def upgrade() -> None:
             AS $$
             BEGIN
                 IF OLD.first_submission_at IS NOT NULL
-                   AND NEW.first_submission_at IS DISTINCT FROM OLD.first_submission_at THEN
+                   AND NEW.first_submission_at IS DISTINCT FROM
+                       OLD.first_submission_at THEN
                     RAISE EXCEPTION USING
                         ERRCODE = '23514',
                         MESSAGE = 'assignment submission freeze is immutable';
@@ -1094,7 +1087,8 @@ def upgrade() -> None:
                     ) THEN
                         RAISE EXCEPTION USING
                             ERRCODE = '23514',
-                            MESSAGE = 'rubric version is immutable after first submission';
+                            MESSAGE = 'rubric version is immutable '
+                                || 'after first submission';
                     END IF;
                 END LOOP;
                 IF TG_OP = 'DELETE' THEN
@@ -1133,7 +1127,8 @@ def upgrade() -> None:
                     ) THEN
                         RAISE EXCEPTION USING
                             ERRCODE = '23514',
-                            MESSAGE = 'criterion version is immutable after first submission';
+                            MESSAGE = 'criterion version is immutable '
+                                || 'after first submission';
                     END IF;
                 END LOOP;
             END;
@@ -1162,7 +1157,9 @@ def upgrade() -> None:
                         ) AS parent_ids
                         ORDER BY parent_id
                     LOOP
-                        PERFORM fn_assert_criterion_parent_mutable(parent_row.parent_id);
+                        PERFORM fn_assert_criterion_parent_mutable(
+                            parent_row.parent_id
+                        );
                     END LOOP;
                 END IF;
                 IF TG_OP = 'DELETE' THEN
@@ -1190,7 +1187,8 @@ def upgrade() -> None:
                    AND OLD.first_submission_at IS NOT NULL THEN
                     RAISE EXCEPTION USING
                         ERRCODE = '23514',
-                        MESSAGE = 'assignment rubric is immutable after first submission';
+                        MESSAGE = 'assignment rubric is immutable '
+                            || 'after first submission';
                 END IF;
                 RETURN NEW;
             END;
@@ -1232,7 +1230,8 @@ def downgrade() -> None:
     )
     op.execute(
         sa.text(
-            "DROP TRIGGER IF EXISTS trg_protect_assignment_submission_freeze ON assignments"
+            "DROP TRIGGER IF EXISTS trg_protect_assignment_submission_freeze "
+            "ON assignments"
         )
     )
     op.execute(
@@ -1258,8 +1257,12 @@ def downgrade() -> None:
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_audit_events_append_only()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_assignment_rubric()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_lock_assignment_rubric_insert()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_protect_assignment_submission_freeze()"))
-    op.execute(sa.text("DROP FUNCTION IF EXISTS fn_assert_criterion_parent_mutable(uuid)"))
+    op.execute(
+        sa.text("DROP FUNCTION IF EXISTS fn_protect_assignment_submission_freeze()")
+    )
+    op.execute(
+        sa.text("DROP FUNCTION IF EXISTS fn_assert_criterion_parent_mutable(uuid)")
+    )
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_criterion_version()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_immut_rubric_version()"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS fn_validate_submission_student()"))

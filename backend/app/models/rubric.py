@@ -184,8 +184,7 @@ class CriterionVersion(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base)
             name="ck_criterion_versions_title_not_blank",
         ),
         sa.CheckConstraint(
-            "length(btrim(description)) > 0 "
-            "AND description !~ '^[[:space:]]*$'",
+            "length(btrim(description)) > 0 " "AND description !~ '^[[:space:]]*$'",
             name="ck_criterion_versions_description_not_blank",
         ),
         sa.CheckConstraint(

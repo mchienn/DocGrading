@@ -970,8 +970,6 @@ async def _run_criterion_freeze_after_delete_case(conn, ids) -> None:
                 )
 
 
-
-
 async def _run_criterion_insert_into_frozen_case(conn, ids) -> None:
     await _insert_durable_submission(conn, ids)
     await conn.execute(
@@ -1091,9 +1089,9 @@ def test_postgresql_preserves_rubric_freeze_after_submission_delete() -> None:
     asyncio.run(_run_durable_freeze_case(_run_rubric_freeze_after_delete_case))
 
 
-
 def test_postgresql_preserves_criterion_freeze_after_submission_delete() -> None:
     asyncio.run(_run_durable_freeze_case(_run_criterion_freeze_after_delete_case))
+
 
 def test_postgresql_rejects_criterion_insert_into_frozen_rubric() -> None:
     asyncio.run(_run_durable_freeze_case(_run_criterion_insert_into_frozen_case))
@@ -1104,7 +1102,9 @@ def test_postgresql_rejects_criterion_reparent_into_frozen_rubric() -> None:
 
 
 def test_postgresql_reassignment_freezes_both_assignments_durably() -> None:
-    asyncio.run(_run_durable_freeze_case(_run_reassignment_freezes_both_assignments_case))
+    asyncio.run(
+        _run_durable_freeze_case(_run_reassignment_freezes_both_assignments_case)
+    )
 
 
 async def _wait_for_advisory_wait(
@@ -1335,7 +1335,9 @@ async def _run_whitespace_user_display_name_constraint_test() -> None:
                             """),
                             {
                                 "id": user_id,
-                                "email": f"blank_display_{uuid.uuid4().hex}@example.com",
+                                "email": (
+                                    f"blank_display_{uuid.uuid4().hex}@example.com"
+                                ),
                                 "display_name": "\t\n",
                             },
                         )

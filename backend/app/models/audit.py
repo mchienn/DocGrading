@@ -41,8 +41,7 @@ class AuditEvent(UUIDPrimaryKeyMixin, Base):
             name="ck_audit_events_reason_not_blank",
         ),
         sa.CheckConstraint(
-            "length(btrim(resource_type)) > 0 "
-            "AND resource_type !~ '^[[:space:]]*$'",
+            "length(btrim(resource_type)) > 0 " "AND resource_type !~ '^[[:space:]]*$'",
             name="ck_audit_events_resource_type_not_blank",
         ),
         sa.CheckConstraint(

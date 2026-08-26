@@ -94,8 +94,7 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="ck_document_versions_sha256_format",
         ),
         sa.CheckConstraint(
-            "length(btrim(storage_key)) > 0 "
-            "AND storage_key !~ '^[[:space:]]*$'",
+            "length(btrim(storage_key)) > 0 " "AND storage_key !~ '^[[:space:]]*$'",
             name="ck_document_versions_storage_key_not_blank",
         ),
         sa.CheckConstraint(
@@ -104,8 +103,7 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="ck_document_versions_original_filename_not_blank",
         ),
         sa.CheckConstraint(
-            "length(btrim(content_type)) > 0 "
-            "AND content_type !~ '^[[:space:]]*$'",
+            "length(btrim(content_type)) > 0 " "AND content_type !~ '^[[:space:]]*$'",
             name="ck_document_versions_content_type_not_blank",
         ),
     )

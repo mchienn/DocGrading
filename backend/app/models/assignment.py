@@ -154,7 +154,6 @@ class AssignmentRequirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "length(btrim(label)) > 0 AND label !~ '^[[:space:]]*$'",
             name="ck_assignment_requirements_label_not_blank",
         ),
-
     )
     assignment_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
