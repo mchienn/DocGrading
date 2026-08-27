@@ -15,6 +15,7 @@ from app.models.enums import (
 )
 from app.models.identity import User
 from app.models.rubric import CriterionVersion, RubricVersion, TemplateVersion
+from app.models.session import Session
 from app.models.submission import DocumentVersion, Submission
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "MembershipStatus",
     "RubricStatus",
     "RubricVersion",
+    "Session",
     "Submission",
     "TemplateVersion",
     "User",
