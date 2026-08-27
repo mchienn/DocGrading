@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     redis_host: str = "localhost"
     redis_port: int = 6379
-    storage_path: Path = Path("storage")
+    session_lifetime_seconds: int = 86400
 
     @property
     def database_url(self) -> str:

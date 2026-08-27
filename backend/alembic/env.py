@@ -36,6 +36,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        version_table_schema="public",
     )
 
     with context.begin_transaction():

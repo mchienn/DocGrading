@@ -14,6 +14,7 @@ from app.models import (
     DocumentVersion,
     Membership,
     RubricVersion,
+    Session,
     Submission,
     TemplateVersion,
     User,
@@ -32,6 +33,7 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     DocumentVersion: "document_versions",
     AnalysisJob: "analysis_jobs",
     AuditEvent: "audit_events",
+    Session: "sessions",
 }
 
 
