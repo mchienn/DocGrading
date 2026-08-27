@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.api.schemas import LoginRequest, UserResponse
+from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.models.identity import User
 from app.services.audit import record_audit
@@ -52,6 +53,7 @@ async def login(
         httponly=True,
         samesite="lax",
         path="/api",
+        secure=get_settings().session_cookie_secure,
         max_age=int(
             (session.expires_at - session.created_at).total_seconds(),
         ),

@@ -81,10 +81,15 @@ async def get_valid_session(
     session_id: uuid.UUID,
 ) -> Session | None:
     """Load a non-expired, non-revoked session with its user eagerly joined."""
-    stmt = select(Session).where(
-        Session.id == session_id,
-        Session.revoked_at.is_(None),
-        Session.expires_at > datetime.now(UTC),
+    stmt = (
+        select(Session)
+        .join(Session.user)
+        .where(
+            Session.id == session_id,
+            Session.revoked_at.is_(None),
+            Session.expires_at > datetime.now(UTC),
+            User.status == UserStatus.ACTIVE,
+        )
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
