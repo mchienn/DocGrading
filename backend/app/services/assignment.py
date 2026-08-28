@@ -24,8 +24,20 @@ async def create_assignment(
     description: str | None = None,
     due_at: datetime,
     max_submissions: int = 3,
+    actor_roles: list[str] | None = None,
 ) -> Assignment:
     """Create a new assignment in DRAFT status."""
+    # Validate rubric exists and caller owns it
+    rv = await db.get(RubricVersion, rubric_version_id)
+    if rv is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Rubric version not found",
+        )
+    from app.services.rubric import _check_rubric_ownership
+
+    _check_rubric_ownership(rv, created_by_teacher_id, actor_roles or [])
+
     assignment = Assignment(
         id=uuid.uuid4(),
         course_id=course_id,
@@ -54,6 +66,7 @@ async def update_assignment(
     assignment: Assignment,
     *,
     actor_user_id: uuid.UUID,
+    actor_roles: list[str] | None = None,
     title: str | None = None,
     description: str | None = None,
     due_at: datetime | None = None,
@@ -94,6 +107,16 @@ async def update_assignment(
         rubric_version_id is not None
         and rubric_version_id != assignment.rubric_version_id
     ):
+        # Validate new rubric exists and caller owns it
+        rv = await db.get(RubricVersion, rubric_version_id)
+        if rv is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rubric version not found",
+            )
+        from app.services.rubric import _check_rubric_ownership
+
+        _check_rubric_ownership(rv, actor_user_id, actor_roles or [])
         before["rubric_version_id"] = str(assignment.rubric_version_id)
         assignment.rubric_version_id = rubric_version_id
         after["rubric_version_id"] = str(rubric_version_id)

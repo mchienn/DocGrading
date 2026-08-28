@@ -260,6 +260,7 @@ async def create_new_version_from(
     result = await db.execute(stmt)
     source_criteria = list(result.scalars().all())
 
+    cloned_weight = Decimal("0.00")
     for sc in source_criteria:
         new_cv = CriterionVersion(
             id=uuid.uuid4(),
@@ -278,7 +279,10 @@ async def create_new_version_from(
             evidence_requirements=sc.evidence_requirements,
         )
         db.add(new_cv)
+        if sc.is_enabled:
+            cloned_weight += sc.weight
 
+    new_rv.total_weight = cloned_weight
     await db.flush()
 
     await record_audit(

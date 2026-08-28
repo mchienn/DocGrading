@@ -29,6 +29,17 @@ async def create_course(
     )
     db.add(course)
     await db.flush()
+
+    await record_audit(
+        db,
+        actor_user_id=owner_teacher_id,
+        resource_type="Course",
+        resource_id=course.id,
+        action="CREATE",
+        after={"code": code, "name": name, "term": term},
+        reason="Course created",
+    )
+    await db.flush()
     return course
 
 

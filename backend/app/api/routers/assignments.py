@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
+    get_current_user,
     get_owned_course,
     get_visible_assignments,
     require_roles,
@@ -45,6 +46,7 @@ async def create_assignment(
         description=body.description,
         due_at=body.due_at,
         max_submissions=body.max_submissions,
+        actor_roles=[r.value for r in user.roles],
     )
     await db.commit()
     return AssignmentResponse.model_validate(assignment)
@@ -76,9 +78,27 @@ async def _get_assignment_with_ownership(
 
 @router.get("/{assignment_id}", response_model=AssignmentResponse)
 async def get_assignment(
-    assignment: Assignment = Depends(_get_assignment_with_ownership),
+    course_id: uuid.UUID,
+    assignment_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
 ) -> AssignmentResponse:
-    """Get a single assignment (owner/Admin)."""
+    """Get a single assignment (respects student visibility)."""
+    assignment = await assignment_svc.get_assignment(db, assignment_id)
+    if assignment is None or assignment.course_id != course_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assignment not found",
+        )
+    # Students can only see OPEN/CLOSED
+    from app.api.deps import visible_assignment_statuses
+
+    allowed = visible_assignment_statuses(user)
+    if allowed is not None and assignment.status not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assignment not found",
+        )
     return AssignmentResponse.model_validate(assignment)
 
 
@@ -94,6 +114,7 @@ async def update_assignment(
         db,
         assignment,
         actor_user_id=user.id,
+        actor_roles=[r.value for r in user.roles],
         title=body.title,
         description=body.description,
         due_at=body.due_at,
