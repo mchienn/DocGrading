@@ -38,6 +38,15 @@ def _replace_job_enum(*, new_values: str, expression: str) -> None:
 def upgrade() -> None:
     op.execute(sa.text("SET search_path TO public"))
 
+    op.execute(
+        sa.text(
+            "UPDATE public.analysis_jobs "
+            "SET snapshot = COALESCE(snapshot, '{}'::jsonb) || "
+            "'{\"_legacy_cancelled\": true}'::jsonb "
+            "WHERE status::text = 'CANCELLED'"
+        )
+    )
+
     # The partial index depends on the old enum's comparison operator; remove
     # it before replacing the enum type, then restore logical uniqueness below.
     op.drop_index(
@@ -58,6 +67,11 @@ def upgrade() -> None:
         "uq_analysis_jobs_document_rubric",
         "analysis_jobs",
         ["document_version_id", "rubric_version_id"],
+        schema="public",
+    )
+    op.add_column(
+        "analysis_jobs",
+        sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
         schema="public",
     )
 
@@ -103,6 +117,7 @@ def downgrade() -> None:
     op.drop_column("document_versions", "idempotency_key", schema="public")
     op.drop_column("document_versions", "declared_sha256", schema="public")
 
+    op.drop_column("analysis_jobs", "heartbeat_at", schema="public")
     op.drop_constraint(
         "uq_analysis_jobs_document_rubric",
         "analysis_jobs",
@@ -113,9 +128,17 @@ def downgrade() -> None:
         new_values="'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'",
         expression=(
             "CASE status::text WHEN 'DONE' THEN 'SUCCEEDED' "
-            "WHEN 'ERROR' THEN 'FAILED' ELSE status::text END::text::"
-            "public.analysis_job_status"
+            "WHEN 'ERROR' THEN CASE WHEN (snapshot ? '_legacy_cancelled') "
+            "THEN 'CANCELLED' ELSE 'FAILED' END "
+            "ELSE status::text END::text::public.analysis_job_status"
         ),
+    )
+    op.execute(
+        sa.text(
+            "UPDATE public.analysis_jobs "
+            "SET snapshot = snapshot - '_legacy_cancelled' "
+            "WHERE snapshot ? '_legacy_cancelled'"
+        )
     )
     op.create_index(
         "uq_analysis_jobs_active_document_rubric",
