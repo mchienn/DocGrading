@@ -154,6 +154,9 @@ async def get_accessible_course(
     if UserRole.ADMIN in user.roles:
         return course
 
+    if UserRole.TEACHER in user.roles and course.owner_teacher_id == user.id:
+        return course
+
     if UserRole.STUDENT in user.roles:
         stmt = select(Membership.id).where(
             Membership.course_id == course.id,

@@ -2451,3 +2451,149 @@ async def _run_published_rubric_immutability_test() -> None:
 
 def test_postgresql_rejects_published_rubric_mutation() -> None:
     asyncio.run(_run_published_rubric_immutability_test())
+
+
+async def _run_concurrent_course_archive_test() -> None:
+    """Concurrent archive attempts produce one transition and one audit event."""
+    from fastapi import HTTPException
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.models.course import Course
+    from app.services.course import archive_course
+
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    teacher_id = uuid.uuid4()
+    course_id = uuid.uuid4()
+    audit_event_ids: tuple[uuid.UUID, ...] = ()
+
+    try:
+        async with engine.begin() as setup_conn:
+            await setup_conn.execute(
+                text("""
+                    INSERT INTO public.users (
+                        id, email, display_name, password_hash,
+                        roles, status, revision
+                    )
+                    VALUES (
+                        :id, :email, 'Archive Race Teacher', 'hash',
+                        ARRAY['TEACHER']::public.user_role[],
+                        'ACTIVE'::public.user_status, 1
+                    )
+                """),
+                {
+                    "id": teacher_id,
+                    "email": f"archive_race_{uuid.uuid4().hex}@example.com",
+                },
+            )
+            await setup_conn.execute(
+                text("""
+                    INSERT INTO public.courses (
+                        id, code, name, term, status,
+                        owner_teacher_id, revision
+                    )
+                    VALUES (
+                        :id, :code, 'Archive Race Course', 'Fall 2026',
+                        'ACTIVE'::public.course_status, :teacher_id, 1
+                    )
+                """),
+                {
+                    "id": course_id,
+                    "code": f"ARCHIVE_RACE_{uuid.uuid4().hex}",
+                    "teacher_id": teacher_id,
+                },
+            )
+
+        async with (
+            session_factory() as first_session,
+            session_factory() as second_session,
+        ):
+            first_course = await first_session.get(Course, course_id)
+            second_course = await second_session.get(Course, course_id)
+            assert first_course is not None
+            assert second_course is not None
+
+            async def attempt_archive(session, course) -> str:
+                try:
+                    await archive_course(
+                        session,
+                        course,
+                        actor_user_id=teacher_id,
+                    )
+                    await session.commit()
+                    return "success"
+                except HTTPException as exc:
+                    await session.rollback()
+                    assert exc.status_code == 409
+                    return "conflict"
+
+            outcomes = await asyncio.gather(
+                attempt_archive(first_session, first_course),
+                attempt_archive(second_session, second_course),
+            )
+
+        async with engine.connect() as verify_conn:
+            course_state = (
+                await verify_conn.execute(
+                    text("""
+                        SELECT status::text, revision
+                        FROM public.courses
+                        WHERE id = :id
+                    """),
+                    {"id": course_id},
+                )
+            ).one()
+            audit_event_ids = tuple(
+                (
+                    await verify_conn.execute(
+                        text("""
+                            SELECT id
+                            FROM public.audit_events
+                            WHERE resource_type = 'Course'
+                              AND resource_id = :course_id
+                              AND action = 'ARCHIVE'
+                        """),
+                        {"course_id": course_id},
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        assert sorted(outcomes) == ["conflict", "success"]
+        assert course_state == ("ARCHIVED", 2)
+        assert len(audit_event_ids) == 1
+    finally:
+        if not audit_event_ids:
+            with contextlib.suppress(Exception):
+                async with engine.connect() as cleanup_lookup:
+                    audit_event_ids = tuple(
+                        (
+                            await cleanup_lookup.execute(
+                                text("""
+                                    SELECT id
+                                    FROM public.audit_events
+                                    WHERE resource_type = 'Course'
+                                      AND resource_id = :course_id
+                                      AND action = 'ARCHIVE'
+                                """),
+                                {"course_id": course_id},
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+        try:
+            await _cleanup_domain_rows(
+                engine,
+                course_ids=(course_id,),
+                audit_event_ids=audit_event_ids,
+                user_ids=(teacher_id,),
+            )
+        finally:
+            await engine.dispose()
+
+
+def test_postgresql_serializes_concurrent_course_archives() -> None:
+    asyncio.run(_run_concurrent_course_archive_test())

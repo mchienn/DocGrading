@@ -148,6 +148,23 @@ async def archive_course(
             detail="Course is already archived",
         )
 
+    result = await db.execute(
+        select(Course)
+        .where(Course.id == course.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    course = result.scalar_one_or_none()
+    if course is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Course not found",
+        )
+    if course.status == CourseStatus.ARCHIVED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Course is already archived",
+        )
     course.status = CourseStatus.ARCHIVED
     course.revision += 1
     await record_audit(

@@ -779,7 +779,9 @@ class TestCourseArchiveLifecycle:
             course = _make_course(teacher.id)
             course.status = "ACTIVE"
             course.revision = 1
-            db = _mock_db()
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = course
+            db = _mock_db(execute=AsyncMock(return_value=result))
 
             with patch(
                 "app.services.course.record_audit", new_callable=AsyncMock
@@ -1000,6 +1002,26 @@ class TestStudentAssignmentScope:
             )
 
             assert await get_accessible_course(course.id, dual_role_user, db) is course
+
+        asyncio.run(_run())
+
+    def test_dual_role_course_owner_does_not_require_membership(self) -> None:
+        """Course ownership takes precedence over the Student membership scope."""
+
+        async def _run() -> None:
+            from app.api.deps import get_accessible_course
+
+            owner = _make_user(UserRole.TEACHER)
+            owner.roles.append(UserRole.STUDENT)
+            course = _make_course(owner.id)
+            execute = AsyncMock()
+            db = _mock_db(
+                get=AsyncMock(return_value=course),
+                execute=execute,
+            )
+
+            assert await get_accessible_course(course.id, owner, db) is course
+            execute.assert_not_awaited()
 
         asyncio.run(_run())
 
