@@ -102,7 +102,7 @@ async def update_heartbeat(db: AsyncSession, job_id: uuid.UUID) -> bool:
 
 
 def _get_lease_seconds() -> int:
-    return getattr(get_settings(), "analysis_job_lease_seconds", 300)
+    return get_settings().analysis_job_lease_seconds
 
 
 async def _mark_running(db: AsyncSession, job: AnalysisJob) -> None:
@@ -128,6 +128,8 @@ async def _mark_running(db: AsyncSession, job: AnalysisJob) -> None:
     if doc is not None:
         doc_before = doc.status.value
         doc.status = DocumentStatus.PROCESSING
+        doc.failure_code = None
+        doc.failure_detail = None
         await record_system_audit(
             db,
             resource_type="DocumentVersion",
@@ -279,6 +281,8 @@ async def mark_done(db: AsyncSession, job: AnalysisJob) -> None:
     if doc is not None:
         doc_before = doc.status.value
         doc.status = DocumentStatus.AWAITING_REVIEW
+        doc.failure_code = None
+        doc.failure_detail = None
         await record_system_audit(
             db,
             resource_type="DocumentVersion",

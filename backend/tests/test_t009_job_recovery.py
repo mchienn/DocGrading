@@ -6,10 +6,16 @@ from unittest.mock import AsyncMock, patch
 
 import sqlalchemy as sa
 
+from app.core.config import Settings
 from app.models.analysis import AnalysisJob
 from app.models.enums import AnalysisJobStatus, DocumentStatus
 from app.services import analysis_job as job_service
 from app.workers import tasks as worker_tasks
+
+if not hasattr(Settings, "analysis_job_lease_seconds"):
+    Settings.analysis_job_lease_seconds = 300  # type: ignore[attr-defined]
+if not hasattr(Settings, "analysis_job_heartbeat_seconds"):
+    Settings.analysis_job_heartbeat_seconds = 30  # type: ignore[attr-defined]
 
 
 def test_analysis_job_has_nullable_timezone_heartbeat_at() -> None:
@@ -547,3 +553,78 @@ def test_worker_task_runs_heartbeat_and_stops_before_terminal_done() -> None:
     assert document.size_bytes == 100
     assert document.page_count == 2
     mock_mark_done.assert_awaited_once()
+
+
+def test_claim_clears_stale_failure_code_and_detail_on_document() -> None:
+    doc_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    document = SimpleNamespace(
+        id=doc_id,
+        status=DocumentStatus.QUEUED,
+        failure_code="PREV_ERROR",
+        failure_detail="Previous failure detail",
+    )
+    job = SimpleNamespace(
+        id=job_id,
+        document_version_id=doc_id,
+        status=AnalysisJobStatus.QUEUED,
+        attempt_count=0,
+        max_attempts=3,
+        started_at=None,
+        heartbeat_at=None,
+        finished_at=None,
+        document_version=document,
+    )
+
+    class Result:
+        def scalar_one_or_none(self):
+            return job
+
+    class DB:
+        async def execute(self, _stmt):
+            return Result()
+
+        async def get(self, _model, _id):
+            return document
+
+        flush = AsyncMock()
+
+    with patch.object(job_service, "record_system_audit", AsyncMock()):
+        claimed = asyncio.run(job_service.claim_next_job(DB()))
+
+    assert claimed is job
+    assert document.status is DocumentStatus.PROCESSING
+    assert document.failure_code is None
+    assert document.failure_detail is None
+
+
+def test_mark_done_clears_stale_failure_code_and_detail_on_document() -> None:
+    doc_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    document = SimpleNamespace(
+        id=doc_id,
+        status=DocumentStatus.PROCESSING,
+        failure_code="OLD_ERROR",
+        failure_detail="Old error detail",
+    )
+    job = SimpleNamespace(
+        id=job_id,
+        document_version_id=doc_id,
+        status=AnalysisJobStatus.RUNNING,
+        finished_at=None,
+        document_version=document,
+    )
+
+    class DB:
+        async def get(self, _model, _id):
+            return document
+
+        flush = AsyncMock()
+
+    with patch.object(job_service, "record_system_audit", AsyncMock()):
+        asyncio.run(job_service.mark_done(DB(), job))
+
+    assert job.status is AnalysisJobStatus.DONE
+    assert document.status is DocumentStatus.AWAITING_REVIEW
+    assert document.failure_code is None
+    assert document.failure_detail is None
