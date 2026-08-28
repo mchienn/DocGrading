@@ -88,11 +88,12 @@ Email unique case-insensitive bằng unique index trên `lower(email)`. Role mem
 
 `courses` lưu:
 
-- `id`, `code`, `name`, `term`;
+- `id`, `code`, `name`, `term`, `status`;
 - `owner_teacher_id → users.id`;
 - `revision`, `created_at`, `updated_at`.
 
-Code unique. Trigger xác nhận owner có global role `TEACHER`.
+Code unique. `status` nhận `ACTIVE` hoặc `ARCHIVED`; Course archive chỉ đọc và không
+nhận Assignment mới. Trigger xác nhận owner có global role `TEACHER`.
 
 `memberships` lưu:
 

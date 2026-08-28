@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
+    get_accessible_course,
+    get_active_owned_course,
     get_current_user,
     get_owned_course,
     get_visible_assignments,
@@ -63,7 +65,7 @@ async def list_assignments(
 async def _get_assignment_with_ownership(
     course_id: uuid.UUID,
     assignment_id: uuid.UUID,
-    course: Course = Depends(get_owned_course),
+    course: Course = Depends(get_active_owned_course),
     db: AsyncSession = Depends(get_db_session),
 ) -> Assignment:
     """Load an assignment and verify it belongs to the owned course."""
@@ -78,14 +80,14 @@ async def _get_assignment_with_ownership(
 
 @router.get("/{assignment_id}", response_model=AssignmentResponse)
 async def get_assignment(
-    course_id: uuid.UUID,
     assignment_id: uuid.UUID,
+    course: Course = Depends(get_accessible_course),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AssignmentResponse:
     """Get a single assignment (respects student visibility)."""
     assignment = await assignment_svc.get_assignment(db, assignment_id)
-    if assignment is None or assignment.course_id != course_id:
+    if assignment is None or assignment.course_id != course.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assignment not found",

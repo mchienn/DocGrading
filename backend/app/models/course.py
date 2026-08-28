@@ -8,7 +8,12 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import MembershipRole, MembershipStatus, pg_enum
+from app.models.enums import (
+    CourseStatus,
+    MembershipRole,
+    MembershipStatus,
+    pg_enum,
+)
 from app.models.mixins import RevisionMixin, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
@@ -38,6 +43,11 @@ class Course(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
     code: Mapped[str] = mapped_column(sa.String(64), nullable=False)
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     term: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    status: Mapped[CourseStatus] = mapped_column(
+        pg_enum(CourseStatus, name="course_status"),
+        default=CourseStatus.ACTIVE,
+        nullable=False,
+    )
     owner_teacher_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         sa.ForeignKey(

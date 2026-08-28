@@ -133,7 +133,16 @@ Một rubric có thể thay đổi trọng số hoặc tắt tiêu chí trước
 - `ReviewDecision`, `PublishedResultVersion`, `ReviewRequest`.
 - `Notification`, `AuditEvent`.
 
-### 5.2. Vòng đời Assignment
+### 5.2. Vòng đời Course
+
+```text
+ACTIVE → ARCHIVED
+```
+
+- `ARCHIVED` chỉ đọc, vẫn giữ lịch sử Assignment, Membership và audit.
+- Muốn mở Course mới phải tạo Course khác; không unarchive hoặc ghi đè Course đã archive.
+
+### 5.3. Vòng đời Assignment
 
 ```text
 DRAFT → OPEN → CLOSED → ARCHIVED
@@ -143,7 +152,7 @@ DRAFT → OPEN → CLOSED → ARCHIVED
 - `CLOSED` không nhận phiên bản mới nhưng giảng viên vẫn có thể review và công bố.
 - `ARCHIVED` chỉ đọc; muốn sử dụng lại phải nhân bản thành đợt mới.
 
-### 5.3. Vòng đời một phiên bản bài nộp
+### 5.4. Vòng đời một phiên bản bài nộp
 
 ```text
 UPLOADING → VALIDATING ──→ INVALID

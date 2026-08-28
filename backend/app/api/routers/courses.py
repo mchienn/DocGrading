@@ -5,7 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_owned_course, require_roles
+from app.api.deps import (
+    get_active_owned_course,
+    get_owned_course,
+    require_roles,
+)
 from app.api.schemas_course import CourseCreate, CourseResponse, CourseUpdate
 from app.db.session import get_db_session
 from app.models.course import Course
@@ -36,7 +40,7 @@ async def create_course(
 
 @router.get("", response_model=list[CourseResponse])
 async def list_courses(
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> list[CourseResponse]:
     """List courses. Admin sees all; Teacher sees own."""
@@ -56,7 +60,7 @@ async def get_course(
 @router.put("/{course_id}", response_model=CourseResponse)
 async def update_course(
     body: CourseUpdate,
-    course: Course = Depends(get_owned_course),
+    course: Course = Depends(get_active_owned_course),
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> CourseResponse:
@@ -74,10 +78,22 @@ async def update_course(
 
 @router.delete("/{course_id}", status_code=204)
 async def delete_course(
-    course: Course = Depends(get_owned_course),
+    course: Course = Depends(get_active_owned_course),
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> None:
     """Delete a course (owner or Admin)."""
     await course_svc.delete_course(db, course, actor_user_id=user.id)
     await db.commit()
+
+
+@router.post("/{course_id}/archive", response_model=CourseResponse)
+async def archive_course(
+    course: Course = Depends(get_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseResponse:
+    """Archive an ACTIVE course (owner or Admin)."""
+    course = await course_svc.archive_course(db, course, actor_user_id=user.id)
+    await db.commit()
+    return CourseResponse.model_validate(course)

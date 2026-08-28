@@ -9,7 +9,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.assignment import Assignment
-from app.models.enums import AssignmentStatus, RubricStatus
+from app.models.course import Course
+from app.models.enums import AssignmentStatus, CourseStatus, RubricStatus
 from app.models.rubric import RubricVersion
 from app.services.audit import record_audit
 
@@ -27,6 +28,18 @@ async def create_assignment(
     actor_roles: list[str] | None = None,
 ) -> Assignment:
     """Create a new assignment in DRAFT status."""
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Course not found",
+        )
+    if course.status == CourseStatus.ARCHIVED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot create assignments in an archived course",
+        )
+
     # Validate rubric exists and caller owns it
     rv = await db.get(RubricVersion, rubric_version_id)
     if rv is None:
@@ -50,6 +63,21 @@ async def create_assignment(
         status=AssignmentStatus.DRAFT,
     )
     db.add(assignment)
+    await db.flush()
+
+    await record_audit(
+        db,
+        actor_user_id=created_by_teacher_id,
+        resource_type="Assignment",
+        resource_id=assignment.id,
+        action="CREATE",
+        after={
+            "title": title,
+            "course_id": str(course_id),
+            "rubric_version_id": str(rubric_version_id),
+        },
+        reason="Assignment created",
+    )
     await db.flush()
     return assignment
 
