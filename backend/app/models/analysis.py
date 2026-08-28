@@ -85,6 +85,10 @@ class AnalysisJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         sa.DateTime(timezone=True),
         nullable=True,
     )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
     finished_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=True,

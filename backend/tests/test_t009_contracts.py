@@ -12,6 +12,17 @@ def test_analysis_job_has_only_terminal_done_and_error_states() -> None:
     ]
 
 
+def test_analysis_job_has_nullable_timezone_heartbeat_at_column() -> None:
+    import sqlalchemy as sa
+
+    from app.models.analysis import AnalysisJob
+
+    col = AnalysisJob.__table__.c.heartbeat_at
+    assert col.nullable is True
+    assert isinstance(col.type, sa.DateTime)
+    assert col.type.timezone is True
+
+
 def test_pdf_validation_rejects_non_pdf_with_stable_code() -> None:
     from app.services.pdf_validation import PDFValidationError, validate_pdf
 

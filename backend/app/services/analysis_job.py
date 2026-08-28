@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.models.analysis import AnalysisJob
 from app.models.assignment import Assignment
 from app.models.course import Course
-from app.models.enums import AnalysisJobStatus, UserRole
+from app.models.enums import AnalysisJobStatus, DocumentStatus, UserRole
 from app.models.identity import User
 from app.models.submission import DocumentVersion, Submission
 from app.services.audit import record_audit, record_system_audit
@@ -86,47 +87,31 @@ async def create_or_get_job(
     return job
 
 
-async def claim_next_job(db: AsyncSession) -> AnalysisJob | None:
+async def update_heartbeat(db: AsyncSession, job_id: uuid.UUID) -> bool:
+    """Periodically touch heartbeat_at for an active RUNNING job."""
     stmt = (
-        sa.select(AnalysisJob)
-        .where(AnalysisJob.status == AnalysisJobStatus.QUEUED)
-        .order_by(AnalysisJob.queued_at, AnalysisJob.id)
-        .options(selectinload(AnalysisJob.document_version))
-        .with_for_update(skip_locked=True)
-        .limit(1)
-    )
-    job = (await db.execute(stmt)).scalar_one_or_none()
-    # The status check remains explicit after lock acquisition: it documents and
-    # protects the contract if the query is later broadened for stale jobs.
-    if job is None or job.status is not AnalysisJobStatus.QUEUED:
-        return None
-    await _mark_running(db, job)
-    return job
-
-
-async def claim_job_by_id(db: AsyncSession, job_id: uuid.UUID) -> AnalysisJob | None:
-    """Claim a specific queued job after a SKIP LOCKED status re-check."""
-    stmt = (
-        sa.select(AnalysisJob)
+        sa.update(AnalysisJob)
         .where(
             AnalysisJob.id == job_id,
-            AnalysisJob.status == AnalysisJobStatus.QUEUED,
+            AnalysisJob.status == AnalysisJobStatus.RUNNING,
         )
-        .options(selectinload(AnalysisJob.document_version))
-        .with_for_update(skip_locked=True)
+        .values(heartbeat_at=datetime.now(UTC))
     )
-    job = (await db.execute(stmt)).scalar_one_or_none()
-    if job is None or job.status is not AnalysisJobStatus.QUEUED:
-        return None
-    await _mark_running(db, job)
-    return job
+    result = await db.execute(stmt)
+    return getattr(result, "rowcount", 0) > 0
+
+
+def _get_lease_seconds() -> int:
+    return getattr(get_settings(), "analysis_job_lease_seconds", 300)
 
 
 async def _mark_running(db: AsyncSession, job: AnalysisJob) -> None:
+    now = datetime.now(UTC)
     before = job.status.value
     job.status = AnalysisJobStatus.RUNNING
     job.attempt_count += 1
-    job.started_at = datetime.now(UTC)
+    job.started_at = now
+    job.heartbeat_at = now
     job.finished_at = None
     await record_system_audit(
         db,
@@ -137,13 +122,148 @@ async def _mark_running(db: AsyncSession, job: AnalysisJob) -> None:
         after={"status": job.status.value, "attempt_count": job.attempt_count},
         reason="Analysis job claimed",
     )
+    doc = job.document_version
+    if doc is None:
+        doc = await db.get(DocumentVersion, job.document_version_id)
+    if doc is not None:
+        doc_before = doc.status.value
+        doc.status = DocumentStatus.PROCESSING
+        await record_system_audit(
+            db,
+            resource_type="DocumentVersion",
+            resource_id=doc.id,
+            action="PROCESSING",
+            before={"status": doc_before},
+            after={"status": doc.status.value},
+            reason="Document processing started",
+        )
     await db.flush()
 
 
+async def _handle_locked_job(
+    db: AsyncSession, job: AnalysisJob, cutoff: datetime
+) -> AnalysisJob | None:
+    if job.status is AnalysisJobStatus.QUEUED:
+        await _mark_running(db, job)
+        return job
+    if job.status is AnalysisJobStatus.RUNNING:
+        last_touch = job.heartbeat_at or job.started_at or job.queued_at
+        if last_touch is not None and last_touch > cutoff:
+            return None
+        if job.attempt_count < job.max_attempts:
+            before = job.status.value
+            job.status = AnalysisJobStatus.QUEUED
+            job.queued_at = datetime.now(UTC)
+            await record_system_audit(
+                db,
+                resource_type="AnalysisJob",
+                resource_id=job.id,
+                action="QUEUED",
+                before={"status": before},
+                after={"status": job.status.value},
+                reason="Analysis job lease expired, requeued",
+            )
+            await _mark_running(db, job)
+            return job
+        now = datetime.now(UTC)
+        before = job.status.value
+        job.status = AnalysisJobStatus.ERROR
+        job.error_code = "LEASE_EXPIRED"
+        job.error_detail = "Job lease expired and retry limit reached"
+        job.finished_at = now
+        await record_system_audit(
+            db,
+            resource_type="AnalysisJob",
+            resource_id=job.id,
+            action="ERROR",
+            before={"status": before},
+            after={"status": job.status.value, "error_code": "LEASE_EXPIRED"},
+            reason="Analysis job lease expired and attempts exhausted",
+        )
+        doc = job.document_version
+        if doc is None:
+            doc = await db.get(DocumentVersion, job.document_version_id)
+        if doc is not None:
+            doc_before = doc.status.value
+            doc.status = DocumentStatus.PROCESSING_FAILED
+            doc.failure_code = "LEASE_EXPIRED"
+            doc.failure_detail = "Job lease expired and retry limit reached"
+            await record_system_audit(
+                db,
+                resource_type="DocumentVersion",
+                resource_id=doc.id,
+                action="PROCESSING_FAILED",
+                before={"status": doc_before},
+                after={
+                    "status": doc.status.value,
+                    "failure_code": "LEASE_EXPIRED",
+                },
+                reason="Analysis job lease expired and attempts exhausted",
+            )
+        await db.flush()
+        return None
+    return None
+
+
+async def claim_next_job(db: AsyncSession) -> AnalysisJob | None:
+    lease_seconds = _get_lease_seconds()
+    cutoff = datetime.now(UTC) - timedelta(seconds=lease_seconds)
+    is_queued = AnalysisJob.status == AnalysisJobStatus.QUEUED
+    is_stale_running = (AnalysisJob.status == AnalysisJobStatus.RUNNING) & (
+        sa.func.coalesce(
+            AnalysisJob.heartbeat_at,
+            AnalysisJob.started_at,
+            AnalysisJob.queued_at,
+        )
+        <= cutoff
+    )
+    stmt = (
+        sa.select(AnalysisJob)
+        .where(sa.or_(is_queued, is_stale_running))
+        .order_by(AnalysisJob.queued_at, AnalysisJob.id)
+        .options(selectinload(AnalysisJob.document_version))
+        .with_for_update(skip_locked=True)
+        .limit(1)
+    )
+    job = (await db.execute(stmt)).scalar_one_or_none()
+    if job is None:
+        return None
+    return await _handle_locked_job(db, job, cutoff)
+
+
+async def claim_job_by_id(db: AsyncSession, job_id: uuid.UUID) -> AnalysisJob | None:
+    """Claim a specific queued or stale job after a SKIP LOCKED check."""
+    lease_seconds = _get_lease_seconds()
+    cutoff = datetime.now(UTC) - timedelta(seconds=lease_seconds)
+    is_queued = AnalysisJob.status == AnalysisJobStatus.QUEUED
+    is_stale_running = (AnalysisJob.status == AnalysisJobStatus.RUNNING) & (
+        sa.func.coalesce(
+            AnalysisJob.heartbeat_at,
+            AnalysisJob.started_at,
+            AnalysisJob.queued_at,
+        )
+        <= cutoff
+    )
+    stmt = (
+        sa.select(AnalysisJob)
+        .where(
+            AnalysisJob.id == job_id,
+            sa.or_(is_queued, is_stale_running),
+        )
+        .options(selectinload(AnalysisJob.document_version))
+        .with_for_update(skip_locked=True)
+    )
+    job = (await db.execute(stmt)).scalar_one_or_none()
+    if job is None:
+        return None
+    return await _handle_locked_job(db, job, cutoff)
+
+
 async def mark_done(db: AsyncSession, job: AnalysisJob) -> None:
+    now = datetime.now(UTC)
     before = job.status.value
     job.status = AnalysisJobStatus.DONE
-    job.finished_at = datetime.now(UTC)
+    job.finished_at = now
     await record_system_audit(
         db,
         resource_type="AnalysisJob",
@@ -153,6 +273,22 @@ async def mark_done(db: AsyncSession, job: AnalysisJob) -> None:
         after={"status": job.status.value},
         reason="PDF ingestion completed",
     )
+    doc = job.document_version
+    if doc is None:
+        doc = await db.get(DocumentVersion, job.document_version_id)
+    if doc is not None:
+        doc_before = doc.status.value
+        doc.status = DocumentStatus.AWAITING_REVIEW
+        await record_system_audit(
+            db,
+            resource_type="DocumentVersion",
+            resource_id=doc.id,
+            action="AWAITING_REVIEW",
+            before={"status": doc_before},
+            after={"status": doc.status.value},
+            reason="Document processing completed",
+        )
+    await db.flush()
 
 
 async def mark_error(
@@ -191,8 +327,6 @@ async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJ
         )
     document = await db.get(DocumentVersion, locked.document_version_id)
     if document is not None:
-        from app.models.enums import DocumentStatus
-
         document.status = DocumentStatus.QUEUED
     before = locked.status.value
     locked.status = AnalysisJobStatus.QUEUED
@@ -200,6 +334,7 @@ async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJ
     locked.error_detail = None
     locked.finished_at = None
     locked.started_at = None
+    locked.heartbeat_at = None
     locked.queued_at = datetime.now(UTC)
     await record_audit(
         db,
