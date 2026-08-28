@@ -16,4 +16,6 @@ celery_app.conf.update(
     result_accept_content=["json"],
     enable_utc=True,
     timezone="UTC",
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
 )

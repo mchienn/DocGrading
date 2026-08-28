@@ -29,6 +29,21 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     session_lifetime_seconds: int = 86400
 
+    storage_bucket: str = "docgrading"
+    storage_endpoint_url: str = "http://localhost:9000"
+    storage_public_endpoint_url: str = "http://localhost:9000"
+    storage_region: str = "us-east-1"
+    # Development-only placeholders; deployments must override these via env.
+    storage_access_key_id: str = Field(
+        default="local-development-access-key", min_length=1
+    )
+    storage_secret_access_key: str = Field(
+        default="local-development-secret-key", min_length=1
+    )
+    storage_presign_expiry_seconds: int = Field(default=300, ge=1, le=300)
+    pdf_max_size_bytes: int = Field(default=50_000_000, gt=0)
+    pdf_max_page_count: int = Field(default=100, gt=0)
+
     @property
     def session_cookie_secure(self) -> bool:
         """Require HTTPS for session cookies outside local development."""

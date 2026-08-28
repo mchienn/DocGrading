@@ -1,5 +1,5 @@
 import sqlalchemy as sa
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, inspect
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, inspect
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import configure_mappers
 
@@ -112,12 +112,12 @@ def test_critical_constraints_and_indexes_have_stable_names() -> None:
     }
     assert {"ck_audit_events_actor", "ck_audit_events_snapshots"} <= audit_events_checks
 
-    analysis_jobs_indexes = {
-        idx.name
-        for idx in Base.metadata.tables["analysis_jobs"].indexes
-        if isinstance(idx, Index)
+    analysis_jobs_constraints = {
+        constraint.name
+        for constraint in Base.metadata.tables["analysis_jobs"].constraints
+        if isinstance(constraint, sa.UniqueConstraint)
     }
-    assert "uq_analysis_jobs_active_document_rubric" in analysis_jobs_indexes
+    assert "uq_analysis_jobs_document_rubric" in analysis_jobs_constraints
 
 
 def test_required_text_columns_have_stable_nonblank_constraints() -> None:

@@ -28,12 +28,10 @@ class AnalysisJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "jsonb_typeof(snapshot) = 'object'",
             name="ck_analysis_jobs_snapshot_object",
         ),
-        sa.Index(
-            "uq_analysis_jobs_active_document_rubric",
+        sa.UniqueConstraint(
             "document_version_id",
             "rubric_version_id",
-            unique=True,
-            postgresql_where=sa.text("status IN ('QUEUED', 'RUNNING')"),
+            name="uq_analysis_jobs_document_rubric",
         ),
     )
 
