@@ -86,7 +86,9 @@ async def initiate_upload(
         raise HTTPException(status_code=422, detail="Only application/pdf is accepted")
     if size_bytes > get_settings().pdf_max_size_bytes:
         raise HTTPException(status_code=413, detail="PDF exceeds maximum size")
-    if assignment.status != AssignmentStatus.OPEN or assignment.due_at <= now:
+    if assignment.status != AssignmentStatus.OPEN or (
+        assignment.due_at is not None and assignment.due_at <= now
+    ):
         raise HTTPException(
             status_code=409, detail="Assignment is not accepting submissions"
         )
@@ -248,17 +250,19 @@ async def complete_upload(
     storage: S3Storage | None = None,
 ) -> tuple[DocumentVersion, object]:
     _require_student_upload_actor(user)
-    version = (
+    row = (
         await db.execute(
-            sa.select(DocumentVersion)
+            sa.select(DocumentVersion, Submission, Assignment)
+            .join(Submission, DocumentVersion.submission_id == Submission.id)
+            .join(Assignment, Submission.assignment_id == Assignment.id)
             .where(DocumentVersion.id == version_id)
-            .with_for_update()
+            .with_for_update(of=[DocumentVersion, Assignment])
         )
-    ).scalar_one_or_none()
-    if version is None:
+    ).one_or_none()
+    if row is None:
         raise HTTPException(status_code=404, detail="Document version not found")
-    submission = await db.get(Submission, version.submission_id)
-    if submission is None or submission.student_id != user.id:
+    version, submission, assignment = row
+    if submission.student_id != user.id:
         raise HTTPException(status_code=404, detail="Document version not found")
     if version.status in {
         DocumentStatus.QUEUED,
@@ -281,7 +285,16 @@ async def complete_upload(
         return version, job
     if version.status == DocumentStatus.INVALID:
         raise HTTPException(status_code=409, detail="Document upload is invalid")
-    if version.upload_expires_at and version.upload_expires_at < datetime.now(UTC):
+    if version.status != DocumentStatus.UPLOADING:
+        raise HTTPException(status_code=409, detail="Document upload is invalid")
+    now = datetime.now(UTC)
+    if assignment.status != AssignmentStatus.OPEN or (
+        assignment.due_at is not None and assignment.due_at <= now
+    ):
+        raise HTTPException(
+            status_code=409, detail="Assignment is not accepting submissions"
+        )
+    if version.upload_expires_at and version.upload_expires_at < now:
         raise HTTPException(status_code=409, detail="Upload has expired")
     storage = storage or S3Storage()
     try:
@@ -294,7 +307,7 @@ async def complete_upload(
         version.status = DocumentStatus.PROCESSING_FAILED
         version.failure_code = "STORAGE_UNAVAILABLE"
         version.failure_detail = "Object storage is temporarily unavailable"
-        await db.flush()
+        await db.commit()
         raise HTTPException(
             status_code=503, detail="Object storage is temporarily unavailable"
         ) from exc
@@ -317,9 +330,7 @@ async def complete_upload(
     job = await create_or_get_job(
         db,
         document_version_id=version.id,
-        rubric_version_id=(
-            await db.get(Assignment, submission.assignment_id)
-        ).rubric_version_id,
+        rubric_version_id=assignment.rubric_version_id,
     )
     await db.flush()
     return version, job

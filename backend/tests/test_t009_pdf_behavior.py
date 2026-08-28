@@ -322,20 +322,25 @@ def test_completion_sanitizes_generic_storage_failure_and_marks_failed() -> None
         upload_expires_at=None,
     )
     submission = SimpleNamespace(student_id=user_id, assignment_id="assignment")
+    assignment = SimpleNamespace(
+        id="assignment",
+        status=AssignmentStatus.OPEN,
+        due_at=None,
+        rubric_version_id="rubric",
+    )
 
     class Result:
-        def scalar_one_or_none(self):
-            return version
+        def one_or_none(self):
+            return (version, submission, assignment)
+
+        def first(self):
+            return (version, submission, assignment)
 
     class DB:
         async def execute(self, _statement):
             return Result()
 
-        async def get(self, model, _key):
-            from app.models.submission import Submission
-
-            return submission if model is Submission else None
-
+        commit = AsyncMock()
         flush = AsyncMock()
 
     class BrokenStorage:
@@ -382,19 +387,26 @@ def test_completion_uses_server_observed_metadata(
         size_bytes=128,
     )
     submission = SimpleNamespace(student_id=user_id, assignment_id="assignment")
+    assignment = SimpleNamespace(
+        id="assignment",
+        status=AssignmentStatus.OPEN,
+        due_at=None,
+        rubric_version_id="rubric",
+    )
 
     class Result:
-        def scalar_one_or_none(self):
-            return version
+        def one_or_none(self):
+            return (version, submission, assignment)
+
+        def first(self):
+            return (version, submission, assignment)
 
     class DB:
         async def execute(self, _statement):
             return Result()
 
-        async def get(self, model, _key):
-            from app.models.submission import Submission
-
-            return submission if model is Submission else None
+        commit = AsyncMock()
+        flush = AsyncMock()
 
     storage = SimpleNamespace(head=lambda _key: head)
     with pytest.raises(HTTPException) as error:

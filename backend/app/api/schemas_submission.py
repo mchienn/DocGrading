@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PresignRequest(BaseModel):
@@ -11,6 +11,13 @@ class PresignRequest(BaseModel):
     content_type: str = Field(min_length=1, max_length=128)
     size_bytes: int = Field(gt=0)
     sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Filename must not be whitespace-only")
+        return value
 
 
 class PresignResponse(BaseModel):
