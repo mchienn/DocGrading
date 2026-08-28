@@ -10,7 +10,7 @@ class PresignRequest(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
     content_type: str = Field(min_length=1, max_length=128)
     size_bytes: int = Field(gt=0)
-    sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
 
 
 class PresignResponse(BaseModel):

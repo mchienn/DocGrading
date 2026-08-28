@@ -30,7 +30,7 @@ from app.services.storage import S3Storage, StorageObjectNotFound
 
 
 def _fingerprint(
-    *, filename: str, content_type: str, size_bytes: int, sha256: str | None
+    *, filename: str, content_type: str, size_bytes: int, sha256: str
 ) -> str:
     payload = json.dumps(
         {
@@ -45,6 +45,17 @@ def _fingerprint(
     return hashlib.sha256(payload).hexdigest()
 
 
+def _require_student_upload_actor(user: User) -> None:
+    if (
+        UserRole.STUDENT not in user.roles
+        or UserRole.ADMIN in user.roles
+        or UserRole.TEACHER in user.roles
+    ):
+        raise HTTPException(
+            status_code=403, detail="Only students may upload submissions"
+        )
+
+
 async def initiate_upload(
     db: AsyncSession,
     *,
@@ -54,17 +65,10 @@ async def initiate_upload(
     filename: str,
     content_type: str,
     size_bytes: int,
-    sha256: str | None,
+    sha256: str,
     storage: S3Storage | None = None,
 ) -> tuple[DocumentVersion, dict[str, object]]:
-    if (
-        UserRole.STUDENT not in user.roles
-        or UserRole.ADMIN in user.roles
-        or UserRole.TEACHER in user.roles
-    ):
-        raise HTTPException(
-            status_code=403, detail="Only students may upload submissions"
-        )
+    _require_student_upload_actor(user)
     assignment = (
         await db.execute(
             sa.select(Assignment)
@@ -75,10 +79,9 @@ async def initiate_upload(
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
     now = datetime.now(UTC)
-    if sha256 is not None:
-        sha256 = sha256.lower()
-        if len(sha256) != 64 or any(char not in "0123456789abcdef" for char in sha256):
-            raise HTTPException(status_code=422, detail="SHA-256 hint is invalid")
+    sha256 = sha256.lower()
+    if len(sha256) != 64 or any(char not in "0123456789abcdef" for char in sha256):
+        raise HTTPException(status_code=422, detail="SHA-256 hint is invalid")
     if content_type.lower().strip() != "application/pdf":
         raise HTTPException(status_code=422, detail="Only application/pdf is accepted")
     if size_bytes > get_settings().pdf_max_size_bytes:
@@ -139,19 +142,22 @@ async def initiate_upload(
         existing.upload_expires_at = now + timedelta(
             seconds=get_settings().storage_presign_expiry_seconds
         )
-        return existing, _presign_response(existing, storage=storage)
-    if sha256:
-        duplicate = (
-            await db.execute(
-                sa.select(DocumentVersion).where(
-                    DocumentVersion.submission_id == submission.id,
-                    DocumentVersion.sha256 == sha256,
-                    DocumentVersion.status != DocumentStatus.UPLOADING,
-                )
+        return existing, _presign_response(existing, storage=storage, reused=True)
+    duplicate = (
+        await db.execute(
+            sa.select(DocumentVersion).where(
+                DocumentVersion.submission_id == submission.id,
+                DocumentVersion.sha256 == sha256,
             )
-        ).scalar_one_or_none()
-        if duplicate is not None:
-            return duplicate, await _reused_response(db, duplicate)
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        if duplicate.status == DocumentStatus.UPLOADING:
+            duplicate.upload_expires_at = now + timedelta(
+                seconds=get_settings().storage_presign_expiry_seconds
+            )
+            return duplicate, _presign_response(duplicate, storage=storage, reused=True)
+        return duplicate, await _reused_response(db, duplicate)
     version_count = (
         await db.execute(
             sa.select(sa.func.count(DocumentVersion.id)).where(
@@ -169,11 +175,9 @@ async def initiate_upload(
             .limit(1)
         )
     ).scalar_one_or_none()
-    # A client SHA is a hint only; the worker replaces it with the digest of
-    # bytes. Use a unique provisional digest when no hint was supplied so two
-    # concurrent uploads do not collide on the durable SHA uniqueness key.
+    # The client digest enables duplicate lookup, but the worker always replaces it
+    # with a digest computed from the bytes fetched from object storage.
     version_id = uuid.uuid4()
-    safe_sha = sha256 or hashlib.sha256(str(version_id).encode()).hexdigest()
     version = DocumentVersion(
         id=version_id,
         submission_id=submission.id,
@@ -183,7 +187,7 @@ async def initiate_upload(
         original_filename=filename,
         content_type="application/pdf",
         size_bytes=size_bytes,
-        sha256=safe_sha,
+        sha256=sha256,
         declared_sha256=sha256,
         status=DocumentStatus.UPLOADING,
         idempotency_key=idempotency_key,
@@ -197,7 +201,10 @@ async def initiate_upload(
 
 
 def _presign_response(
-    version: DocumentVersion, *, storage: S3Storage | None
+    version: DocumentVersion,
+    *,
+    storage: S3Storage | None,
+    reused: bool = False,
 ) -> dict[str, object]:
     storage = storage or S3Storage()
     signed = storage.create_presigned_post(
@@ -211,7 +218,7 @@ def _presign_response(
         "fields": signed["fields"],
         "expires_in": storage.expiry_seconds,
         "status": version.status.value,
-        "reused": False,
+        "reused": reused,
     }
 
 
@@ -240,6 +247,7 @@ async def complete_upload(
     user: User,
     storage: S3Storage | None = None,
 ) -> tuple[DocumentVersion, object]:
+    _require_student_upload_actor(user)
     version = (
         await db.execute(
             sa.select(DocumentVersion)

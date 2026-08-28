@@ -90,6 +90,9 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
         except Exception:
             # Keep provider exceptions (which may include URLs/request metadata)
             # out of logs and persisted student-visible detail.
+            job.document_version.status = DocumentStatus.PROCESSING_FAILED
+            job.document_version.failure_code = "PDF_STORAGE_ERROR"
+            job.document_version.failure_detail = "Object storage read failed"
             await mark_error(db, job, "PDF_STORAGE_ERROR", "Object storage read failed")
         await db.commit()
         return str(job.id)
