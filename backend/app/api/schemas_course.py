@@ -6,6 +6,8 @@ import uuid
 
 from pydantic import BaseModel, Field
 
+from app.models.enums import CourseStatus
+
 
 class CourseCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
@@ -23,6 +25,7 @@ class CourseResponse(BaseModel):
     code: str
     name: str
     term: str
+    status: CourseStatus
     owner_teacher_id: uuid.UUID
     revision: int
 

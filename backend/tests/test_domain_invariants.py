@@ -221,20 +221,18 @@ async def _run_domain_invariants_test() -> None:
                             {"id": student_id},
                         )
 
-                # Insert RubricVersion 1 (PUBLISHED)
+                # Insert RubricVersion 1 as DRAFT (publish after criteria)
                 await conn.execute(
                     text("""
                         INSERT INTO rubric_versions (
                             id, rubric_id, version_number, name, description,
                             status, calculation_method, total_weight,
-                            owner_user_id, created_by_user_id, published_at,
-                            revision
+                            owner_user_id, created_by_user_id, revision
                         )
                         VALUES (
                             :id, :rubric_id, :version_number, :name, :description,
-                            'PUBLISHED'::rubric_status, :calculation_method,
-                            :total_weight, :owner_user_id, :created_by_user_id,
-                            :published_at, 1
+                            'DRAFT'::rubric_status, :calculation_method,
+                            :total_weight, :owner_user_id, :created_by_user_id, 1
                         )
                     """),
                     {
@@ -247,7 +245,6 @@ async def _run_domain_invariants_test() -> None:
                         "total_weight": 100.0,
                         "owner_user_id": teacher_id,
                         "created_by_user_id": teacher_id,
-                        "published_at": now,
                     },
                 )
 
@@ -318,6 +315,17 @@ async def _run_domain_invariants_test() -> None:
                     },
                 )
 
+                # Publish rubric version 1 now that its criteria are in
+                await conn.execute(
+                    text("""
+                        UPDATE rubric_versions
+                        SET status = 'PUBLISHED'::rubric_status,
+                            published_at = :published_at
+                        WHERE id = :id
+                    """),
+                    {"id": rubric_version_1_id, "published_at": now},
+                )
+
                 # Insert OPEN Assignment on rubric 1
                 await conn.execute(
                     text("""
@@ -380,7 +388,7 @@ async def _run_domain_invariants_test() -> None:
                 # version and criterion, and assignment rubric change
                 with pytest.raises(
                     DBAPIError,
-                    match=r"rubric version is immutable after first submission",
+                    match=r"published rubric version is immutable",
                 ):
                     async with conn.begin_nested():
                         await conn.execute(
@@ -394,7 +402,7 @@ async def _run_domain_invariants_test() -> None:
 
                 with pytest.raises(
                     DBAPIError,
-                    match=r"rubric version is immutable after first submission",
+                    match=r"published rubric version is immutable",
                 ):
                     async with conn.begin_nested():
                         await conn.execute(
@@ -407,7 +415,7 @@ async def _run_domain_invariants_test() -> None:
 
                 with pytest.raises(
                     DBAPIError,
-                    match=r"criterion version is immutable after first submission",
+                    match=r"published rubric criterion is immutable",
                 ):
                     async with conn.begin_nested():
                         await conn.execute(
@@ -421,7 +429,7 @@ async def _run_domain_invariants_test() -> None:
 
                 with pytest.raises(
                     DBAPIError,
-                    match=r"criterion version is immutable after first submission",
+                    match=r"published rubric criterion is immutable",
                 ):
                     async with conn.begin_nested():
                         await conn.execute(
@@ -830,6 +838,17 @@ async def _cleanup_domain_rows(
                     text("DELETE FROM assignments WHERE id = :id"),
                     {"id": row_id},
                 )
+            await conn.execute(text("SET LOCAL session_replication_role = 'replica'"))
+            for row_id in rubric_version_ids:
+                await conn.execute(
+                    text("""
+                        UPDATE rubric_versions
+                        SET status = 'DRAFT'::rubric_status,
+                            published_at = NULL
+                        WHERE id = :id
+                    """),
+                    {"id": row_id},
+                )
             for row_id in criterion_version_ids:
                 await conn.execute(
                     text("DELETE FROM criterion_versions WHERE id = :id"),
@@ -934,13 +953,13 @@ async def _insert_durable_freeze_graph(conn, ids) -> None:
                 INSERT INTO rubric_versions (
                     id, rubric_id, version_number, name, description,
                     status, calculation_method, total_weight,
-                    owner_user_id, created_by_user_id, published_at, revision
+                    owner_user_id, created_by_user_id, revision
                 )
                 VALUES (
                     :id, :rubric_id, :version_number, :name,
-                    'Durable freeze rubric', 'PUBLISHED'::rubric_status,
+                    'Durable freeze rubric', 'DRAFT'::rubric_status,
                     'WEIGHTED_SUM', 100.0, :owner_user_id,
-                    :created_by_user_id, :published_at, 1
+                    :created_by_user_id, 1
                 )
             """),
             {
@@ -950,7 +969,6 @@ async def _insert_durable_freeze_graph(conn, ids) -> None:
                 "name": name,
                 "owner_user_id": ids["teacher_id"],
                 "created_by_user_id": ids["teacher_id"],
-                "published_at": now,
             },
         )
     for criterion_id, criterion_version_id, rubric_version_id, code in (
@@ -992,6 +1010,20 @@ async def _insert_durable_freeze_graph(conn, ids) -> None:
                 "evaluator_config": json.dumps({"model": "durable-model"}),
                 "evidence_requirements": json.dumps({"required_lines": True}),
             },
+        )
+    # Publish both rubric versions now that criteria are in place
+    for version_id in (
+        ids["rubric_version_1_id"],
+        ids["rubric_version_2_id"],
+    ):
+        await conn.execute(
+            text("""
+                UPDATE rubric_versions
+                SET status = 'PUBLISHED'::rubric_status,
+                    published_at = :published_at
+                WHERE id = :id
+            """),
+            {"id": version_id, "published_at": now},
         )
     for assignment_id, rubric_version_id, title in (
         (
@@ -1237,7 +1269,7 @@ async def _run_rubric_freeze_after_delete_case(conn, ids) -> None:
     ):
         with pytest.raises(
             DBAPIError,
-            match=r"rubric version is immutable after first submission",
+            match=r"published rubric version is immutable",
         ):
             async with conn.begin_nested():
                 await conn.execute(
@@ -1265,7 +1297,7 @@ async def _run_criterion_freeze_after_delete_case(conn, ids) -> None:
     ):
         with pytest.raises(
             DBAPIError,
-            match=r"criterion version is immutable after first submission",
+            match=r"published rubric criterion is immutable",
         ):
             async with conn.begin_nested():
                 await conn.execute(
@@ -1282,7 +1314,7 @@ async def _run_criterion_insert_into_frozen_case(conn, ids) -> None:
     )
     with pytest.raises(
         DBAPIError,
-        match=r"criterion version is immutable after first submission",
+        match=r"published rubric criterion is immutable",
     ):
         async with conn.begin_nested():
             await conn.execute(
@@ -1325,7 +1357,7 @@ async def _run_criterion_reparent_into_frozen_case(conn, ids) -> None:
     ):
         with pytest.raises(
             DBAPIError,
-            match=r"criterion version is immutable after first submission",
+            match=r"published rubric criterion is immutable",
         ):
             async with conn.begin_nested():
                 await conn.execute(
@@ -1872,12 +1904,12 @@ async def _insert_submission_graph(conn, ids) -> None:
             INSERT INTO rubric_versions (
                 id, rubric_id, version_number, name, description,
                 status, calculation_method, total_weight,
-                owner_user_id, created_by_user_id, published_at, revision
+                owner_user_id, created_by_user_id, revision
             )
             VALUES (
                 :id, :rubric_id, 1, 'Race Rubric', 'Initial race rubric',
-                'PUBLISHED'::rubric_status, 'WEIGHTED_SUM', 100.0,
-                :owner_user_id, :created_by_user_id, :published_at, 1
+                'DRAFT'::rubric_status, 'WEIGHTED_SUM', 100.0,
+                :owner_user_id, :created_by_user_id, 1
             )
         """),
         {
@@ -1885,7 +1917,6 @@ async def _insert_submission_graph(conn, ids) -> None:
             "rubric_id": ids["rubric_id"],
             "owner_user_id": ids["teacher_id"],
             "created_by_user_id": ids["teacher_id"],
-            "published_at": now,
         },
     )
     await conn.execute(
@@ -2059,7 +2090,6 @@ def test_postgresql_serializes_first_submission_and_rubric_update() -> None:
 
 
 async def _insert_rubric_race_prerequisites(conn, ids) -> None:
-    now = datetime.now(UTC)
     await conn.execute(
         text("""
             INSERT INTO users (
@@ -2125,13 +2155,13 @@ async def _insert_rubric_race_prerequisites(conn, ids) -> None:
             INSERT INTO rubric_versions (
                 id, rubric_id, version_number, name, description,
                 status, calculation_method, total_weight,
-                owner_user_id, created_by_user_id, published_at, revision
+                owner_user_id, created_by_user_id, revision
             )
             VALUES (
                 :id, :rubric_id, 1, 'Scope Race Rubric',
                 'Initial scope race rubric',
-                'PUBLISHED'::rubric_status, 'WEIGHTED_SUM', 100.0,
-                :owner_user_id, :created_by_user_id, :published_at, 1
+                'DRAFT'::rubric_status, 'WEIGHTED_SUM', 100.0,
+                :owner_user_id, :created_by_user_id, 1
             )
         """),
         {
@@ -2139,7 +2169,6 @@ async def _insert_rubric_race_prerequisites(conn, ids) -> None:
             "rubric_id": ids["rubric_id"],
             "owner_user_id": ids["teacher_id"],
             "created_by_user_id": ids["teacher_id"],
-            "published_at": now,
         },
     )
     await conn.execute(
@@ -2313,3 +2342,112 @@ async def _run_new_assignment_rubric_update_race_test() -> None:
 
 def test_postgresql_serializes_new_assignment_and_rubric_update() -> None:
     asyncio.run(_run_new_assignment_rubric_update_race_test())
+
+
+async def _run_published_rubric_immutability_test() -> None:
+    """Direct SQL cannot mutate a rubric after it is published."""
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    teacher_id = uuid.uuid4()
+    rubric_version_id = uuid.uuid4()
+    criterion_version_id = uuid.uuid4()
+
+    try:
+        async with engine.connect() as conn:
+            trans = await conn.begin()
+            try:
+                await conn.execute(
+                    text("""
+                        INSERT INTO public.users (
+                            id, email, display_name, password_hash,
+                            roles, status, revision
+                        )
+                        VALUES (
+                            :id, :email, 'Published Rubric Teacher', 'hash',
+                            ARRAY['TEACHER']::public.user_role[],
+                            'ACTIVE'::public.user_status, 1
+                        )
+                    """),
+                    {
+                        "id": teacher_id,
+                        "email": f"published_rubric_{uuid.uuid4().hex}@example.com",
+                    },
+                )
+                await conn.execute(
+                    text("""
+                        INSERT INTO public.rubric_versions (
+                            id, rubric_id, version_number, name, status,
+                            calculation_method, total_weight, owner_user_id,
+                            created_by_user_id, revision
+                        )
+                        VALUES (
+                            :id, :rubric_id, 1, 'Immutable Rubric',
+                            'DRAFT'::public.rubric_status, 'WEIGHTED_SUM',
+                            100.00, :teacher_id, :teacher_id, 1
+                        )
+                    """),
+                    {
+                        "id": rubric_version_id,
+                        "rubric_id": uuid.uuid4(),
+                        "teacher_id": teacher_id,
+                    },
+                )
+                await conn.execute(
+                    text("""
+                        INSERT INTO public.criterion_versions (
+                            id, criterion_id, rubric_version_id, code, title,
+                            description, weight, position, is_enabled,
+                            evaluation_method, levels, evaluator_config,
+                            evidence_requirements, revision
+                        )
+                        VALUES (
+                            :id, :criterion_id, :rubric_version_id, 'C1',
+                            'Criterion', 'Description', 100.00, 1, true, 'AI',
+                            '[]'::jsonb, '{}'::jsonb, '{}'::jsonb, 1
+                        )
+                    """),
+                    {
+                        "id": criterion_version_id,
+                        "criterion_id": uuid.uuid4(),
+                        "rubric_version_id": rubric_version_id,
+                    },
+                )
+                await conn.execute(
+                    text("""
+                        UPDATE public.rubric_versions
+                        SET status = 'PUBLISHED'::public.rubric_status,
+                            published_at = CURRENT_TIMESTAMP
+                        WHERE id = :id
+                    """),
+                    {"id": rubric_version_id},
+                )
+
+                with pytest.raises(DBAPIError, match="published"):
+                    async with conn.begin_nested():
+                        await conn.execute(
+                            text("""
+                                UPDATE public.rubric_versions
+                                SET name = 'Mutated Rubric'
+                                WHERE id = :id
+                            """),
+                            {"id": rubric_version_id},
+                        )
+
+                with pytest.raises(DBAPIError, match="published"):
+                    async with conn.begin_nested():
+                        await conn.execute(
+                            text("""
+                                UPDATE public.criterion_versions
+                                SET title = 'Mutated Criterion'
+                                WHERE id = :id
+                            """),
+                            {"id": criterion_version_id},
+                        )
+            finally:
+                await trans.rollback()
+    finally:
+        await engine.dispose()
+
+
+def test_postgresql_rejects_published_rubric_mutation() -> None:
+    asyncio.run(_run_published_rubric_immutability_test())

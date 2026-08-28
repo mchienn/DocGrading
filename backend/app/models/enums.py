@@ -25,6 +25,11 @@ class MembershipStatus(StrEnum):
     INACTIVE = "INACTIVE"
 
 
+class CourseStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
+
+
 class AssignmentStatus(StrEnum):
     DRAFT = "DRAFT"
     OPEN = "OPEN"

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import uuid
 
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.course import Course
+from app.models.enums import CourseStatus
 from app.services.audit import record_audit
 
 
@@ -26,6 +28,7 @@ async def create_course(
         name=name,
         term=term,
         owner_teacher_id=owner_teacher_id,
+        status=CourseStatus.ACTIVE,
     )
     db.add(course)
     await db.flush()
@@ -70,6 +73,12 @@ async def update_course(
     term: str | None = None,
 ) -> Course:
     """Update mutable fields on a course. Records audit."""
+    if course.status == CourseStatus.ARCHIVED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Archived courses are read-only",
+        )
+
     before: dict[str, str] = {}
     after: dict[str, str] = {}
 
@@ -107,6 +116,12 @@ async def delete_course(
     actor_user_id: uuid.UUID,
 ) -> None:
     """Delete a course. Records audit."""
+    if course.status == CourseStatus.ARCHIVED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Archived courses cannot be deleted",
+        )
+
     await record_audit(
         db,
         actor_user_id=actor_user_id,
@@ -118,3 +133,32 @@ async def delete_course(
     )
     await db.delete(course)
     await db.flush()
+
+
+async def archive_course(
+    db: AsyncSession,
+    course: Course,
+    *,
+    actor_user_id: uuid.UUID,
+) -> Course:
+    """Archive an ACTIVE course while preserving its read history."""
+    if course.status == CourseStatus.ARCHIVED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Course is already archived",
+        )
+
+    course.status = CourseStatus.ARCHIVED
+    course.revision += 1
+    await record_audit(
+        db,
+        actor_user_id=actor_user_id,
+        resource_type="Course",
+        resource_id=course.id,
+        action="ARCHIVE",
+        before={"status": CourseStatus.ACTIVE.value},
+        after={"status": CourseStatus.ARCHIVED.value},
+        reason="Course archived",
+    )
+    await db.flush()
+    return course
