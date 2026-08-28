@@ -17,10 +17,12 @@ class PresignResponse(BaseModel):
     submission_id: uuid.UUID
     document_version_id: uuid.UUID
     object_key: str
-    upload_url: str
-    fields: dict[str, str]
-    expires_in: int
+    upload_url: str | None = None
+    fields: dict[str, str] | None = None
+    expires_in: int | None = None
     status: str
+    reused: bool = False
+    analysis_job_id: uuid.UUID | None = None
 
 
 class CompletionResponse(BaseModel):

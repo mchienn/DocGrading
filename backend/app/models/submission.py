@@ -139,6 +139,7 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     size_bytes: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
     page_count: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     sha256: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    declared_sha256: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
     idempotency_fingerprint: Mapped[str | None] = mapped_column(
         sa.String(64), nullable=True

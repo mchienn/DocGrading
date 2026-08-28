@@ -8,6 +8,7 @@ from io import BytesIO
 from typing import Any
 
 from pypdf import PdfReader
+from pypdf.generic import IndirectObject
 
 
 @dataclass(frozen=True)
@@ -25,12 +26,33 @@ class PDFValidationError(ValueError):
         super().__init__(self.detail)
 
 
-def _contains_active_content(value: Any, seen: set[int] | None = None) -> bool:
-    seen = seen or set()
+class _PDFScanLimit(Exception):
+    pass
+
+
+def _contains_active_content(
+    value: Any,
+    seen: set[int] | None = None,
+    *,
+    nodes: list[int] | None = None,
+) -> bool:
+    if seen is None:
+        seen = set()
+    if nodes is None:
+        nodes = [0]
+    nodes[0] += 1
+    if nodes[0] > 10_000:
+        raise _PDFScanLimit
     marker = id(value)
     if marker in seen:
         return False
     seen.add(marker)
+    if isinstance(value, IndirectObject):
+        try:
+            resolved = value.get_object()
+        except Exception as exc:
+            raise _PDFScanLimit from exc
+        return _contains_active_content(resolved, seen, nodes=nodes)
     if isinstance(value, dict):
         for key, child in value.items():
             key_name = str(key)
@@ -47,10 +69,10 @@ def _contains_active_content(value: Any, seen: set[int] | None = None) -> bool:
                 "/Filespec",
             }:
                 return True
-            if _contains_active_content(child, seen):
+            if _contains_active_content(child, seen, nodes=nodes):
                 return True
     elif isinstance(value, (list, tuple)):
-        return any(_contains_active_content(item, seen) for item in value)
+        return any(_contains_active_content(item, seen, nodes=nodes) for item in value)
     return False
 
 
@@ -82,6 +104,8 @@ def validate_pdf(
             raise PDFValidationError("PDF_SCAN_ONLY")
     except PDFValidationError:
         raise
+    except _PDFScanLimit as exc:
+        raise PDFValidationError("PDF_ACTIVE_CONTENT") from exc
     except Exception as exc:
         raise PDFValidationError("PDF_MALFORMED") from exc
     return PDFValidationResult(

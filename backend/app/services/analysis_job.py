@@ -100,6 +100,29 @@ async def claim_next_job(db: AsyncSession) -> AnalysisJob | None:
     # protects the contract if the query is later broadened for stale jobs.
     if job is None or job.status is not AnalysisJobStatus.QUEUED:
         return None
+    await _mark_running(db, job)
+    return job
+
+
+async def claim_job_by_id(db: AsyncSession, job_id: uuid.UUID) -> AnalysisJob | None:
+    """Claim a specific queued job after a SKIP LOCKED status re-check."""
+    stmt = (
+        sa.select(AnalysisJob)
+        .where(
+            AnalysisJob.id == job_id,
+            AnalysisJob.status == AnalysisJobStatus.QUEUED,
+        )
+        .options(selectinload(AnalysisJob.document_version))
+        .with_for_update(skip_locked=True)
+    )
+    job = (await db.execute(stmt)).scalar_one_or_none()
+    if job is None or job.status is not AnalysisJobStatus.QUEUED:
+        return None
+    await _mark_running(db, job)
+    return job
+
+
+async def _mark_running(db: AsyncSession, job: AnalysisJob) -> None:
     before = job.status.value
     job.status = AnalysisJobStatus.RUNNING
     job.attempt_count += 1
@@ -115,7 +138,6 @@ async def claim_next_job(db: AsyncSession) -> AnalysisJob | None:
         reason="Analysis job claimed",
     )
     await db.flush()
-    return job
 
 
 async def mark_done(db: AsyncSession, job: AnalysisJob) -> None:

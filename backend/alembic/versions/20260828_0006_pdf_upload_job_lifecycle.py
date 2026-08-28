@@ -38,6 +38,13 @@ def _replace_job_enum(*, new_values: str, expression: str) -> None:
 def upgrade() -> None:
     op.execute(sa.text("SET search_path TO public"))
 
+    # The partial index depends on the old enum's comparison operator; remove
+    # it before replacing the enum type, then restore logical uniqueness below.
+    op.drop_index(
+        "uq_analysis_jobs_active_document_rubric",
+        table_name="analysis_jobs",
+        schema="public",
+    )
     _replace_job_enum(
         new_values="'QUEUED', 'RUNNING', 'DONE', 'ERROR'",
         expression=(
@@ -47,11 +54,6 @@ def upgrade() -> None:
         ),
     )
 
-    op.drop_index(
-        "uq_analysis_jobs_active_document_rubric",
-        table_name="analysis_jobs",
-        schema="public",
-    )
     op.create_unique_constraint(
         "uq_analysis_jobs_document_rubric",
         "analysis_jobs",
@@ -59,6 +61,11 @@ def upgrade() -> None:
         schema="public",
     )
 
+    op.add_column(
+        "document_versions",
+        sa.Column("declared_sha256", sa.String(length=64), nullable=True),
+        schema="public",
+    )
     op.add_column(
         "document_versions",
         sa.Column("idempotency_key", sa.String(length=128), nullable=True),
@@ -94,12 +101,21 @@ def downgrade() -> None:
     op.drop_column("document_versions", "upload_expires_at", schema="public")
     op.drop_column("document_versions", "idempotency_fingerprint", schema="public")
     op.drop_column("document_versions", "idempotency_key", schema="public")
+    op.drop_column("document_versions", "declared_sha256", schema="public")
 
     op.drop_constraint(
         "uq_analysis_jobs_document_rubric",
         "analysis_jobs",
         schema="public",
         type_="unique",
+    )
+    _replace_job_enum(
+        new_values="'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'",
+        expression=(
+            "CASE status::text WHEN 'DONE' THEN 'SUCCEEDED' "
+            "WHEN 'ERROR' THEN 'FAILED' ELSE status::text END::text::"
+            "public.analysis_job_status"
+        ),
     )
     op.create_index(
         "uq_analysis_jobs_active_document_rubric",
@@ -108,13 +124,4 @@ def downgrade() -> None:
         unique=True,
         postgresql_where=sa.text("status IN ('QUEUED', 'RUNNING')"),
         schema="public",
-    )
-
-    _replace_job_enum(
-        new_values="'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'",
-        expression=(
-            "CASE status::text WHEN 'DONE' THEN 'SUCCEEDED' "
-            "WHEN 'ERROR' THEN 'FAILED' ELSE status::text END::text::"
-            "public.analysis_job_status"
-        ),
     )

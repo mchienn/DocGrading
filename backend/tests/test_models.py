@@ -182,6 +182,12 @@ def test_assignment_first_submission_metadata_is_nullable_timezone() -> None:
     assert column.type.timezone
 
 
+def test_document_version_declared_sha256_hint_is_nullable() -> None:
+    configure_mappers()
+    column = Base.metadata.tables["document_versions"].c.declared_sha256
+    assert column.nullable
+
+
 def test_criterion_version_nested_json_mutation_tracks_dirty() -> None:
     cv = CriterionVersion(levels=[{"name": "Level 1", "description": "initial"}])
     state = inspect(cv)

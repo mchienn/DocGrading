@@ -305,11 +305,11 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.16,<2" },
     { name = "argon2-cffi", specifier = ">=25.1,<26" },
     { name = "asyncpg", specifier = ">=0.30,<1" },
-    { name = "boto3", specifier = ">=1.40,<2" },
+    { name = "boto3", specifier = ">=1.43.82,<2" },
     { name = "celery", extras = ["redis"], specifier = ">=5.6,<6" },
     { name = "fastapi", specifier = ">=0.116,<1" },
     { name = "pydantic-settings", specifier = ">=2.10,<3" },
-    { name = "pypdf", specifier = ">=6,<7" },
+    { name = "pypdf", specifier = ">=6.16.2,<7" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.41,<3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<1" },
 ]

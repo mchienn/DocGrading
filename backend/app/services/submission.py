@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import uuid
@@ -133,6 +134,11 @@ async def initiate_upload(
             raise HTTPException(
                 status_code=409, detail="Idempotency key payload conflict"
             )
+        if existing.status != DocumentStatus.UPLOADING:
+            return existing, await _reused_response(db, existing)
+        existing.upload_expires_at = now + timedelta(
+            seconds=get_settings().storage_presign_expiry_seconds
+        )
         return existing, _presign_response(existing, storage=storage)
     if sha256:
         duplicate = (
@@ -145,7 +151,7 @@ async def initiate_upload(
             )
         ).scalar_one_or_none()
         if duplicate is not None:
-            return duplicate, _presign_response(duplicate, storage=storage)
+            return duplicate, await _reused_response(db, duplicate)
     version_count = (
         await db.execute(
             sa.select(sa.func.count(DocumentVersion.id)).where(
@@ -178,6 +184,7 @@ async def initiate_upload(
         content_type="application/pdf",
         size_bytes=size_bytes,
         sha256=safe_sha,
+        declared_sha256=sha256,
         status=DocumentStatus.UPLOADING,
         idempotency_key=idempotency_key,
         idempotency_fingerprint=fingerprint,
@@ -204,6 +211,25 @@ def _presign_response(
         "fields": signed["fields"],
         "expires_in": storage.expiry_seconds,
         "status": version.status.value,
+        "reused": False,
+    }
+
+
+async def _reused_response(
+    db: AsyncSession, version: DocumentVersion
+) -> dict[str, object]:
+    job = (
+        await db.execute(
+            sa.select(AnalysisJob).where(AnalysisJob.document_version_id == version.id)
+        )
+    ).scalar_one_or_none()
+    return {
+        "submission_id": version.submission_id,
+        "document_version_id": version.id,
+        "object_key": version.storage_key,
+        "status": job.status.value if job else version.status.value,
+        "reused": True,
+        "analysis_job_id": job.id if job else None,
     }
 
 
@@ -251,10 +277,18 @@ async def complete_upload(
         raise HTTPException(status_code=409, detail="Upload has expired")
     storage = storage or S3Storage()
     try:
-        head = storage.head(version.storage_key)
+        head = await asyncio.to_thread(storage.head, version.storage_key)
     except StorageObjectNotFound as exc:
         raise HTTPException(
             status_code=409, detail="Uploaded object not found"
+        ) from exc
+    except Exception as exc:
+        version.status = DocumentStatus.PROCESSING_FAILED
+        version.failure_code = "STORAGE_UNAVAILABLE"
+        version.failure_detail = "Object storage is temporarily unavailable"
+        await db.flush()
+        raise HTTPException(
+            status_code=503, detail="Object storage is temporarily unavailable"
         ) from exc
     if head.content_type.lower().strip() != "application/pdf":
         raise HTTPException(
