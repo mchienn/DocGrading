@@ -17,6 +17,10 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+LEGACY_CANCELLED_MARKER_KEY: str = "_alembic_20260828_0006_legacy_cancelled"
+LEGACY_CANCELLED_SENTINEL: str = "CANCELLED"
+
+
 def _replace_job_enum(*, new_values: str, expression: str) -> None:
     op.execute(
         sa.text(
@@ -38,12 +42,30 @@ def _replace_job_enum(*, new_values: str, expression: str) -> None:
 def upgrade() -> None:
     op.execute(sa.text("SET search_path TO public"))
 
+    op.execute(sa.text(f"""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM public.analysis_jobs
+                    WHERE snapshot ? '{LEGACY_CANCELLED_MARKER_KEY}'
+                ) THEN
+                    RAISE EXCEPTION
+                        'Reserved snapshot key % already exists in analysis_jobs',
+                        '{LEGACY_CANCELLED_MARKER_KEY}';
+                END IF;
+            END $$;
+            """))
+
+    marker_json = (
+        f'\'{{"{LEGACY_CANCELLED_MARKER_KEY}": '
+        f'"{LEGACY_CANCELLED_SENTINEL}"}}\'::jsonb '
+    )
     op.execute(
         sa.text(
             "UPDATE public.analysis_jobs "
             "SET snapshot = COALESCE(snapshot, '{}'::jsonb) || "
-            "'{\"_legacy_cancelled\": true}'::jsonb "
-            "WHERE status::text = 'CANCELLED'"
+            + marker_json
+            + "WHERE status::text = 'CANCELLED'"
         )
     )
 
@@ -128,7 +150,8 @@ def downgrade() -> None:
         new_values="'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'",
         expression=(
             "CASE status::text WHEN 'DONE' THEN 'SUCCEEDED' "
-            "WHEN 'ERROR' THEN CASE WHEN (snapshot ? '_legacy_cancelled') "
+            f"WHEN 'ERROR' THEN CASE WHEN snapshot->>'{LEGACY_CANCELLED_MARKER_KEY}' = "
+            f"'{LEGACY_CANCELLED_SENTINEL}' "
             "THEN 'CANCELLED' ELSE 'FAILED' END "
             "ELSE status::text END::text::public.analysis_job_status"
         ),
@@ -136,8 +159,8 @@ def downgrade() -> None:
     op.execute(
         sa.text(
             "UPDATE public.analysis_jobs "
-            "SET snapshot = snapshot - '_legacy_cancelled' "
-            "WHERE snapshot ? '_legacy_cancelled'"
+            f"SET snapshot = snapshot - '{LEGACY_CANCELLED_MARKER_KEY}' "
+            f"WHERE snapshot ? '{LEGACY_CANCELLED_MARKER_KEY}'"
         )
     )
     op.create_index(

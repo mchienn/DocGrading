@@ -35,6 +35,13 @@ def test_migration_0006_contract_definitions() -> None:
     assert migration_0006.down_revision == "20260828_0005"
     assert hasattr(migration_0006, "upgrade")
     assert hasattr(migration_0006, "downgrade")
+    assert hasattr(migration_0006, "LEGACY_CANCELLED_MARKER_KEY")
+    assert hasattr(migration_0006, "LEGACY_CANCELLED_SENTINEL")
+    assert (
+        migration_0006.LEGACY_CANCELLED_MARKER_KEY
+        == "_alembic_20260828_0006_legacy_cancelled"
+    )
+    assert migration_0006.LEGACY_CANCELLED_SENTINEL == "CANCELLED"
 
 
 async def _seed_0005(engine: AsyncEngine, ids: dict[str, uuid.UUID]) -> None:
@@ -106,7 +113,9 @@ async def _seed_0005(engine: AsyncEngine, ids: dict[str, uuid.UUID]) -> None:
                 "student": ids["student"],
             },
         )
-        for i, doc_name in enumerate(["doc1", "doc2", "doc3", "doc4"], start=1):
+        for i, doc_name in enumerate(
+            ["doc1", "doc2", "doc3", "doc4", "doc_collision"], start=1
+        ):
             await conn.execute(
                 text("""
                     INSERT INTO public.document_versions (id, submission_id, version_number, storage_key, original_filename, content_type, size_bytes, sha256, status)
@@ -121,13 +130,13 @@ async def _seed_0005(engine: AsyncEngine, ids: dict[str, uuid.UUID]) -> None:
                 },
             )
 
-        # Insert legacy jobs in 0005: CANCELLED, FAILED, SUCCEEDED
+        # Insert legacy jobs in 0005: CANCELLED, FAILED, SUCCEEDED with rich arbitrary snapshot structures
         await conn.execute(
             text("""
                 INSERT INTO public.analysis_jobs (id, document_version_id, rubric_version_id, status, snapshot)
-                VALUES (:j_canc, :doc1, :rubric, 'CANCELLED'::public.analysis_job_status, '{\"custom_key\": \"hello\"}'::jsonb),
-                       (:j_fail, :doc2, :rubric, 'FAILED'::public.analysis_job_status, '{\"failed_key\": 123}'::jsonb),
-                       (:j_succ, :doc3, :rubric, 'SUCCEEDED'::public.analysis_job_status, '{\"succ_key\": 456}'::jsonb)
+                VALUES (:j_canc, :doc1, :rubric, 'CANCELLED'::public.analysis_job_status, '{\"custom_key\": \"hello\", \"nested\": {\"a\": 1, \"b\": [2, 3]}, \"num\": 42}'::jsonb),
+                       (:j_fail, :doc2, :rubric, 'FAILED'::public.analysis_job_status, '{\"failed_key\": 123, \"reasons\": [\"bad pdf\"]}'::jsonb),
+                       (:j_succ, :doc3, :rubric, 'SUCCEEDED'::public.analysis_job_status, '{\"succ_key\": 456, \"metrics\": {\"pages\": 5}}'::jsonb)
             """),
             {
                 "j_canc": ids["job_cancelled"],
@@ -144,6 +153,8 @@ async def _seed_0005(engine: AsyncEngine, ids: dict[str, uuid.UUID]) -> None:
 async def _verify_0006_and_insert_error_job(
     engine: AsyncEngine, ids: dict[str, uuid.UUID]
 ) -> None:
+    marker_key = "_alembic_20260828_0006_legacy_cancelled"
+    marker_val = "CANCELLED"
     async with engine.begin() as conn:
         res = await conn.execute(
             text(
@@ -159,16 +170,23 @@ async def _verify_0006_and_insert_error_job(
             row[0]: (row[1], row[2]) for row in res.fetchall()
         }
 
+        # CANCELLED must map to ERROR, have exact sentinel marker, and preserve all other snapshot keys
         assert rows[ids["job_cancelled"]][0] == "ERROR"
-        assert rows[ids["job_cancelled"]][1].get("_legacy_cancelled") is True
+        assert rows[ids["job_cancelled"]][1].get(marker_key) == marker_val
         assert rows[ids["job_cancelled"]][1].get("custom_key") == "hello"
+        assert rows[ids["job_cancelled"]][1].get("nested") == {"a": 1, "b": [2, 3]}
+        assert rows[ids["job_cancelled"]][1].get("num") == 42
 
+        # FAILED must map to ERROR, not have marker, and preserve all snapshot keys
         assert rows[ids["job_failed"]][0] == "ERROR"
-        assert "_legacy_cancelled" not in rows[ids["job_failed"]][1]
+        assert marker_key not in rows[ids["job_failed"]][1]
         assert rows[ids["job_failed"]][1].get("failed_key") == 123
+        assert rows[ids["job_failed"]][1].get("reasons") == ["bad pdf"]
 
+        # SUCCEEDED must map to DONE, not have marker, and preserve all snapshot keys
         assert rows[ids["job_succeeded"]][0] == "DONE"
         assert rows[ids["job_succeeded"]][1].get("succ_key") == 456
+        assert rows[ids["job_succeeded"]][1].get("metrics") == {"pages": 5}
 
         # Verify heartbeat_at column exists in 0006
         heartbeat_col_check = await conn.execute(text("""
@@ -184,7 +202,7 @@ async def _verify_0006_and_insert_error_job(
         await conn.execute(
             text("""
                 INSERT INTO public.analysis_jobs (id, document_version_id, rubric_version_id, status, snapshot, heartbeat_at)
-                VALUES (:id, :doc4, :rubric, 'ERROR'::public.analysis_job_status, '{\"ordinary\": true}'::jsonb, now())
+                VALUES (:id, :doc4, :rubric, 'ERROR'::public.analysis_job_status, '{\"ordinary\": true, \"details\": \"some error\"}'::jsonb, now())
             """),
             {
                 "id": ids["job_ordinary_err"],
@@ -197,6 +215,7 @@ async def _verify_0006_and_insert_error_job(
 async def _verify_0005_downgrade(
     engine: AsyncEngine, ids: dict[str, uuid.UUID]
 ) -> None:
+    marker_key = "_alembic_20260828_0006_legacy_cancelled"
     async with engine.begin() as conn:
         res = await conn.execute(
             text(
@@ -213,22 +232,27 @@ async def _verify_0005_downgrade(
             row[0]: (row[1], row[2]) for row in res.fetchall()
         }
 
-        # Legacy cancelled row must be restored to CANCELLED and marker stripped
+        # Legacy cancelled row must be restored to CANCELLED and only marker stripped
         assert rows[ids["job_cancelled"]][0] == "CANCELLED"
-        assert "_legacy_cancelled" not in rows[ids["job_cancelled"]][1]
+        assert marker_key not in rows[ids["job_cancelled"]][1]
         assert rows[ids["job_cancelled"]][1].get("custom_key") == "hello"
+        assert rows[ids["job_cancelled"]][1].get("nested") == {"a": 1, "b": [2, 3]}
+        assert rows[ids["job_cancelled"]][1].get("num") == 42
 
-        # Legacy failed row must be FAILED
+        # Legacy failed row must be FAILED and preserve all snapshot keys
         assert rows[ids["job_failed"]][0] == "FAILED"
         assert rows[ids["job_failed"]][1].get("failed_key") == 123
+        assert rows[ids["job_failed"]][1].get("reasons") == ["bad pdf"]
 
-        # Legacy succeeded row must be SUCCEEDED
+        # Legacy succeeded row must be SUCCEEDED and preserve all snapshot keys
         assert rows[ids["job_succeeded"]][0] == "SUCCEEDED"
         assert rows[ids["job_succeeded"]][1].get("succ_key") == 456
+        assert rows[ids["job_succeeded"]][1].get("metrics") == {"pages": 5}
 
         # Ordinary ERROR created in 0006 must downgrade to FAILED
         assert rows[ids["job_ordinary_err"]][0] == "FAILED"
         assert rows[ids["job_ordinary_err"]][1].get("ordinary") is True
+        assert rows[ids["job_ordinary_err"]][1].get("details") == "some error"
 
         # Verify heartbeat_at column was dropped
         heartbeat_col_check = await conn.execute(text("""
@@ -241,50 +265,147 @@ async def _verify_0005_downgrade(
 
 async def _cleanup(engine: AsyncEngine, ids: dict[str, uuid.UUID]) -> None:
     async with engine.begin() as conn:
-        await conn.execute(
-            text("DELETE FROM public.analysis_jobs WHERE id IN (:j1, :j2, :j3, :j4)"),
-            {
-                "j1": ids["job_cancelled"],
-                "j2": ids["job_failed"],
-                "j3": ids["job_succeeded"],
-                "j4": ids["job_ordinary_err"],
-            },
+        job_ids = [ids[k] for k in ids if k.startswith("job")]
+        doc_ids = [ids[k] for k in ids if k.startswith("doc")]
+        if job_ids:
+            await conn.execute(
+                text("DELETE FROM public.analysis_jobs WHERE id = ANY(:jids)"),
+                {"jids": job_ids},
+            )
+        if doc_ids:
+            await conn.execute(
+                text("DELETE FROM public.document_versions WHERE id = ANY(:dids)"),
+                {"dids": doc_ids},
+            )
+        if "submission" in ids:
+            await conn.execute(
+                text("DELETE FROM public.submissions WHERE id = :id"),
+                {"id": ids["submission"]},
+            )
+        if "assignment" in ids:
+            await conn.execute(
+                text("DELETE FROM public.assignments WHERE id = :id"),
+                {"id": ids["assignment"]},
+            )
+        if "rubric" in ids:
+            await conn.execute(
+                text("DELETE FROM public.rubric_versions WHERE id = :id"),
+                {"id": ids["rubric"]},
+            )
+        if "member" in ids:
+            await conn.execute(
+                text("DELETE FROM public.memberships WHERE id = :id"),
+                {"id": ids["member"]},
+            )
+        if "course" in ids:
+            await conn.execute(
+                text("DELETE FROM public.courses WHERE id = :id"),
+                {"id": ids["course"]},
+            )
+        if "teacher" in ids and "student" in ids:
+            await conn.execute(
+                text("DELETE FROM public.users WHERE id IN (:teacher, :student)"),
+                {"teacher": ids["teacher"], "student": ids["student"]},
+            )
+
+
+@pytest.mark.skipif(
+    os.environ.get("RUN_DATABASE_TESTS") != "1",
+    reason="Database integration tests require RUN_DATABASE_TESTS=1",
+)
+def test_migration_0006_marker_collision_aborts_postgres() -> None:
+    """Prove that existing marker in snapshot causes upgrade 0006 to abort and protect data."""
+    import alembic.command
+    import alembic.config
+
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    alembic_ini_path = os.path.join(backend_dir, "alembic.ini")
+    alembic_cfg = alembic.config.Config(alembic_ini_path)
+    alembic_cfg.set_main_option("script_location", os.path.join(backend_dir, "alembic"))
+
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+
+    ids = {
+        name: uuid.uuid4()
+        for name in (
+            "teacher",
+            "student",
+            "course",
+            "member",
+            "rubric",
+            "assignment",
+            "submission",
+            "doc1",
+            "doc2",
+            "doc3",
+            "doc4",
+            "doc_collision",
+            "job_cancelled",
+            "job_failed",
+            "job_succeeded",
+            "job_ordinary_err",
+            "job_collision",
         )
-        await conn.execute(
-            text(
-                "DELETE FROM public.document_versions WHERE id IN (:d1, :d2, :d3, :d4)"
-            ),
-            {
-                "d1": ids["doc1"],
-                "d2": ids["doc2"],
-                "d3": ids["doc3"],
-                "d4": ids["doc4"],
-            },
-        )
-        await conn.execute(
-            text("DELETE FROM public.submissions WHERE id = :id"),
-            {"id": ids["submission"]},
-        )
-        await conn.execute(
-            text("DELETE FROM public.assignments WHERE id = :id"),
-            {"id": ids["assignment"]},
-        )
-        await conn.execute(
-            text("DELETE FROM public.rubric_versions WHERE id = :id"),
-            {"id": ids["rubric"]},
-        )
-        await conn.execute(
-            text("DELETE FROM public.memberships WHERE id = :id"),
-            {"id": ids["member"]},
-        )
-        await conn.execute(
-            text("DELETE FROM public.courses WHERE id = :id"),
-            {"id": ids["course"]},
-        )
-        await conn.execute(
-            text("DELETE FROM public.users WHERE id IN (:teacher, :student)"),
-            {"teacher": ids["teacher"], "student": ids["student"]},
-        )
+    }
+
+    try:
+        # Step 1: Ensure at 0005
+        try:
+            alembic.command.downgrade(alembic_cfg, "20260828_0005")
+        except Exception:
+            alembic.command.upgrade(alembic_cfg, "20260828_0005")
+
+        # Step 2: Seed base 0005 data
+        asyncio.run(_seed_0005(engine, ids))
+
+        # Insert a job with collision marker key in snapshot in 0005
+        async def _insert_colliding_job() -> None:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("""
+                        INSERT INTO public.analysis_jobs (id, document_version_id, rubric_version_id, status, snapshot)
+                        VALUES (:j_coll, :doc_coll, :rubric, 'QUEUED'::public.analysis_job_status,
+                                '{\"_alembic_20260828_0006_legacy_cancelled\": \"user_data\", \"preserve_me\": 999}'::jsonb)
+                    """),
+                    {
+                        "j_coll": ids["job_collision"],
+                        "doc_coll": ids["doc_collision"],
+                        "rubric": ids["rubric"],
+                    },
+                )
+
+        asyncio.run(_insert_colliding_job())
+
+        # Step 3: Upgrade to 0006 MUST fail and abort
+        with pytest.raises(Exception, match="_alembic_20260828_0006_legacy_cancelled"):
+            alembic.command.upgrade(alembic_cfg, "20260828_0006")
+
+        # Step 4: Verify that data was uncorrupted and job remains with its original data
+        async def _verify_colliding_job_preserved() -> None:
+            async with engine.begin() as conn:
+                res = await conn.execute(
+                    text(
+                        "SELECT status::text, snapshot FROM public.analysis_jobs WHERE id = :id"
+                    ),
+                    {"id": ids["job_collision"]},
+                )
+                row = res.fetchone()
+                assert row is not None
+                assert row[0] == "QUEUED"
+                assert row[1] == {
+                    "_alembic_20260828_0006_legacy_cancelled": "user_data",
+                    "preserve_me": 999,
+                }
+
+        asyncio.run(_verify_colliding_job_preserved())
+
+    finally:
+        try:
+            asyncio.run(_cleanup(engine, ids))
+        finally:
+            alembic.command.upgrade(alembic_cfg, "head")
+            asyncio.run(engine.dispose())
 
 
 @pytest.mark.skipif(
@@ -318,18 +439,21 @@ def test_migration_0006_cancelled_reversible_roundtrip_postgres() -> None:
             "doc2",
             "doc3",
             "doc4",
+            "doc_collision",
             "job_cancelled",
             "job_failed",
             "job_succeeded",
             "job_ordinary_err",
+            "job_collision",
         )
     }
 
     try:
         # Step 1: Ensure at 0005
-        alembic.command.upgrade(alembic_cfg, "20260828_0005")
-    except Exception:
-        alembic.command.downgrade(alembic_cfg, "20260828_0005")
+        try:
+            alembic.command.downgrade(alembic_cfg, "20260828_0005")
+        except Exception:
+            alembic.command.upgrade(alembic_cfg, "20260828_0005")
 
         # Step 2: Seed data in 0005 schema
         asyncio.run(_seed_0005(engine, ids))
