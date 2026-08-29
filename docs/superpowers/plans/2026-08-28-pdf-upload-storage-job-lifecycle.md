@@ -51,7 +51,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 | --- | --- |
 | Short-lived, one-object presigned upload | `S3Storage.create_presigned_post`; exact key, MIME and size conditions; 300-second expiry tests |
 | Client-hint and server-side verification | Request schema bounds plus `HeadObject` and bounded `GetObject` validation |
-| PDF size / magic / scan-only errors | Stable error codes `PDF_TOO_LARGE`, `PDF_DECODED_TOO_LARGE`, `NOT_A_PDF`, `PDF_SCAN_ONLY`; raw and decoded-size focused unit tests |
+| PDF size / magic / scan-only errors | Stable error codes `PDF_TOO_LARGE`, `PDF_DECODED_TOO_LARGE`, `NOT_A_PDF`, `PDF_SCAN_ONLY`; BR-07 recursively measures visible raster placements against crop, Form, and supported content clipping; raw/decoded-size and scan-geometry regression tests |
 | Treat PDF as untrusted | Current pinned pypdf, strict parsing, raw-byte/total-decoded/page-count limits, no execution, active-content/attachment rejection |
 | Idempotent job creation/retry | Full DB uniqueness, locked create/retry, same-row transition tests |
 | Race-safe pickup and worker-loss recovery | PostgreSQL `FOR UPDATE SKIP LOCKED`, locked-status re-check, lease/heartbeat recovery, delayed Celery retry for redelivery during an active lease, `attempt_count` compare-and-set fencing for heartbeat/terminal writes, and committed-`RUNNING` split-brain integration tests |
@@ -144,7 +144,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 
 - [x] Run `uv run ruff check .` from `backend/`.
 - [x] Run `uv run black --check .` from `backend/`.
-- [x] Run `uv run pytest -v` from `backend/` with `RUN_DATABASE_TESTS=1`: 185 passed.
+- [x] Run `uv run pytest -v` from `backend/` with `RUN_DATABASE_TESTS=1`: 196 passed.
 - [x] With isolated PostgreSQL 17 healthy, run `alembic upgrade head`, `alembic downgrade 20260828_0005`, and `alembic upgrade head`.
 - [x] Run database tests and confirm the two-worker test has exactly one winner.
 - [x] Run `docker compose config` and a real presigned POST/object HEAD smoke test.
