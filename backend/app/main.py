@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.api.routers.assignments import router as assignments_router
@@ -6,6 +9,13 @@ from app.api.routers.courses import router as courses_router
 from app.api.routers.rubrics import router as rubrics_router
 from app.api.routers.submissions import router as submissions_router
 from app.api.routers.system import router as system_router
+from app.core.config import get_settings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    get_settings()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -13,6 +23,7 @@ def create_app() -> FastAPI:
         title="DocGrading API",
         version="0.1.0",
         openapi_url="/api/v1/openapi.json",
+        lifespan=lifespan,
     )
     application.include_router(system_router, prefix="/api/v1")
     application.include_router(auth_router, prefix="/api/v1")

@@ -111,3 +111,51 @@ def test_settings_accepts_valid_custom_credentials_outside_development() -> None
         storage_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
     )
     assert settings.storage_access_key_id == "AKIAIOSFODNN7EXAMPLE"
+
+
+def test_api_startup_fails_in_production_with_default_placeholder_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.core.config import get_settings
+    from app.main import create_app
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("POSTGRES_DB", "docgrading")
+    monkeypatch.setenv("POSTGRES_USER", "docgrading")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "secret")
+    monkeypatch.delenv("STORAGE_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("STORAGE_SECRET_ACCESS_KEY", raising=False)
+
+    app = create_app()
+    with pytest.raises(ValidationError), TestClient(app):
+        pass
+    get_settings.cache_clear()
+
+
+def test_api_startup_succeeds_in_production_with_valid_custom_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.core.config import get_settings
+    from app.main import create_app
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("POSTGRES_DB", "docgrading")
+    monkeypatch.setenv("POSTGRES_USER", "docgrading")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "secret")
+    monkeypatch.setenv("STORAGE_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+    monkeypatch.setenv(
+        "STORAGE_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    )
+
+    app = create_app()
+    with TestClient(app) as client:
+        res = client.get("/api/v1/health")
+        assert res.status_code == 200
+        assert res.json() == {"status": "ok"}
+    get_settings.cache_clear()

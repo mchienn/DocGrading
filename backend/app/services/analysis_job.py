@@ -358,6 +358,9 @@ async def mark_error(
     return True
 
 
+LEGACY_CANCELLED_MARKER_KEY: str = "_alembic_20260828_0006_legacy_cancelled"
+
+
 async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJob:
     await authorize_job(db, job, user, retry=True)
     locked = (
@@ -376,6 +379,11 @@ async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJ
     document = await db.get(DocumentVersion, locked.document_version_id)
     if document is not None:
         document.status = DocumentStatus.QUEUED
+    snapshot = getattr(locked, "snapshot", None)
+    if snapshot and LEGACY_CANCELLED_MARKER_KEY in snapshot:
+        updated_snapshot = dict(snapshot)
+        updated_snapshot.pop(LEGACY_CANCELLED_MARKER_KEY, None)
+        locked.snapshot = updated_snapshot
     before = locked.status.value
     locked.status = AnalysisJobStatus.QUEUED
     locked.error_code = None
