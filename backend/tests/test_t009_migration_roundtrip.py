@@ -314,10 +314,18 @@ async def _verify_0006_and_process_jobs(
         assert marker_key not in retried_res.snapshot
         assert retried_res.snapshot.get("retried_meta") == "keep_me"
 
-        # Now simulate failure of that retried job (e.g. mark_error in worker)
-        await job_service.mark_error(
-            db, retried_res, "SIMULATED_FAIL", "failed during worker execution"
+        # Simulate the retried worker claim and a fenced terminal failure.
+        claimed = await job_service.claim_job_by_id(db, retried_res.id)
+        assert claimed is not None
+        await db.commit()
+        settled = await job_service.mark_error(
+            db,
+            claimed,
+            "SIMULATED_FAIL",
+            "failed during worker execution",
+            attempt_count=claimed.attempt_count,
         )
+        assert settled is True
         await db.commit()
 
         # Verify job_cancelled_retried is now in ERROR but does NOT have the sentinel marker

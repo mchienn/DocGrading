@@ -108,6 +108,29 @@ def _get_lease_seconds() -> int:
     return get_settings().analysis_job_lease_seconds
 
 
+async def active_lease_retry_delay(db: AsyncSession, job_id: uuid.UUID) -> int | None:
+    """Return seconds until a specific RUNNING job becomes stale."""
+    last_touch = (
+        await db.execute(
+            sa.select(
+                sa.func.coalesce(
+                    AnalysisJob.heartbeat_at,
+                    AnalysisJob.started_at,
+                    AnalysisJob.queued_at,
+                )
+            ).where(
+                AnalysisJob.id == job_id,
+                AnalysisJob.status == AnalysisJobStatus.RUNNING,
+            )
+        )
+    ).scalar_one_or_none()
+    if last_touch is None:
+        return None
+    lease_expires_at = last_touch + timedelta(seconds=_get_lease_seconds())
+    remaining_seconds = (lease_expires_at - datetime.now(UTC)).total_seconds()
+    return max(1, int(remaining_seconds) + 1)
+
+
 async def _mark_running(db: AsyncSession, job: AnalysisJob) -> None:
     now = datetime.now(UTC)
     before = job.status.value
@@ -359,6 +382,7 @@ async def mark_error(
 
 
 LEGACY_CANCELLED_MARKER_KEY: str = "_alembic_20260828_0006_legacy_cancelled"
+LEGACY_CANCELLED_SENTINEL: str = "CANCELLED"
 
 
 async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJob:
@@ -380,7 +404,10 @@ async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJ
     if document is not None:
         document.status = DocumentStatus.QUEUED
     snapshot = getattr(locked, "snapshot", None)
-    if snapshot and LEGACY_CANCELLED_MARKER_KEY in snapshot:
+    if (
+        snapshot
+        and snapshot.get(LEGACY_CANCELLED_MARKER_KEY) == LEGACY_CANCELLED_SENTINEL
+    ):
         updated_snapshot = dict(snapshot)
         updated_snapshot.pop(LEGACY_CANCELLED_MARKER_KEY, None)
         locked.snapshot = updated_snapshot

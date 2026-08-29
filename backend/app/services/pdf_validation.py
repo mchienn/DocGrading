@@ -96,12 +96,15 @@ def validate_pdf(
         if _contains_active_content(reader.trailer):
             raise PDFValidationError("PDF_ACTIVE_CONTENT")
         text_found = False
+        decoded_size = 0
         for page in reader.pages:
             contents = page.get_contents()
             if contents is not None:
                 decoded_data = contents.get_data()
-                if decoded_data is not None and len(decoded_data) > max_size_bytes:
-                    raise PDFValidationError("PDF_DECODED_TOO_LARGE")
+                if decoded_data is not None:
+                    decoded_size += len(decoded_data)
+                    if decoded_size > max_size_bytes:
+                        raise PDFValidationError("PDF_DECODED_TOO_LARGE")
             text = page.extract_text() or ""
             if text.strip():
                 text_found = True

@@ -99,6 +99,8 @@ def test_settings_rejects_placeholder_credentials_outside_development(
         error_str = str(exc_info.value)
         # Verify secrets are not leaked in error messages
         assert "placeholder" in error_str.lower() or "credential" in error_str.lower()
+        assert key_id not in error_str
+        assert secret_key not in error_str
 
 
 def test_settings_accepts_valid_custom_credentials_outside_development() -> None:

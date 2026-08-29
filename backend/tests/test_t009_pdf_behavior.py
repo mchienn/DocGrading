@@ -244,7 +244,7 @@ def test_worker_rejects_server_computed_sha_mismatch(
         failure_code=None,
         failure_detail=None,
     )
-    job = SimpleNamespace(id=uuid.uuid4(), document_version=document)
+    job = SimpleNamespace(id=uuid.uuid4(), attempt_count=1, document_version=document)
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     _patch_worker_session(monkeypatch, worker_tasks, db, job)
     monkeypatch.setattr(
@@ -259,7 +259,7 @@ def test_worker_rejects_server_computed_sha_mismatch(
             sha256="1" * 64, size_bytes=8, page_count=1
         ),
     )
-    mark_error = AsyncMock()
+    mark_error = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
 
     result = asyncio.run(worker_tasks._run_analysis_job(str(job.id)))
@@ -269,7 +269,11 @@ def test_worker_rejects_server_computed_sha_mismatch(
     assert document.failure_code == "PDF_SHA256_MISMATCH"
     assert "checksum" in document.failure_detail
     mark_error.assert_awaited_once_with(
-        db, job, "PDF_SHA256_MISMATCH", "PDF checksum does not match"
+        db,
+        job,
+        "PDF_SHA256_MISMATCH",
+        "PDF checksum does not match",
+        attempt_count=1,
     )
 
 
@@ -284,7 +288,7 @@ def test_worker_storage_failure_marks_document_failed_without_secret(
         failure_code=None,
         failure_detail=None,
     )
-    job = SimpleNamespace(id=uuid.uuid4(), document_version=document)
+    job = SimpleNamespace(id=uuid.uuid4(), attempt_count=1, document_version=document)
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     _patch_worker_session(monkeypatch, worker_tasks, db, job)
 
@@ -293,7 +297,7 @@ def test_worker_storage_failure_marks_document_failed_without_secret(
             raise RuntimeError("secret signed URL and provider metadata")
 
     monkeypatch.setattr(worker_tasks, "S3Storage", BrokenStorage)
-    mark_error = AsyncMock()
+    mark_error = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
 
     result = asyncio.run(worker_tasks._run_analysis_job(str(job.id)))
@@ -303,7 +307,11 @@ def test_worker_storage_failure_marks_document_failed_without_secret(
     assert document.failure_code == "PDF_STORAGE_ERROR"
     assert document.failure_detail == "Object storage read failed"
     mark_error.assert_awaited_once_with(
-        db, job, "PDF_STORAGE_ERROR", "Object storage read failed"
+        db,
+        job,
+        "PDF_STORAGE_ERROR",
+        "Object storage read failed",
+        attempt_count=1,
     )
 
 

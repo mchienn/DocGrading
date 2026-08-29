@@ -5,12 +5,14 @@ import contextlib
 import uuid
 
 import sqlalchemy as sa
+from celery import Task
 
 from app.core.config import get_settings
 from app.db.session import _session_factory
 from app.models.enums import DocumentStatus
 from app.models.submission import DocumentVersion
 from app.services.analysis_job import (
+    active_lease_retry_delay,
     claim_job_by_id,
     claim_next_job,
     mark_done,
@@ -25,6 +27,12 @@ from app.workers.celery_app import celery_app
 @celery_app.task(name="app.workers.tasks.healthcheck")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+class _ActiveLease(Exception):
+    def __init__(self, retry_after: int) -> None:
+        super().__init__("Analysis job lease is still active")
+        self.retry_after = retry_after
 
 
 async def _heartbeat_loop(
@@ -46,13 +54,21 @@ async def _heartbeat_loop(
 
 async def _run_analysis_job(job_id: str | None = None) -> str | None:
     async with _session_factory()() as db:
+        target_job_id = uuid.UUID(job_id) if job_id is not None else None
         job = (
             await claim_next_job(db)
-            if job_id is None
-            else await claim_job_by_id(db, uuid.UUID(job_id))
+            if target_job_id is None
+            else await claim_job_by_id(db, target_job_id)
         )
         if job is None:
+            retry_after = (
+                await active_lease_retry_delay(db, target_job_id)
+                if target_job_id is not None
+                else None
+            )
             await db.commit()
+            if retry_after is not None:
+                raise _ActiveLease(retry_after)
             return None
         await db.commit()
 
@@ -177,6 +193,13 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
         return str(job.id)
 
 
-@celery_app.task(name="app.workers.tasks.process_analysis_job")
-def process_analysis_job(job_id: str | None = None) -> str | None:
-    return asyncio.run(_run_analysis_job(job_id))
+@celery_app.task(
+    bind=True,
+    max_retries=None,
+    name="app.workers.tasks.process_analysis_job",
+)
+def process_analysis_job(task: Task, job_id: str | None = None) -> str | None:
+    try:
+        return asyncio.run(_run_analysis_job(job_id))
+    except _ActiveLease as exc:
+        raise task.retry(countdown=exc.retry_after) from exc

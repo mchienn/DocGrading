@@ -58,19 +58,17 @@ def test_pdf_decoded_too_large_raises_error_before_extract_text() -> None:
     assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
 
 
-def test_decoded_limit_is_per_page_not_cumulative() -> None:
-    # Two pages, each with 800 bytes of decoded stream. Limit is 1000 bytes.
-    # Cumulative decoded bytes = 1600 bytes (> 1000).
-    # Compressed file size < 1000 bytes.
-    # Since decoded limit is per page (<= 1000 per page), this must pass.
+def test_decoded_limit_is_cumulative_across_pages() -> None:
+    # Each page is below the limit, but total decoded content exceeds it.
     p1 = b"BT /F1 12 Tf 10 10 Td (Page 1 " + b"A" * 750 + b") Tj ET"
     p2 = b"BT /F1 12 Tf 10 10 Td (Page 2 " + b"B" * 750 + b") Tj ET"
     pdf_bytes = _make_pdf_with_stream([p1, p2], compress=True)
     assert len(pdf_bytes) < 1000
 
-    result = validate_pdf(pdf_bytes, max_size_bytes=1000)
-    assert result.page_count == 2
-    assert result.has_text is True
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(pdf_bytes, max_size_bytes=1000)
+
+    assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
 
 
 def test_decoded_limit_fails_if_any_single_page_exceeds() -> None:

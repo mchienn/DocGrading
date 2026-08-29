@@ -4,7 +4,7 @@
 
 **Goal:** Deliver backend-only PDF upload through a short-lived, object-scoped S3-compatible presigned POST; validate the received object as untrusted data; create one idempotent `AnalysisJob`; and enforce audited, race-safe `QUEUED → RUNNING → DONE/ERROR` transitions.
 
-**Architecture:** Use a two-step upload contract. The API creates or reuses an `UPLOADING` `DocumentVersion` using `Idempotency-Key`, returns a five-minute S3 presigned POST constrained to one random object key, `application/pdf`, and the accepted byte range, then a completion endpoint locks both the document and its Assignment before verifying metadata and queueing the job. Workers claim queued or lease-expired `RUNNING` jobs from PostgreSQL with `SELECT ... FOR UPDATE SKIP LOCKED`, maintain a heartbeat, validate bytes with a bounded/current `pypdf`, and transition the same job row; retries and worker-loss recovery reset that row rather than creating a new `Submission`, `DocumentVersion`, job, or future result.
+**Architecture:** Use a two-step upload contract. The API creates or reuses an `UPLOADING` `DocumentVersion` using `Idempotency-Key`, returns a five-minute S3 presigned POST constrained to one random object key, `application/pdf`, and the accepted byte range, then a completion endpoint locks both the document and its Assignment before verifying metadata and queueing the job. Workers claim queued or lease-expired `RUNNING` jobs from PostgreSQL with `SELECT ... FOR UPDATE SKIP LOCKED`, maintain a heartbeat, and fence every heartbeat/terminal write by the claimed `attempt_count` generation before transitioning the same job row. A specific-job redelivery received before lease expiry uses an unbounded Celery retry delayed until the remaining lease elapses, ensuring stale recovery remains reachable. Retries and worker-loss recovery reset that row rather than creating a new `Submission`, `DocumentVersion`, job, or future result.
 
 **Tech Stack:** Python 3.13, FastAPI, Pydantic 2, SQLAlchemy 2 async, PostgreSQL 17, Alembic, Celery 5.6, Redis 7, Boto3/S3-compatible storage, pypdf 6.x, Docker Compose, pytest, Ruff, Black.
 
@@ -16,8 +16,8 @@
 
 - `POST /api/v1/assignments/{assignment_id}/uploads/presign` requires `Idempotency-Key` and the client-declared SHA-256, plus bounded hints `filename`, `content_type`, and `size_bytes`; the worker recomputes and verifies the digest from stored bytes.
 - The policy fixes the exact random object key, fixes `Content-Type=application/pdf`, applies `content-length-range`, and expires after 300 seconds.
-- `POST /api/v1/document-versions/{version_id}/complete` locks the `DocumentVersion` and Assignment together. The first completion is accepted only while the Assignment is `OPEN` and its optional deadline has not passed; an already completed document remains idempotently readable afterward. It performs `HeadObject`, rejects server-observed content type/size mismatches, marks the document queued, creates/reuses exactly one job, and sends a lightweight Celery wake-up.
-- The worker downloads at most the configured limit, verifies `%PDF-`, SHA-256, encryption, page count, active content/attachments, and a usable text layer. Decoded page content is bounded before text extraction. pypdf never executes PDF JavaScript; malformed/parser failures become explicit validation errors.
+- `POST /api/v1/document-versions/{version_id}/complete` locks the `DocumentVersion` and Assignment together. The first completion is accepted only while the Assignment is `OPEN` and its optional deadline has not passed; an already completed document remains idempotently readable afterward. It performs `HeadObject`, rejects server-observed content type/size mismatches, marks the document queued, creates/reuses exactly one job, and sends a lightweight Celery wake-up. A transient `HeadObject` failure commits sanitized `PROCESSING_FAILED/STORAGE_UNAVAILABLE`; the same no-job document can retry completion without re-upload or a renewed presigned window while the Assignment gate still passes.
+- The worker downloads at most the configured limit, verifies `%PDF-`, SHA-256, encryption, page count, active content/attachments, and a usable text layer. Total decoded page content shares one configured byte budget and is checked before each page's text extraction. pypdf never executes PDF JavaScript; malformed/parser failures become explicit validation errors.
 
 ### Alternatives rejected
 
@@ -52,9 +52,9 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 | Short-lived, one-object presigned upload | `S3Storage.create_presigned_post`; exact key, MIME and size conditions; 300-second expiry tests |
 | Client-hint and server-side verification | Request schema bounds plus `HeadObject` and bounded `GetObject` validation |
 | PDF size / magic / scan-only errors | Stable error codes `PDF_TOO_LARGE`, `PDF_DECODED_TOO_LARGE`, `NOT_A_PDF`, `PDF_SCAN_ONLY`; raw and decoded-size focused unit tests |
-| Treat PDF as untrusted | Current pinned pypdf, strict parsing, raw-byte/decoded-page/page-count limits, no execution, active-content/attachment rejection |
+| Treat PDF as untrusted | Current pinned pypdf, strict parsing, raw-byte/total-decoded/page-count limits, no execution, active-content/attachment rejection |
 | Idempotent job creation/retry | Full DB uniqueness, locked create/retry, same-row transition tests |
-| Race-safe pickup and worker-loss recovery | PostgreSQL `FOR UPDATE SKIP LOCKED`, locked-status re-check, lease/heartbeat recovery, and committed-`RUNNING` loss integration tests |
+| Race-safe pickup and worker-loss recovery | PostgreSQL `FOR UPDATE SKIP LOCKED`, locked-status re-check, lease/heartbeat recovery, delayed Celery retry for redelivery during an active lease, `attempt_count` compare-and-set fencing for heartbeat/terminal writes, and committed-`RUNNING` split-brain integration tests |
 | Audited job/document lifecycle | `record_system_audit`/`record_audit` in the same transaction as job transitions and document `PROCESSING`/`AWAITING_REVIEW` changes |
 | Cross-object authorization | Admin/Teacher/Student precedence and other-user denial tests |
 | Retry creates no duplicate data | Submission/DocumentVersion/job row counts remain stable after `ERROR → QUEUED → RUNNING → DONE` |
@@ -110,7 +110,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 - [x] Add failing tests for active Student membership, `OPEN`/deadline/attempt limits, required `Idempotency-Key`, same-key/same-payload replay, same-key/different-payload conflict, and duplicate SHA reuse.
 - [x] Add failing tests proving client-declared MIME/size are only hints and completion trusts server-observed object metadata/bytes.
 - [x] Implement initiation under a transaction/row lock; create no duplicate `Submission` or `DocumentVersion` under retry.
-- [x] Implement completion as idempotent: lock the document and Assignment together; accept first completion only while the Assignment is `OPEN` and not past its optional deadline; already queued/processed returns the existing job even after later closure/deadline; first completion creates/reuses the single job and enqueues only after commit.
+- [x] Implement completion as idempotent: lock the document and Assignment together; accept first completion only while the Assignment is `OPEN` and not past its optional deadline; already queued/processed returns the existing job even after later closure/deadline; first completion creates/reuses the single job and enqueues only after commit. Persist transient storage failure before 503 and allow only that `STORAGE_UNAVAILABLE`/no-job state to retry completion without re-upload or presign-expiry rejection.
 - [x] Register the router without changing `frontend/`.
 - [x] Run focused upload API/service tests until green.
 
@@ -119,8 +119,9 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 - [x] Add real-PostgreSQL tests using independent sessions: prove exactly one `SKIP LOCKED` claim wins, then commit a `RUNNING` claim, simulate worker loss with an expired heartbeat, and prove the same row is reclaimed or exhausted with audit evidence.
 - [x] Implement the exact pickup query ordered by `(queued_at, id)` with `.with_for_update(skip_locked=True).limit(1)`.
 - [x] Re-check the locked job as `QUEUED` or lease-expired `RUNNING`; maintain heartbeat updates while work is active, requeue stale work only while attempts remain, and terminally fail exhausted stale work.
+- [x] Fence heartbeat, `DONE`, and `ERROR` writes by the claimed `attempt_count`; a superseded attempt rolls back pending document mutations and cannot refresh or settle the newer attempt.
 - [x] Record job `QUEUED`, `RUNNING`, `DONE`, `ERROR`, and `ERROR → QUEUED` transitions atomically; set and audit the linked document as `PROCESSING` on claim and `AWAITING_REVIEW` on success in those same transactions.
-- [x] Configure Celery late acknowledgement and worker-loss rejection; duplicate deliveries are safe because locked status, leases, attempt limits, and DB uniqueness are authoritative.
+- [x] Configure Celery late acknowledgement and worker-loss rejection; a specific-job redelivery during an active lease retries after the remaining lease instead of being acknowledged away, and duplicate deliveries remain safe because locked status, leases, attempt-generation fencing, attempt limits, and DB uniqueness are authoritative.
 - [x] Run focused lifecycle, recovery, and concurrency tests until green.
 
 ## Task 5: Enforce role precedence and safe retry
@@ -143,12 +144,12 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 
 - [x] Run `uv run ruff check .` from `backend/`.
 - [x] Run `uv run black --check .` from `backend/`.
-- [x] Run `uv run pytest -v` from `backend/` with `RUN_DATABASE_TESTS=1`: 129 passed.
+- [x] Run `uv run pytest -v` from `backend/` with `RUN_DATABASE_TESTS=1`: 184 passed.
 - [x] With isolated PostgreSQL 17 healthy, run `alembic upgrade head`, `alembic downgrade 20260828_0005`, and `alembic upgrade head`.
 - [x] Run database tests and confirm the two-worker test has exactly one winner.
 - [x] Run `docker compose config` and a real presigned POST/object HEAD smoke test.
 - [x] Reconcile canonical upload and job status wording without expanding T-009 into frontend or evaluation-result implementation.
-- [ ] Independent Orca review could not start because every available provider failed readiness (Claude quota, Codex update prompt, Gemini/OMP prompt stall, Pi/Grok timeout, Antigravity trust prompt). Coordinator self-review found and fixed active-SHA duplication, multi-role completion authorization, and sanitized worker storage-failure state; all affected verification was rerun.
+- [x] Independent scoped review completed after integration; its early-redelivery recovery finding was fixed with lease-aware delayed Celery retry, and re-review returned `NO_SCOPED_FINDINGS`.
 
 ## Required final review groups
 

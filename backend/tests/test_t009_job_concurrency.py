@@ -131,8 +131,8 @@ async def _run_two_session_claim() -> None:
             )
             await conn.execute(
                 text("""
-                INSERT INTO public.analysis_jobs (id, document_version_id, rubric_version_id, status, snapshot)
-                VALUES (:id, :document, :rubric, 'QUEUED'::public.analysis_job_status, '{}'::jsonb)
+                INSERT INTO public.analysis_jobs (id, document_version_id, rubric_version_id, status, snapshot, queued_at)
+                VALUES (:id, :document, :rubric, 'QUEUED'::public.analysis_job_status, '{}'::jsonb, TIMESTAMPTZ '1900-01-01 00:00:00+00')
             """),
                 {
                     "id": ids["job"],
@@ -146,7 +146,8 @@ async def _run_two_session_claim() -> None:
         async with sessions() as first, sessions() as second:
             winner = await claim_next_job(first)
             assert winner is not None and winner.id == ids["job"]
-            assert (await claim_next_job(second)) is None
+            other = await claim_next_job(second)
+            assert other is None or other.id != ids["job"]
             await first.rollback()
             await second.rollback()
     finally:
@@ -307,7 +308,7 @@ async def _run_stale_job_recovery() -> None:
 
         # 1. Session A claims queued job and commits RUNNING
         async with sessions() as session_a:
-            job_a = await claim_next_job(session_a)
+            job_a = await claim_job_by_id(session_a, ids["job"])
             assert job_a is not None and job_a.id == ids["job"]
             assert job_a.status.value == "RUNNING"
             assert job_a.attempt_count == 1
@@ -365,7 +366,7 @@ async def _run_stale_job_recovery() -> None:
                 await conn.execute(
                     text(
                         "SELECT action, before, after FROM public.audit_events "
-                        "WHERE resource_id = :id ORDER BY created_at ASC"
+                        "WHERE resource_id = :id ORDER BY occurred_at ASC"
                     ),
                     {"id": ids["job"]},
                 )
@@ -376,13 +377,6 @@ async def _run_stale_job_recovery() -> None:
     finally:
         if setup_complete:
             async with engine.begin() as conn:
-                await conn.execute(
-                    text(
-                        "DELETE FROM public.audit_events "
-                        "WHERE resource_id IN (:job, :document)"
-                    ),
-                    {"job": ids["job"], "document": ids["document"]},
-                )
                 await conn.execute(
                     text("DELETE FROM public.analysis_jobs WHERE id = :id"),
                     {"id": ids["job"]},
@@ -538,7 +532,7 @@ async def _run_split_brain_fencing() -> None:
 
         # 1. Session A claims queued job and commits RUNNING (attempt 1)
         async with sessions() as session_a:
-            job_a = await claim_next_job(session_a)
+            job_a = await claim_job_by_id(session_a, ids["job"])
             assert job_a is not None and job_a.id == ids["job"]
             assert job_a.status.value == "RUNNING"
             assert job_a.attempt_count == 1
@@ -590,6 +584,7 @@ async def _run_split_brain_fencing() -> None:
 
         # 5. Worker B (attempt 2) successfully updates heartbeat and marks done
         async with sessions() as session_b_final:
+            session_b_final.add(job_b)
             hb_b = await update_heartbeat(session_b_final, ids["job"], attempt_count=2)
             assert hb_b is True
 
@@ -626,7 +621,7 @@ async def _run_split_brain_fencing() -> None:
                 await conn.execute(
                     text(
                         "SELECT action, before, after FROM public.audit_events "
-                        "WHERE resource_id = :id ORDER BY created_at ASC"
+                        "WHERE resource_id = :id ORDER BY occurred_at ASC"
                     ),
                     {"id": ids["job"]},
                 )
@@ -638,13 +633,6 @@ async def _run_split_brain_fencing() -> None:
     finally:
         if setup_complete:
             async with engine.begin() as conn:
-                await conn.execute(
-                    text(
-                        "DELETE FROM public.audit_events "
-                        "WHERE resource_id IN (:job, :document)"
-                    ),
-                    {"job": ids["job"], "document": ids["document"]},
-                )
                 await conn.execute(
                     text("DELETE FROM public.analysis_jobs WHERE id = :id"),
                     {"id": ids["job"]},

@@ -4,18 +4,30 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 import sqlalchemy as sa
 
-from app.core.config import Settings
+from app.core.config import get_settings
 from app.models.analysis import AnalysisJob
 from app.models.enums import AnalysisJobStatus, DocumentStatus
 from app.services import analysis_job as job_service
-from app.workers import tasks as worker_tasks
 
-if not hasattr(Settings, "analysis_job_lease_seconds"):
-    Settings.analysis_job_lease_seconds = 300  # type: ignore[attr-defined]
-if not hasattr(Settings, "analysis_job_heartbeat_seconds"):
-    Settings.analysis_job_heartbeat_seconds = 30  # type: ignore[attr-defined]
+
+@pytest.fixture(autouse=True)
+def configured_settings(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("POSTGRES_DB", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_USER", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "test-only")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def worker_tasks(configured_settings: None):
+    from app.workers import tasks
+
+    return tasks
 
 
 def test_analysis_job_has_nullable_timezone_heartbeat_at() -> None:
@@ -459,7 +471,26 @@ def test_update_heartbeat_returns_false_when_no_rows_updated() -> None:
     assert updated is False
 
 
-def test_worker_commits_when_no_job_claimed_or_exhausted_recovered() -> None:
+def test_active_lease_retry_delay_uses_remaining_heartbeat_lease() -> None:
+    recent_touch = datetime.now(UTC) - timedelta(seconds=10)
+
+    class Result:
+        def scalar_one_or_none(self):
+            return recent_touch
+
+    class DB:
+        async def execute(self, _stmt):
+            return Result()
+
+    retry_after = asyncio.run(job_service.active_lease_retry_delay(DB(), uuid.uuid4()))
+
+    assert retry_after is not None
+    assert 289 <= retry_after <= 291
+
+
+def test_worker_commits_when_no_job_claimed_or_exhausted_recovered(
+    worker_tasks: object,
+) -> None:
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),
@@ -485,7 +516,69 @@ def test_worker_commits_when_no_job_claimed_or_exhausted_recovered() -> None:
     db.rollback.assert_not_called()
 
 
-def test_worker_task_runs_heartbeat_and_stops_before_terminal_done() -> None:
+def test_worker_retries_specific_redelivery_until_active_lease_expires(
+    worker_tasks: object,
+) -> None:
+    job_id = uuid.uuid4()
+    db = SimpleNamespace(
+        commit=AsyncMock(),
+        rollback=AsyncMock(),
+    )
+
+    class SessionContext:
+        async def __aenter__(self):
+            return db
+
+        async def __aexit__(self, *args):
+            return None
+
+    with (
+        patch.object(
+            worker_tasks, "_session_factory", return_value=lambda: SessionContext()
+        ),
+        patch.object(worker_tasks, "claim_job_by_id", AsyncMock(return_value=None)),
+        patch.object(
+            worker_tasks,
+            "active_lease_retry_delay",
+            AsyncMock(return_value=287),
+        ) as retry_delay,
+        pytest.raises(worker_tasks._ActiveLease) as exc_info,
+    ):
+        asyncio.run(worker_tasks._run_analysis_job(str(job_id)))
+
+    assert exc_info.value.retry_after == 287
+    retry_delay.assert_awaited_once_with(db, job_id)
+    db.commit.assert_awaited_once()
+    db.rollback.assert_not_called()
+
+
+def test_celery_task_turns_active_lease_into_unbounded_delayed_retry(
+    worker_tasks: object,
+) -> None:
+    retry_error = RuntimeError("celery retry requested")
+
+    with (
+        patch.object(
+            worker_tasks,
+            "_run_analysis_job",
+            AsyncMock(side_effect=worker_tasks._ActiveLease(287)),
+        ),
+        patch.object(
+            worker_tasks.process_analysis_job,
+            "retry",
+            side_effect=retry_error,
+        ) as retry,
+        pytest.raises(RuntimeError, match="celery retry requested"),
+    ):
+        worker_tasks.process_analysis_job.run(str(uuid.uuid4()))
+
+    retry.assert_called_once_with(countdown=287)
+    assert worker_tasks.process_analysis_job.max_retries is None
+
+
+def test_worker_task_runs_heartbeat_and_stops_before_terminal_done(
+    worker_tasks: object,
+) -> None:
     doc_id = uuid.uuid4()
     job_id = uuid.uuid4()
     document = SimpleNamespace(
@@ -719,7 +812,9 @@ def test_mark_error_rejects_stale_attempt_generation_without_audits() -> None:
     record_audit_mock.assert_not_called()
 
 
-def test_worker_task_rolls_back_when_mark_done_fenced_out() -> None:
+def test_worker_task_rolls_back_when_mark_done_fenced_out(
+    worker_tasks: object,
+) -> None:
     doc_id = uuid.uuid4()
     job_id = uuid.uuid4()
     document = SimpleNamespace(
@@ -787,7 +882,9 @@ def test_worker_task_rolls_back_when_mark_done_fenced_out() -> None:
     db.rollback.assert_awaited_once()
 
 
-def test_worker_task_rolls_back_when_mark_error_fenced_out() -> None:
+def test_worker_task_rolls_back_when_mark_error_fenced_out(
+    worker_tasks: object,
+) -> None:
     doc_id = uuid.uuid4()
     job_id = uuid.uuid4()
     document = SimpleNamespace(

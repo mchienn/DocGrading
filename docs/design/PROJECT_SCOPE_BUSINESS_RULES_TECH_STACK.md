@@ -162,7 +162,7 @@ UPLOADING → VALIDATING ──→ INVALID
 ```
 
 - `INVALID` cần sinh viên nộp file khác.
-- `PROCESSING_FAILED` là lỗi hệ thống; Admin/Giảng viên có thể thử lại mà không yêu cầu upload lại.
+- `PROCESSING_FAILED` là lỗi hệ thống; Admin/Giảng viên có thể thử lại mà không yêu cầu upload lại. Riêng lỗi `STORAGE_UNAVAILABLE` xảy ra trước khi tạo job cho phép gọi lại completion của cùng document, không phụ thuộc cửa sổ presign cũ nhưng vẫn phải qua khóa và cổng `OPEN`/`due_at` của Assignment.
 - `APPROVED` và `PUBLISHED` là hai trạng thái riêng.
 - Nộp lại tạo `DocumentVersion` mới; không ghi đè phiên bản cũ.
 
@@ -174,7 +174,7 @@ QUEUED → RUNNING → DONE
 ```
 
 - Mỗi tổ hợp `DocumentVersion + RubricVersion` dùng đúng một `AnalysisJob` bền vững; retry và recovery sau worker loss đặt lại chính row đó, không tạo job hoặc kết quả giả.
-- Worker claim bằng khóa hàng PostgreSQL, bỏ qua row đã bị worker khác khóa và kiểm tra lại `QUEUED` hoặc `RUNNING` đã hết lease sau khi có khóa. Worker đang chạy cập nhật heartbeat; job stale được claim lại khi còn attempt, hoặc chuyển `ERROR` khi hết attempt.
+- Worker claim bằng khóa hàng PostgreSQL, bỏ qua row đã bị worker khác khóa và kiểm tra lại `QUEUED` hoặc `RUNNING` đã hết lease sau khi có khóa. Worker đang chạy cập nhật heartbeat; nếu redelivery tới khi lease còn hiệu lực, Celery task retry có countdown bằng phần lease còn lại thay vì ack và làm mất đường recovery. Job stale được claim lại khi còn attempt, hoặc chuyển `ERROR` khi hết attempt. Mỗi heartbeat và chuyển trạng thái terminal dùng `attempt_count` đã claim làm generation compare-and-set; worker cũ mất lease không thể gia hạn hoặc ghi đè kết quả của attempt mới.
 - Mỗi chuyển trạng thái job `QUEUED`, `RUNNING`, `DONE`, `ERROR` và `ERROR → QUEUED` được ghi `AuditEvent` trong cùng transaction với thay đổi nghiệp vụ. Claim đồng thời chuyển `DocumentVersion` sang `PROCESSING`; hoàn tất ingestion chuyển sang `AWAITING_REVIEW`; cả hai chuyển trạng thái document đều được audit trong cùng transaction.
 
 ## 6. Luật nghiệp vụ
