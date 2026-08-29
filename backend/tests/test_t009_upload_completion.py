@@ -45,7 +45,16 @@ def test_presign_rejects_whitespace_only_filename() -> None:
     assert req2.filename == "report.pdf"
 
 
-def test_complete_upload_lock_query_semantics() -> None:
+def test_complete_upload_lock_query_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.submission.get_settings",
+        lambda: SimpleNamespace(
+            pdf_max_size_bytes=50_000_000,
+            storage_presign_expiry_seconds=300,
+        ),
+    )
     executed_statements = []
     version_id = uuid.uuid4()
     user_id = uuid.uuid4()
@@ -467,3 +476,348 @@ def test_complete_upload_storage_not_found_raises_409_without_commit() -> None:
     assert exc.value.status_code == 409
     assert exc.value.detail == "Uploaded object not found"
     db_commit_mock.assert_not_called()
+
+
+def test_complete_upload_storage_unavailable_retry_succeeds_when_assignment_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.submission.get_settings",
+        lambda: SimpleNamespace(
+            pdf_max_size_bytes=50_000_000,
+            storage_presign_expiry_seconds=300,
+        ),
+    )
+    version_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    version = SimpleNamespace(
+        id=version_id,
+        submission_id=uuid.uuid4(),
+        storage_key="uploads/test.pdf",
+        status=DocumentStatus.PROCESSING_FAILED,
+        failure_code="STORAGE_UNAVAILABLE",
+        failure_detail="Object storage is temporarily unavailable",
+        upload_expires_at=now + timedelta(minutes=5),
+        size_bytes=100,
+        content_type="application/pdf",
+    )
+    submission = SimpleNamespace(
+        id=version.submission_id,
+        assignment_id=uuid.uuid4(),
+        student_id=user_id,
+    )
+    assignment = SimpleNamespace(
+        id=submission.assignment_id,
+        status=AssignmentStatus.OPEN,
+        due_at=now + timedelta(hours=1),
+        rubric_version_id=uuid.uuid4(),
+    )
+
+    class LockResult:
+        def one_or_none(self):
+            return (version, submission, assignment)
+
+        def first(self):
+            return (version, submission, assignment)
+
+    class JobResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class DB:
+        async def execute(self, statement):
+            if "analysis_jobs" in str(statement):
+                return JobResult()
+            return LockResult()
+
+        flush = AsyncMock()
+        commit = AsyncMock()
+
+    storage = SimpleNamespace(
+        head=lambda _key: ObjectHead(
+            content_type="application/pdf",
+            content_length=100,
+        )
+    )
+
+    user = SimpleNamespace(id=user_id, roles={UserRole.STUDENT})
+    created_job = SimpleNamespace(id=uuid.uuid4(), status=AnalysisJobStatus.QUEUED)
+
+    async def run_test():
+        import app.services.submission as sub_module
+
+        original_create_job = sub_module.create_or_get_job
+
+        async def mock_create_job(_db, *, document_version_id, rubric_version_id):
+            return created_job
+
+        sub_module.create_or_get_job = mock_create_job
+        try:
+            v, job = await complete_upload(
+                DB(),
+                version_id=version_id,
+                user=user,
+                storage=storage,
+            )
+            assert v is version
+            assert job is created_job
+            assert version.status is DocumentStatus.QUEUED
+            assert version.failure_code is None
+            assert version.failure_detail is None
+        finally:
+            sub_module.create_or_get_job = original_create_job
+
+    asyncio.run(run_test())
+
+
+def test_complete_upload_storage_unavailable_retry_persists_on_repeated_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.submission.get_settings",
+        lambda: SimpleNamespace(
+            pdf_max_size_bytes=50_000_000,
+            storage_presign_expiry_seconds=300,
+        ),
+    )
+    version_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    version = SimpleNamespace(
+        id=version_id,
+        submission_id=uuid.uuid4(),
+        storage_key="uploads/test.pdf",
+        status=DocumentStatus.PROCESSING_FAILED,
+        failure_code="STORAGE_UNAVAILABLE",
+        failure_detail="Object storage is temporarily unavailable",
+        upload_expires_at=now + timedelta(minutes=5),
+        size_bytes=100,
+    )
+    submission = SimpleNamespace(
+        id=version.submission_id,
+        assignment_id=uuid.uuid4(),
+        student_id=user_id,
+    )
+    assignment = SimpleNamespace(
+        id=submission.assignment_id,
+        status=AssignmentStatus.OPEN,
+        due_at=now + timedelta(hours=1),
+        rubric_version_id=uuid.uuid4(),
+    )
+
+    class LockResult:
+        def one_or_none(self):
+            return (version, submission, assignment)
+
+        def first(self):
+            return (version, submission, assignment)
+
+    class JobResult:
+        def scalar_one_or_none(self):
+            return None
+
+    db_commit_mock = AsyncMock()
+
+    class DB:
+        async def execute(self, statement):
+            if "analysis_jobs" in str(statement):
+                return JobResult()
+            return LockResult()
+
+        commit = db_commit_mock
+        flush = AsyncMock()
+
+    class BrokenStorage:
+        def head(self, _key):
+            raise RuntimeError("repeated s3 timeout")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            complete_upload(
+                DB(),
+                version_id=version_id,
+                user=SimpleNamespace(id=user_id, roles={UserRole.STUDENT}),
+                storage=BrokenStorage(),
+            )
+        )
+
+    assert exc.value.status_code == 503
+    assert exc.value.detail == "Object storage is temporarily unavailable"
+    assert version.status == DocumentStatus.PROCESSING_FAILED
+    assert version.failure_code == "STORAGE_UNAVAILABLE"
+    assert version.failure_detail == "Object storage is temporarily unavailable"
+    db_commit_mock.assert_awaited_once()
+
+
+def test_complete_upload_storage_unavailable_retry_blocked_when_closed_or_late(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.submission.get_settings",
+        lambda: SimpleNamespace(
+            pdf_max_size_bytes=50_000_000,
+            storage_presign_expiry_seconds=300,
+        ),
+    )
+    version_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    version = SimpleNamespace(
+        id=version_id,
+        submission_id=uuid.uuid4(),
+        storage_key="uploads/test.pdf",
+        status=DocumentStatus.PROCESSING_FAILED,
+        failure_code="STORAGE_UNAVAILABLE",
+        failure_detail="Object storage is temporarily unavailable",
+        upload_expires_at=now + timedelta(minutes=5),
+        size_bytes=100,
+    )
+    submission = SimpleNamespace(
+        id=version.submission_id,
+        assignment_id=uuid.uuid4(),
+        student_id=user_id,
+    )
+    assignment = SimpleNamespace(
+        id=submission.assignment_id,
+        status=AssignmentStatus.CLOSED,
+        due_at=now + timedelta(hours=1),
+        rubric_version_id=uuid.uuid4(),
+    )
+
+    class LockResult:
+        def one_or_none(self):
+            return (version, submission, assignment)
+
+        def first(self):
+            return (version, submission, assignment)
+
+    class JobResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class DB:
+        async def execute(self, statement):
+            if "analysis_jobs" in str(statement):
+                return JobResult()
+            return LockResult()
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            complete_upload(
+                DB(),
+                version_id=version_id,
+                user=SimpleNamespace(id=user_id, roles={UserRole.STUDENT}),
+                storage=SimpleNamespace(),
+            )
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "Assignment is not accepting submissions"
+
+
+def test_complete_upload_processing_failed_rejected_if_job_exists_or_other_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.submission.get_settings",
+        lambda: SimpleNamespace(
+            pdf_max_size_bytes=50_000_000,
+            storage_presign_expiry_seconds=300,
+        ),
+    )
+    version_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    # Subcase A: Job already exists
+    version_with_job = SimpleNamespace(
+        id=version_id,
+        submission_id=uuid.uuid4(),
+        storage_key="uploads/test.pdf",
+        status=DocumentStatus.PROCESSING_FAILED,
+        failure_code="STORAGE_UNAVAILABLE",
+        failure_detail="Object storage is temporarily unavailable",
+        upload_expires_at=now + timedelta(minutes=5),
+        size_bytes=100,
+    )
+    submission = SimpleNamespace(
+        id=version_with_job.submission_id,
+        assignment_id=uuid.uuid4(),
+        student_id=user_id,
+    )
+    assignment = SimpleNamespace(
+        id=submission.assignment_id,
+        status=AssignmentStatus.OPEN,
+        due_at=now + timedelta(hours=1),
+        rubric_version_id=uuid.uuid4(),
+    )
+    existing_job = SimpleNamespace(id=uuid.uuid4(), status=AnalysisJobStatus.ERROR)
+
+    class LockResult:
+        def one_or_none(self):
+            return (version_with_job, submission, assignment)
+
+        def first(self):
+            return (version_with_job, submission, assignment)
+
+    class JobResult:
+        def scalar_one_or_none(self):
+            return existing_job
+
+    class DBWithJob:
+        async def execute(self, statement):
+            if "analysis_jobs" in str(statement):
+                return JobResult()
+            return LockResult()
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            complete_upload(
+                DBWithJob(),
+                version_id=version_id,
+                user=SimpleNamespace(id=user_id, roles={UserRole.STUDENT}),
+                storage=SimpleNamespace(),
+            )
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "Document upload is invalid"
+
+    # Subcase B: Different failure code (e.g. PDF_MALFORMED)
+    version_other_code = SimpleNamespace(
+        id=version_id,
+        submission_id=uuid.uuid4(),
+        storage_key="uploads/test.pdf",
+        status=DocumentStatus.PROCESSING_FAILED,
+        failure_code="PDF_MALFORMED",
+        failure_detail="Corrupt PDF",
+        upload_expires_at=now + timedelta(minutes=5),
+        size_bytes=100,
+    )
+
+    class LockResultOtherCode:
+        def one_or_none(self):
+            return (version_other_code, submission, assignment)
+
+        def first(self):
+            return (version_other_code, submission, assignment)
+
+    class DBNoJob:
+        async def execute(self, statement):
+            if "analysis_jobs" in str(statement):
+                return SimpleNamespace(scalar_one_or_none=lambda: None)
+            return LockResultOtherCode()
+
+    with pytest.raises(HTTPException) as exc2:
+        asyncio.run(
+            complete_upload(
+                DBNoJob(),
+                version_id=version_id,
+                user=SimpleNamespace(id=user_id, roles={UserRole.STUDENT}),
+                storage=SimpleNamespace(),
+            )
+        )
+    assert exc2.value.status_code == 409
+    assert exc2.value.detail == "Document upload is invalid"

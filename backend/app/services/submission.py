@@ -285,8 +285,24 @@ async def complete_upload(
         return version, job
     if version.status == DocumentStatus.INVALID:
         raise HTTPException(status_code=409, detail="Document upload is invalid")
-    if version.status != DocumentStatus.UPLOADING:
+
+    is_retryable_storage_failure = False
+    if version.status == DocumentStatus.PROCESSING_FAILED:
+        if version.failure_code == "STORAGE_UNAVAILABLE":
+            existing_job = (
+                await db.execute(
+                    sa.select(AnalysisJob.id).where(
+                        AnalysisJob.document_version_id == version.id
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_job is None:
+                is_retryable_storage_failure = True
+        if not is_retryable_storage_failure:
+            raise HTTPException(status_code=409, detail="Document upload is invalid")
+    elif version.status != DocumentStatus.UPLOADING:
         raise HTTPException(status_code=409, detail="Document upload is invalid")
+
     now = datetime.now(UTC)
     if assignment.status != AssignmentStatus.OPEN or (
         assignment.due_at is not None and assignment.due_at <= now
@@ -327,6 +343,8 @@ async def complete_upload(
     version.content_type = head.content_type
     version.size_bytes = head.content_length
     version.status = DocumentStatus.QUEUED
+    version.failure_code = None
+    version.failure_detail = None
     job = await create_or_get_job(
         db,
         document_version_id=version.id,
