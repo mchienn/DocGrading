@@ -15,13 +15,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 from app.services.analysis_job import claim_job_by_id, claim_next_job
-
-if not hasattr(Settings, "analysis_job_lease_seconds"):
-    Settings.analysis_job_lease_seconds = 300  # type: ignore[attr-defined]
-if not hasattr(Settings, "analysis_job_heartbeat_seconds"):
-    Settings.analysis_job_heartbeat_seconds = 30  # type: ignore[attr-defined]
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_DATABASE_TESTS") != "1",

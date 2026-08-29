@@ -4,7 +4,7 @@
 
 **Goal:** Deliver backend-only PDF upload through a short-lived, object-scoped S3-compatible presigned POST; validate the received object as untrusted data; create one idempotent `AnalysisJob`; and enforce audited, race-safe `QUEUED → RUNNING → DONE/ERROR` transitions.
 
-**Architecture:** Use a two-step upload contract. The API creates or reuses an `UPLOADING` `DocumentVersion` using `Idempotency-Key`, returns a five-minute S3 presigned POST constrained to one random object key, `application/pdf`, and the accepted byte range, then a completion endpoint verifies object metadata before queueing the job. Workers claim queued jobs from PostgreSQL with `SELECT ... FOR UPDATE SKIP LOCKED`, re-check the locked status, validate bytes with a bounded/current `pypdf`, and transition the same job row; retries reset that row rather than creating a new `Submission`, `DocumentVersion`, job, or future result.
+**Architecture:** Use a two-step upload contract. The API creates or reuses an `UPLOADING` `DocumentVersion` using `Idempotency-Key`, returns a five-minute S3 presigned POST constrained to one random object key, `application/pdf`, and the accepted byte range, then a completion endpoint locks both the document and its Assignment before verifying metadata and queueing the job. Workers claim queued or lease-expired `RUNNING` jobs from PostgreSQL with `SELECT ... FOR UPDATE SKIP LOCKED`, maintain a heartbeat, validate bytes with a bounded/current `pypdf`, and transition the same job row; retries and worker-loss recovery reset that row rather than creating a new `Submission`, `DocumentVersion`, job, or future result.
 
 **Tech Stack:** Python 3.13, FastAPI, Pydantic 2, SQLAlchemy 2 async, PostgreSQL 17, Alembic, Celery 5.6, Redis 7, Boto3/S3-compatible storage, pypdf 6.x, Docker Compose, pytest, Ruff, Black.
 
@@ -16,8 +16,8 @@
 
 - `POST /api/v1/assignments/{assignment_id}/uploads/presign` requires `Idempotency-Key` and the client-declared SHA-256, plus bounded hints `filename`, `content_type`, and `size_bytes`; the worker recomputes and verifies the digest from stored bytes.
 - The policy fixes the exact random object key, fixes `Content-Type=application/pdf`, applies `content-length-range`, and expires after 300 seconds.
-- `POST /api/v1/document-versions/{version_id}/complete` performs `HeadObject`, rejects server-observed content type/size mismatches, marks the document queued, creates/reuses exactly one job, and sends a lightweight Celery wake-up.
-- The worker downloads at most the configured limit, verifies `%PDF-`, SHA-256, encryption, page count, active content/attachments, and a usable text layer. pypdf never executes PDF JavaScript; malformed/parser failures become explicit validation errors.
+- `POST /api/v1/document-versions/{version_id}/complete` locks the `DocumentVersion` and Assignment together. The first completion is accepted only while the Assignment is `OPEN` and its optional deadline has not passed; an already completed document remains idempotently readable afterward. It performs `HeadObject`, rejects server-observed content type/size mismatches, marks the document queued, creates/reuses exactly one job, and sends a lightweight Celery wake-up.
+- The worker downloads at most the configured limit, verifies `%PDF-`, SHA-256, encryption, page count, active content/attachments, and a usable text layer. Decoded page content is bounded before text extraction. pypdf never executes PDF JavaScript; malformed/parser failures become explicit validation errors.
 
 ### Alternatives rejected
 
@@ -28,10 +28,10 @@
 ## Contract decisions and documentation reconciliation
 
 - T-009 superseded the old `multipart/form-data` wording in `docs/design/PROJECT_SCOPE_BUSINESS_RULES_TECH_STACK.md` §9.4.2; canonical documentation now specifies the validated two-step presigned POST contract.
-- `AnalysisJobStatus.SUCCEEDED/FAILED` is cleanly renamed to `DONE/ERROR`; no aliases or compatibility enum values remain.
-- `DocumentVersion.status` remains the document lifecycle. Job `DONE` means the T-009 ingestion/validation job completed; T-009 does not fabricate `EvaluationResult` rows because that model/pipeline is not implemented yet.
+- `AnalysisJobStatus.SUCCEEDED/FAILED` is cleanly renamed to `DONE/ERROR`; no aliases or compatibility enum values remain. Migration 0006 marks legacy `CANCELLED` rows with a collision-checked, migration-reserved snapshot sentinel so downgrade restores only those rows to `CANCELLED`; ordinary `ERROR` rows downgrade to `FAILED`.
+- `DocumentVersion.status` remains the document lifecycle. Claiming a job sets it to `PROCESSING`; successful ingestion sets it to `AWAITING_REVIEW`; both changes and the job transition are audited in one transaction. Job `DONE` means the T-009 ingestion/validation job completed; T-009 does not fabricate `EvaluationResult` rows because that model/pipeline is not implemented yet.
 - Admin may view every job. Teacher may view/retry only jobs under a Course they own. Student may view only their own job and cannot retry. Role checks evaluate `ADMIN`, then `TEACHER`, then `STUDENT`, so a multi-role account never falls through from a stronger denied/allowed branch into Student ownership semantics.
-- Only an active Student member may initiate their own upload for an `OPEN`, non-expired Assignment while attempts remain.
+- Only an active Student member may initiate their own upload for an `OPEN`, non-expired Assignment while attempts remain. The same Assignment state/deadline gate is rechecked under the completion lock, except an already completed document preserves its idempotent response.
 
 ## Migration Security Checklist
 
@@ -40,7 +40,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 - [x] **SC-1 — pin `search_path`:** `upgrade()` and `downgrade()` begin with `SET search_path TO public`; any new PL/pgSQL function uses `SET search_path = pg_catalog, public, pg_temp`.
 - [x] **SC-2 — preserve append-only audit protection:** migration 0006 does not disable, replace, or bypass `public.trg_audit_events_append_only` or `public.trg_audit_events_append_only_truncate`; real-PostgreSQL verification proves `TRUNCATE public.audit_events` is still rejected after upgrade and downgrade/upgrade.
 - [x] **SC-3 — schema-qualify all DDL/FK references:** every Alembic table/index/constraint operation passes `schema="public"`; every FK target is `public.<table>.<column>`; raw SQL qualifies tables, indexes, enum types, casts, and functions with `public.`.
-- [x] Enum value migration is reversible: `SUCCEEDED → DONE` and `FAILED → ERROR` on upgrade; downgrade restores the original values without losing rows.
+- [x] Enum value migration is reversible: `SUCCEEDED → DONE` and `FAILED → ERROR` on upgrade; a collision-checked reserved snapshot sentinel maps legacy `CANCELLED → ERROR → CANCELLED`, while ordinary `ERROR` rows downgrade to `FAILED`.
 - [x] Replace `uq_analysis_jobs_active_document_rubric` with a full unique constraint on `(document_version_id, rubric_version_id)` so one logical analysis owns one durable job row across retries.
 - [x] Add and downgrade the upload idempotency fields/index without dropping or truncating append-only tables.
 - [x] **Production preflight:** before upgrading a populated database, query `public.analysis_jobs` grouped by `(document_version_id, rubric_version_id)` and require zero groups with `count(*) > 1`. If historical terminal duplicates exist under the old partial index, stop for audited reconciliation; migration 0006 deliberately never deletes job history to force the new unique constraint.
@@ -51,11 +51,11 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 | --- | --- |
 | Short-lived, one-object presigned upload | `S3Storage.create_presigned_post`; exact key, MIME and size conditions; 300-second expiry tests |
 | Client-hint and server-side verification | Request schema bounds plus `HeadObject` and bounded `GetObject` validation |
-| PDF size / magic / scan-only errors | Stable error codes `PDF_TOO_LARGE`, `NOT_A_PDF`, `PDF_SCAN_ONLY`; focused unit tests |
-| Treat PDF as untrusted | Current pinned pypdf, strict parsing, byte/page limits, no execution, active-content/attachment rejection |
+| PDF size / magic / scan-only errors | Stable error codes `PDF_TOO_LARGE`, `PDF_DECODED_TOO_LARGE`, `NOT_A_PDF`, `PDF_SCAN_ONLY`; raw and decoded-size focused unit tests |
+| Treat PDF as untrusted | Current pinned pypdf, strict parsing, raw-byte/decoded-page/page-count limits, no execution, active-content/attachment rejection |
 | Idempotent job creation/retry | Full DB uniqueness, locked create/retry, same-row transition tests |
-| Race-safe pickup | PostgreSQL `FOR UPDATE SKIP LOCKED`, locked-status re-check, two-session integration test |
-| Audited job lifecycle | `record_system_audit`/`record_audit` in the same transaction as every transition |
+| Race-safe pickup and worker-loss recovery | PostgreSQL `FOR UPDATE SKIP LOCKED`, locked-status re-check, lease/heartbeat recovery, and committed-`RUNNING` loss integration tests |
+| Audited job/document lifecycle | `record_system_audit`/`record_audit` in the same transaction as job transitions and document `PROCESSING`/`AWAITING_REVIEW` changes |
 | Cross-object authorization | Admin/Teacher/Student precedence and other-user denial tests |
 | Retry creates no duplicate data | Submission/DocumentVersion/job row counts remain stable after `ERROR → QUEUED → RUNNING → DONE` |
 | DevOps | LocalStack 4.11.1 S3 service/bucket bootstrap, API/worker storage settings, Compose config validation |
@@ -110,18 +110,18 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 - [x] Add failing tests for active Student membership, `OPEN`/deadline/attempt limits, required `Idempotency-Key`, same-key/same-payload replay, same-key/different-payload conflict, and duplicate SHA reuse.
 - [x] Add failing tests proving client-declared MIME/size are only hints and completion trusts server-observed object metadata/bytes.
 - [x] Implement initiation under a transaction/row lock; create no duplicate `Submission` or `DocumentVersion` under retry.
-- [x] Implement completion as idempotent: already queued/processed returns the existing job; first completion creates/reuses the single job and enqueues only after commit.
+- [x] Implement completion as idempotent: lock the document and Assignment together; accept first completion only while the Assignment is `OPEN` and not past its optional deadline; already queued/processed returns the existing job even after later closure/deadline; first completion creates/reuses the single job and enqueues only after commit.
 - [x] Register the router without changing `frontend/`.
 - [x] Run focused upload API/service tests until green.
 
 ## Task 4: Implement race-safe audited job lifecycle
 
-- [x] Add a real-PostgreSQL test using two independent sessions; while worker A holds a queued row lock, worker B receives no job, proving exactly one claim wins.
+- [x] Add real-PostgreSQL tests using independent sessions: prove exactly one `SKIP LOCKED` claim wins, then commit a `RUNNING` claim, simulate worker loss with an expired heartbeat, and prove the same row is reclaimed or exhausted with audit evidence.
 - [x] Implement the exact pickup query ordered by `(queued_at, id)` with `.with_for_update(skip_locked=True).limit(1)`.
-- [x] Re-check `job.status is QUEUED` after acquiring the lock before setting `RUNNING`; never use a read-then-update without the lock.
-- [x] Record `QUEUED`, `RUNNING`, `DONE`, `ERROR`, and `ERROR → QUEUED` transitions atomically with their domain changes.
-- [x] Configure Celery late acknowledgement and worker-loss rejection; duplicate deliveries are safe because locked status/DB uniqueness are authoritative.
-- [x] Run focused lifecycle and concurrency tests until green.
+- [x] Re-check the locked job as `QUEUED` or lease-expired `RUNNING`; maintain heartbeat updates while work is active, requeue stale work only while attempts remain, and terminally fail exhausted stale work.
+- [x] Record job `QUEUED`, `RUNNING`, `DONE`, `ERROR`, and `ERROR → QUEUED` transitions atomically; set and audit the linked document as `PROCESSING` on claim and `AWAITING_REVIEW` on success in those same transactions.
+- [x] Configure Celery late acknowledgement and worker-loss rejection; duplicate deliveries are safe because locked status, leases, attempt limits, and DB uniqueness are authoritative.
+- [x] Run focused lifecycle, recovery, and concurrency tests until green.
 
 ## Task 5: Enforce role precedence and safe retry
 
@@ -136,7 +136,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 - [x] Add LocalStack 4.11.1 S3 service and one-shot idempotent bucket initialization with health-gated API/worker dependencies.
 - [x] Expose storage only on loopback for local development; use separate internal and browser endpoint settings.
 - [x] Remove the obsolete API/worker shared `pdf_storage` volume and `STORAGE_PATH` settings.
-- [x] Keep credentials in `.env`; `.env.example` contains development-only placeholders, never real secrets.
+- [x] Keep credentials in `.env`; `.env.example` contains development-only placeholders, never real secrets. Settings reject known development placeholder storage credentials whenever `APP_ENV` is not `development`.
 - [x] Run `docker compose config` and inspect the rendered dependency graph and volume declarations.
 
 ## Task 7: Integrated verification and documentation reconciliation

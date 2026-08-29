@@ -148,8 +148,8 @@ ACTIVE → ARCHIVED
 DRAFT → OPEN → CLOSED → ARCHIVED
 ```
 
-- Chỉ `OPEN` nhận bài.
-- `CLOSED` không nhận phiên bản mới nhưng giảng viên vẫn có thể review và công bố.
+- Chỉ `OPEN` nhận bài mới và chấp nhận lần completion đầu tiên; API completion phải khóa cả Assignment và `DocumentVersion`, rồi kiểm tra lại `status` cùng `due_at`. Một document đã completion vẫn trả lại job hiện có theo hợp đồng idempotent dù Assignment đóng hoặc quá hạn sau đó.
+- `CLOSED` không nhận phiên bản mới hoặc completion đầu tiên nhưng giảng viên vẫn có thể review và công bố.
 - `ARCHIVED` chỉ đọc; muốn sử dụng lại phải nhân bản thành đợt mới.
 
 ### 5.4. Vòng đời một phiên bản bài nộp
@@ -173,9 +173,9 @@ QUEUED → RUNNING → DONE
               └──→ ERROR ──retry──→ QUEUED
 ```
 
-- Mỗi tổ hợp `DocumentVersion + RubricVersion` dùng đúng một `AnalysisJob` bền vững; retry đặt lại chính row đó, không tạo job hoặc kết quả giả.
-- Worker claim bằng khóa hàng PostgreSQL, bỏ qua row đã bị worker khác khóa và kiểm tra lại `QUEUED` sau khi có khóa.
-- Mỗi chuyển trạng thái `QUEUED`, `RUNNING`, `DONE`, `ERROR` và `ERROR → QUEUED` được ghi `AuditEvent` trong cùng transaction với thay đổi nghiệp vụ.
+- Mỗi tổ hợp `DocumentVersion + RubricVersion` dùng đúng một `AnalysisJob` bền vững; retry và recovery sau worker loss đặt lại chính row đó, không tạo job hoặc kết quả giả.
+- Worker claim bằng khóa hàng PostgreSQL, bỏ qua row đã bị worker khác khóa và kiểm tra lại `QUEUED` hoặc `RUNNING` đã hết lease sau khi có khóa. Worker đang chạy cập nhật heartbeat; job stale được claim lại khi còn attempt, hoặc chuyển `ERROR` khi hết attempt.
+- Mỗi chuyển trạng thái job `QUEUED`, `RUNNING`, `DONE`, `ERROR` và `ERROR → QUEUED` được ghi `AuditEvent` trong cùng transaction với thay đổi nghiệp vụ. Claim đồng thời chuyển `DocumentVersion` sang `PROCESSING`; hoàn tất ingestion chuyển sang `AWAITING_REVIEW`; cả hai chuyển trạng thái document đều được audit trong cùng transaction.
 
 ## 6. Luật nghiệp vụ
 
