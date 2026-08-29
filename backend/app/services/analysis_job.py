@@ -87,13 +87,16 @@ async def create_or_get_job(
     return job
 
 
-async def update_heartbeat(db: AsyncSession, job_id: uuid.UUID) -> bool:
-    """Periodically touch heartbeat_at for an active RUNNING job."""
+async def update_heartbeat(
+    db: AsyncSession, job_id: uuid.UUID, *, attempt_count: int
+) -> bool:
+    """Periodically touch heartbeat_at for an active RUNNING job matching attempt."""
     stmt = (
         sa.update(AnalysisJob)
         .where(
             AnalysisJob.id == job_id,
             AnalysisJob.status == AnalysisJobStatus.RUNNING,
+            AnalysisJob.attempt_count == attempt_count,
         )
         .values(heartbeat_at=datetime.now(UTC))
     )
@@ -261,9 +264,24 @@ async def claim_job_by_id(db: AsyncSession, job_id: uuid.UUID) -> AnalysisJob | 
     return await _handle_locked_job(db, job, cutoff)
 
 
-async def mark_done(db: AsyncSession, job: AnalysisJob) -> None:
+async def mark_done(db: AsyncSession, job: AnalysisJob, *, attempt_count: int) -> bool:
     now = datetime.now(UTC)
-    before = job.status.value
+    stmt = (
+        sa.update(AnalysisJob)
+        .where(
+            AnalysisJob.id == job.id,
+            AnalysisJob.status == AnalysisJobStatus.RUNNING,
+            AnalysisJob.attempt_count == attempt_count,
+        )
+        .values(
+            status=AnalysisJobStatus.DONE,
+            finished_at=now,
+        )
+    )
+    result = await db.execute(stmt)
+    if getattr(result, "rowcount", 0) == 0:
+        return False
+
     job.status = AnalysisJobStatus.DONE
     job.finished_at = now
     await record_system_audit(
@@ -271,7 +289,7 @@ async def mark_done(db: AsyncSession, job: AnalysisJob) -> None:
         resource_type="AnalysisJob",
         resource_id=job.id,
         action="DONE",
-        before={"status": before},
+        before={"status": AnalysisJobStatus.RUNNING.value},
         after={"status": job.status.value},
         reason="PDF ingestion completed",
     )
@@ -293,25 +311,51 @@ async def mark_done(db: AsyncSession, job: AnalysisJob) -> None:
             reason="Document processing completed",
         )
     await db.flush()
+    return True
 
 
 async def mark_error(
-    db: AsyncSession, job: AnalysisJob, code: str, detail: str
-) -> None:
-    before = job.status.value
+    db: AsyncSession,
+    job: AnalysisJob,
+    code: str,
+    detail: str,
+    *,
+    attempt_count: int,
+) -> bool:
+    now = datetime.now(UTC)
+    stmt = (
+        sa.update(AnalysisJob)
+        .where(
+            AnalysisJob.id == job.id,
+            AnalysisJob.status == AnalysisJobStatus.RUNNING,
+            AnalysisJob.attempt_count == attempt_count,
+        )
+        .values(
+            status=AnalysisJobStatus.ERROR,
+            error_code=code,
+            error_detail=detail[:1000],
+            finished_at=now,
+        )
+    )
+    result = await db.execute(stmt)
+    if getattr(result, "rowcount", 0) == 0:
+        return False
+
     job.status = AnalysisJobStatus.ERROR
     job.error_code = code
     job.error_detail = detail[:1000]
-    job.finished_at = datetime.now(UTC)
+    job.finished_at = now
     await record_system_audit(
         db,
         resource_type="AnalysisJob",
         resource_id=job.id,
         action="ERROR",
-        before={"status": before},
+        before={"status": AnalysisJobStatus.RUNNING.value},
         after={"status": job.status.value, "error_code": code},
         reason="PDF ingestion failed",
     )
+    await db.flush()
+    return True
 
 
 async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJob:

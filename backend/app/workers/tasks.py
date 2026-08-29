@@ -27,13 +27,19 @@ def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
-async def _heartbeat_loop(job_id: uuid.UUID, interval_seconds: float) -> None:
+async def _heartbeat_loop(
+    job_id: uuid.UUID, attempt_count: int, interval_seconds: float
+) -> None:
     try:
         while True:
             await asyncio.sleep(interval_seconds)
             async with _session_factory()() as hb_db:
-                await update_heartbeat(hb_db, job_id)
+                alive = await update_heartbeat(
+                    hb_db, job_id, attempt_count=attempt_count
+                )
                 await hb_db.commit()
+                if not alive:
+                    break
     except asyncio.CancelledError:
         pass
 
@@ -50,11 +56,10 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             return None
         await db.commit()
 
-        heartbeat_interval = getattr(
-            get_settings(), "analysis_job_heartbeat_seconds", 30
-        )
+        claimed_attempt = job.attempt_count
+        heartbeat_interval = get_settings().analysis_job_heartbeat_seconds
         heartbeat_task = asyncio.create_task(
-            _heartbeat_loop(job.id, heartbeat_interval)
+            _heartbeat_loop(job.id, claimed_attempt, heartbeat_interval)
         )
         try:
             try:
@@ -105,34 +110,68 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             job.document_version.status = DocumentStatus.INVALID
             job.document_version.failure_code = "PDF_SHA256_MISMATCH"
             job.document_version.failure_detail = "PDF checksum does not match"
-            await mark_error(
+            success = await mark_error(
                 db,
                 job,
                 "PDF_SHA256_MISMATCH",
                 "PDF checksum does not match",
+                attempt_count=claimed_attempt,
             )
+            if not success:
+                await db.rollback()
+                return None
         elif job_outcome[0] == "duplicate":
             job.document_version.status = DocumentStatus.INVALID
             job.document_version.failure_code = "PDF_DUPLICATE"
             job.document_version.failure_detail = "Duplicate document version"
-            await mark_error(db, job, "PDF_DUPLICATE", "Duplicate document version")
+            success = await mark_error(
+                db,
+                job,
+                "PDF_DUPLICATE",
+                "Duplicate document version",
+                attempt_count=claimed_attempt,
+            )
+            if not success:
+                await db.rollback()
+                return None
         elif job_outcome[0] == "validation_error":
             exc = job_outcome[1]
             job.document_version.status = DocumentStatus.INVALID
             job.document_version.failure_code = exc.code
             job.document_version.failure_detail = exc.detail
-            await mark_error(db, job, exc.code, exc.detail)
+            success = await mark_error(
+                db,
+                job,
+                exc.code,
+                exc.detail,
+                attempt_count=claimed_attempt,
+            )
+            if not success:
+                await db.rollback()
+                return None
         elif job_outcome[0] == "storage_error":
             job.document_version.status = DocumentStatus.PROCESSING_FAILED
             job.document_version.failure_code = "PDF_STORAGE_ERROR"
             job.document_version.failure_detail = "Object storage read failed"
-            await mark_error(db, job, "PDF_STORAGE_ERROR", "Object storage read failed")
+            success = await mark_error(
+                db,
+                job,
+                "PDF_STORAGE_ERROR",
+                "Object storage read failed",
+                attempt_count=claimed_attempt,
+            )
+            if not success:
+                await db.rollback()
+                return None
         elif job_outcome[0] == "success":
             result = job_outcome[1]
             job.document_version.sha256 = result.sha256
             job.document_version.size_bytes = result.size_bytes
             job.document_version.page_count = result.page_count
-            await mark_done(db, job)
+            success = await mark_done(db, job, attempt_count=claimed_attempt)
+            if not success:
+                await db.rollback()
+                return None
 
         await db.commit()
         return str(job.id)

@@ -378,6 +378,7 @@ def test_mark_done_sets_job_done_and_document_awaiting_review() -> None:
         id=job_id,
         document_version_id=doc_id,
         status=AnalysisJobStatus.RUNNING,
+        attempt_count=1,
         finished_at=None,
         document_version=document,
     )
@@ -398,7 +399,13 @@ def test_mark_done_sets_job_done_and_document_awaiting_review() -> None:
             }
         )
 
+    class Result:
+        rowcount = 1
+
     class DB:
+        async def execute(self, _stmt):
+            return Result()
+
         async def get(self, _model, _id):
             return document
 
@@ -407,8 +414,9 @@ def test_mark_done_sets_job_done_and_document_awaiting_review() -> None:
     with patch.object(
         job_service, "record_system_audit", side_effect=fake_system_audit
     ):
-        asyncio.run(job_service.mark_done(DB(), job))
+        success = asyncio.run(job_service.mark_done(DB(), job, attempt_count=1))
 
+    assert success is True
     assert job.status is AnalysisJobStatus.DONE
     assert job.finished_at is not None
     assert document.status is DocumentStatus.AWAITING_REVIEW
@@ -433,7 +441,7 @@ def test_update_heartbeat_updates_running_job() -> None:
             assert "analysis_jobs" in str(stmt) or hasattr(stmt, "table")
             return Result()
 
-    updated = asyncio.run(job_service.update_heartbeat(DB(), job_id))
+    updated = asyncio.run(job_service.update_heartbeat(DB(), job_id, attempt_count=1))
     assert updated is True
 
 
@@ -447,7 +455,7 @@ def test_update_heartbeat_returns_false_when_no_rows_updated() -> None:
         async def execute(self, _stmt):
             return Result()
 
-    updated = asyncio.run(job_service.update_heartbeat(DB(), job_id))
+    updated = asyncio.run(job_service.update_heartbeat(DB(), job_id, attempt_count=1))
     assert updated is False
 
 
@@ -494,6 +502,7 @@ def test_worker_task_runs_heartbeat_and_stops_before_terminal_done() -> None:
         id=job_id,
         document_version_id=doc_id,
         status=AnalysisJobStatus.RUNNING,
+        attempt_count=1,
         document_version=document,
     )
 
@@ -503,6 +512,9 @@ def test_worker_task_runs_heartbeat_and_stops_before_terminal_done() -> None:
 
     class DB:
         async def commit(self):
+            pass
+
+        async def rollback(self):
             pass
 
         async def execute(self, _stmt):
@@ -517,8 +529,8 @@ def test_worker_task_runs_heartbeat_and_stops_before_terminal_done() -> None:
 
     heartbeat_calls = []
 
-    async def fake_update_heartbeat(session, target_job_id):
-        heartbeat_calls.append(target_job_id)
+    async def fake_update_heartbeat(session, target_job_id, *, attempt_count):
+        heartbeat_calls.append((target_job_id, attempt_count))
         return True
 
     class FakeStorage:
@@ -544,7 +556,9 @@ def test_worker_task_runs_heartbeat_and_stops_before_terminal_done() -> None:
             "update_heartbeat",
             side_effect=fake_update_heartbeat,
         ),
-        patch.object(worker_tasks, "mark_done", AsyncMock()) as mock_mark_done,
+        patch.object(
+            worker_tasks, "mark_done", AsyncMock(return_value=True)
+        ) as mock_mark_done,
     ):
         result = asyncio.run(worker_tasks._run_analysis_job(None))
 
@@ -611,20 +625,224 @@ def test_mark_done_clears_stale_failure_code_and_detail_on_document() -> None:
         id=job_id,
         document_version_id=doc_id,
         status=AnalysisJobStatus.RUNNING,
+        attempt_count=1,
         finished_at=None,
         document_version=document,
     )
 
+    class Result:
+        rowcount = 1
+
     class DB:
+        async def execute(self, _stmt):
+            return Result()
+
         async def get(self, _model, _id):
             return document
 
         flush = AsyncMock()
 
     with patch.object(job_service, "record_system_audit", AsyncMock()):
-        asyncio.run(job_service.mark_done(DB(), job))
+        success = asyncio.run(job_service.mark_done(DB(), job, attempt_count=1))
 
+    assert success is True
     assert job.status is AnalysisJobStatus.DONE
     assert document.status is DocumentStatus.AWAITING_REVIEW
     assert document.failure_code is None
     assert document.failure_detail is None
+
+
+def test_mark_done_rejects_stale_attempt_generation_without_audits() -> None:
+    doc_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    document = SimpleNamespace(
+        id=doc_id,
+        status=DocumentStatus.PROCESSING,
+    )
+    job = SimpleNamespace(
+        id=job_id,
+        document_version_id=doc_id,
+        status=AnalysisJobStatus.RUNNING,
+        attempt_count=1,
+        finished_at=None,
+        document_version=document,
+    )
+
+    class Result:
+        rowcount = 0  # CAS condition not satisfied (attempt_count mismatch)
+
+    class DB:
+        async def execute(self, _stmt):
+            return Result()
+
+        async def get(self, _model, _id):
+            return document
+
+        flush = AsyncMock()
+
+    record_audit_mock = AsyncMock()
+    with patch.object(job_service, "record_system_audit", record_audit_mock):
+        success = asyncio.run(job_service.mark_done(DB(), job, attempt_count=1))
+
+    assert success is False
+    assert job.status is AnalysisJobStatus.RUNNING  # Not changed to DONE
+    assert document.status is DocumentStatus.PROCESSING  # Not changed
+    record_audit_mock.assert_not_called()  # No audits emitted on refusal
+
+
+def test_mark_error_rejects_stale_attempt_generation_without_audits() -> None:
+    job_id = uuid.uuid4()
+    job = SimpleNamespace(
+        id=job_id,
+        status=AnalysisJobStatus.RUNNING,
+        attempt_count=1,
+        finished_at=None,
+    )
+
+    class Result:
+        rowcount = 0  # CAS condition not satisfied
+
+    class DB:
+        async def execute(self, _stmt):
+            return Result()
+
+        flush = AsyncMock()
+
+    record_audit_mock = AsyncMock()
+    with patch.object(job_service, "record_system_audit", record_audit_mock):
+        success = asyncio.run(
+            job_service.mark_error(DB(), job, "ERR_CODE", "err detail", attempt_count=1)
+        )
+
+    assert success is False
+    assert job.status is AnalysisJobStatus.RUNNING  # Not changed to ERROR
+    record_audit_mock.assert_not_called()
+
+
+def test_worker_task_rolls_back_when_mark_done_fenced_out() -> None:
+    doc_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    document = SimpleNamespace(
+        id=doc_id,
+        storage_key="test/document.pdf",
+        declared_sha256=None,
+        submission_id=uuid.uuid4(),
+        status=DocumentStatus.PROCESSING,
+        sha256=None,
+        size_bytes=None,
+        page_count=None,
+    )
+    job = SimpleNamespace(
+        id=job_id,
+        document_version_id=doc_id,
+        status=AnalysisJobStatus.RUNNING,
+        attempt_count=1,
+        document_version=document,
+    )
+
+    class Result:
+        def scalar_one_or_none(self):
+            return None
+
+    db = SimpleNamespace(
+        commit=AsyncMock(),
+        rollback=AsyncMock(),
+        execute=AsyncMock(return_value=Result()),
+    )
+
+    class SessionContext:
+        async def __aenter__(self):
+            return db
+
+        async def __aexit__(self, *args):
+            return None
+
+    class FakeStorage:
+        def get_bounded(self, key, limit):
+            return b"%PDF-1.7"
+
+    def fake_validate_pdf(data, **kwargs):
+        return SimpleNamespace(
+            sha256="abcdef" * 10 + "1234",
+            size_bytes=100,
+            page_count=2,
+        )
+
+    with (
+        patch.object(
+            worker_tasks, "_session_factory", return_value=lambda: SessionContext()
+        ),
+        patch.object(worker_tasks, "claim_next_job", AsyncMock(return_value=job)),
+        patch.object(worker_tasks, "S3Storage", FakeStorage),
+        patch.object(worker_tasks, "validate_pdf", fake_validate_pdf),
+        patch.object(worker_tasks, "update_heartbeat", AsyncMock(return_value=True)),
+        patch.object(
+            worker_tasks, "mark_done", AsyncMock(return_value=False)
+        ) as mock_mark_done,
+    ):
+        result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result is None  # Refused / lost ownership
+    mock_mark_done.assert_awaited_once_with(db, job, attempt_count=1)
+    db.rollback.assert_awaited_once()
+
+
+def test_worker_task_rolls_back_when_mark_error_fenced_out() -> None:
+    doc_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    document = SimpleNamespace(
+        id=doc_id,
+        storage_key="test/document.pdf",
+        declared_sha256=None,
+        submission_id=uuid.uuid4(),
+        status=DocumentStatus.PROCESSING,
+        sha256=None,
+        size_bytes=None,
+        page_count=None,
+    )
+    job = SimpleNamespace(
+        id=job_id,
+        document_version_id=doc_id,
+        status=AnalysisJobStatus.RUNNING,
+        attempt_count=1,
+        document_version=document,
+    )
+
+    db = SimpleNamespace(
+        commit=AsyncMock(),
+        rollback=AsyncMock(),
+    )
+
+    class SessionContext:
+        async def __aenter__(self):
+            return db
+
+        async def __aexit__(self, *args):
+            return None
+
+    class BrokenStorage:
+        def get_bounded(self, key, limit):
+            raise RuntimeError("storage error")
+
+    with (
+        patch.object(
+            worker_tasks, "_session_factory", return_value=lambda: SessionContext()
+        ),
+        patch.object(worker_tasks, "claim_next_job", AsyncMock(return_value=job)),
+        patch.object(worker_tasks, "S3Storage", BrokenStorage),
+        patch.object(worker_tasks, "update_heartbeat", AsyncMock(return_value=True)),
+        patch.object(
+            worker_tasks, "mark_error", AsyncMock(return_value=False)
+        ) as mock_mark_error,
+    ):
+        result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result is None  # Refused / lost ownership
+    mock_mark_error.assert_awaited_once_with(
+        db,
+        job,
+        "PDF_STORAGE_ERROR",
+        "Object storage read failed",
+        attempt_count=1,
+    )
+    db.rollback.assert_awaited_once()
