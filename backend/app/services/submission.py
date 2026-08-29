@@ -310,7 +310,11 @@ async def complete_upload(
         raise HTTPException(
             status_code=409, detail="Assignment is not accepting submissions"
         )
-    if version.upload_expires_at and version.upload_expires_at < now:
+    if (
+        not is_retryable_storage_failure
+        and version.upload_expires_at
+        and version.upload_expires_at < now
+    ):
         raise HTTPException(status_code=409, detail="Upload has expired")
     storage = storage or S3Storage()
     try:

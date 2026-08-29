@@ -821,3 +821,127 @@ def test_complete_upload_processing_failed_rejected_if_job_exists_or_other_code(
         )
     assert exc2.value.status_code == 409
     assert exc2.value.detail == "Document upload is invalid"
+
+
+def test_complete_upload_expired_uploading_rejected_but_expired_storage_retry_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.submission.get_settings",
+        lambda: SimpleNamespace(
+            pdf_max_size_bytes=50_000_000,
+            storage_presign_expiry_seconds=300,
+        ),
+    )
+    user_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    # 1. Expired UPLOADING state must be rejected
+    version_uploading = SimpleNamespace(
+        id=uuid.uuid4(),
+        submission_id=uuid.uuid4(),
+        storage_key="uploads/test.pdf",
+        status=DocumentStatus.UPLOADING,
+        failure_code=None,
+        failure_detail=None,
+        upload_expires_at=now - timedelta(minutes=10),
+        size_bytes=100,
+    )
+    submission = SimpleNamespace(
+        id=version_uploading.submission_id,
+        assignment_id=uuid.uuid4(),
+        student_id=user_id,
+    )
+    assignment = SimpleNamespace(
+        id=submission.assignment_id,
+        status=AssignmentStatus.OPEN,
+        due_at=now + timedelta(hours=1),
+        rubric_version_id=uuid.uuid4(),
+    )
+
+    class ResultUploading:
+        def one_or_none(self):
+            return (version_uploading, submission, assignment)
+
+        def first(self):
+            return (version_uploading, submission, assignment)
+
+    class DBUploading:
+        async def execute(self, _statement):
+            return ResultUploading()
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            complete_upload(
+                DBUploading(),
+                version_id=version_uploading.id,
+                user=SimpleNamespace(id=user_id, roles={UserRole.STUDENT}),
+                storage=SimpleNamespace(),
+            )
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "Upload has expired"
+
+    # 2. Expired STORAGE_UNAVAILABLE / no-job state must succeed
+    version_retry = SimpleNamespace(
+        id=uuid.uuid4(),
+        submission_id=submission.id,
+        storage_key="uploads/test.pdf",
+        status=DocumentStatus.PROCESSING_FAILED,
+        failure_code="STORAGE_UNAVAILABLE",
+        failure_detail="Object storage is temporarily unavailable",
+        upload_expires_at=now - timedelta(minutes=10),
+        size_bytes=100,
+        content_type="application/pdf",
+    )
+
+    class LockResultRetry:
+        def one_or_none(self):
+            return (version_retry, submission, assignment)
+
+        def first(self):
+            return (version_retry, submission, assignment)
+
+    class DBRetry:
+        async def execute(self, statement):
+            if "analysis_jobs" in str(statement):
+                return SimpleNamespace(scalar_one_or_none=lambda: None)
+            return LockResultRetry()
+
+        flush = AsyncMock()
+        commit = AsyncMock()
+
+    storage = SimpleNamespace(
+        head=lambda _key: ObjectHead(
+            content_type="application/pdf",
+            content_length=100,
+        )
+    )
+
+    created_job = SimpleNamespace(id=uuid.uuid4(), status=AnalysisJobStatus.QUEUED)
+
+    async def run_retry():
+        import app.services.submission as sub_module
+
+        original_create_job = sub_module.create_or_get_job
+
+        async def mock_create_job(_db, *, document_version_id, rubric_version_id):
+            return created_job
+
+        sub_module.create_or_get_job = mock_create_job
+        try:
+            v, job = await complete_upload(
+                DBRetry(),
+                version_id=version_retry.id,
+                user=SimpleNamespace(id=user_id, roles={UserRole.STUDENT}),
+                storage=storage,
+            )
+            assert v is version_retry
+            assert job is created_job
+            assert version_retry.status is DocumentStatus.QUEUED
+            assert version_retry.failure_code is None
+            assert version_retry.failure_detail is None
+        finally:
+            sub_module.create_or_get_job = original_create_job
+
+    asyncio.run(run_retry())
