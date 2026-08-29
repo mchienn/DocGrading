@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import BytesIO
+from threading import RLock
 from typing import Any
 
 from pypdf import PdfReader
-from pypdf.generic import IndirectObject
+from pypdf import filters as pdf_filters
+from pypdf.errors import LimitReachedError
+from pypdf.generic import (
+    ArrayObject,
+    IndirectObject,
+    NullObject,
+    StreamObject,
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +38,113 @@ class PDFValidationError(ValueError):
 
 class _PDFScanLimit(Exception):
     pass
+
+
+_PYPDF_DECODE_LOCK = RLock()
+_PYPDF_DECODE_LIMIT_NAMES = (
+    "JBIG2_MAX_OUTPUT_LENGTH",
+    "LZW_MAX_OUTPUT_LENGTH",
+    "RUN_LENGTH_MAX_OUTPUT_LENGTH",
+    "ZLIB_MAX_OUTPUT_LENGTH",
+    "FLATE_MAX_BUFFER_SIZE",
+    "MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH",
+)
+_PYPDF_BOUNDED_FILTERS = {
+    "/FlateDecode",
+    "/Fl",
+    "/LZWDecode",
+    "/LZW",
+    "/RunLengthDecode",
+    "/RL",
+    "/JBIG2Decode",
+}
+
+
+def _resolve_pdf_object(value: Any) -> Any:
+    while isinstance(value, IndirectObject):
+        value = value.get_object()
+    return value
+
+
+def _page_content_streams(page: Any) -> tuple[list[StreamObject], bool]:
+    try:
+        contents = _resolve_pdf_object(page.raw_get("/Contents"))
+    except KeyError:
+        return [], False
+    if isinstance(contents, NullObject):
+        return [], False
+    if isinstance(contents, ArrayObject):
+        streams = [
+            resolved
+            for item in contents
+            if isinstance(
+                resolved := _resolve_pdf_object(item),
+                StreamObject,
+            )
+        ]
+        return streams, True
+    if isinstance(contents, StreamObject):
+        return [contents], False
+    return [], False
+
+
+def _ensure_unbounded_filter_stages_fit(
+    stream: StreamObject, max_output_length: int
+) -> None:
+    filters = _resolve_pdf_object(stream.get("/Filter", ()))
+    if not isinstance(filters, ArrayObject):
+        filters = (filters,)
+    stage_length = len(stream._data)
+    for filter_value in filters:
+        filter_name = str(_resolve_pdf_object(filter_value))
+        if filter_name in _PYPDF_BOUNDED_FILTERS:
+            stage_length = max_output_length
+        elif filter_name in {"/ASCIIHexDecode", "/AHx"}:
+            if stage_length > max_output_length:
+                raise PDFValidationError("PDF_DECODED_TOO_LARGE")
+            stage_length = (stage_length + 1) // 2
+        elif filter_name in {"/ASCII85Decode", "/A85"}:
+            stage_length *= 4
+        elif filter_name in {"/CCITTFaxDecode", "/CCF"}:
+            stage_length += 256
+        if stage_length > max_output_length:
+            raise PDFValidationError("PDF_DECODED_TOO_LARGE")
+
+
+def _decode_page_content_size(page: Any, max_output_length: int) -> int:
+    streams, is_array = _page_content_streams(page)
+    decoded_size = 0
+    for stream in streams:
+        remaining = max_output_length - decoded_size
+        _ensure_unbounded_filter_stages_fit(stream, remaining)
+        with _bounded_pypdf_decode(remaining):
+            try:
+                decoded_data = stream.get_data()
+            except LimitReachedError as exc:
+                raise PDFValidationError("PDF_DECODED_TOO_LARGE") from exc
+        decoded_size += len(decoded_data)
+        if is_array and (not decoded_data or not decoded_data.endswith(b"\n")):
+            decoded_size += 1
+        if decoded_size > max_output_length:
+            raise PDFValidationError("PDF_DECODED_TOO_LARGE")
+    return decoded_size
+
+
+@contextmanager
+def _bounded_pypdf_decode(max_output_length: int) -> Iterator[None]:
+    """Apply a process-safe pypdf output cap before any stream is decoded."""
+    limit = max(1, max_output_length)
+    with _PYPDF_DECODE_LOCK:
+        previous = {
+            name: getattr(pdf_filters, name) for name in _PYPDF_DECODE_LIMIT_NAMES
+        }
+        try:
+            for name in _PYPDF_DECODE_LIMIT_NAMES:
+                setattr(pdf_filters, name, min(previous[name], limit))
+            yield
+        finally:
+            for name, value in previous.items():
+                setattr(pdf_filters, name, value)
 
 
 def _contains_active_content(
@@ -87,29 +204,25 @@ def validate_pdf(
     if not data.startswith(b"%PDF-"):
         raise PDFValidationError("NOT_A_PDF")
     try:
-        reader = PdfReader(BytesIO(data), strict=True)
-        if reader.is_encrypted:
-            raise PDFValidationError("PDF_ENCRYPTED")
-        page_count = len(reader.pages)
-        if page_count > max_page_count:
-            raise PDFValidationError("PDF_PAGE_LIMIT")
-        if _contains_active_content(reader.trailer):
-            raise PDFValidationError("PDF_ACTIVE_CONTENT")
-        text_found = False
-        decoded_size = 0
-        for page in reader.pages:
-            contents = page.get_contents()
-            if contents is not None:
-                decoded_data = contents.get_data()
-                if decoded_data is not None:
-                    decoded_size += len(decoded_data)
-                    if decoded_size > max_size_bytes:
-                        raise PDFValidationError("PDF_DECODED_TOO_LARGE")
-            text = page.extract_text() or ""
-            if text.strip():
-                text_found = True
-        if not text_found:
-            raise PDFValidationError("PDF_SCAN_ONLY")
+        with _bounded_pypdf_decode(max_size_bytes):
+            reader = PdfReader(BytesIO(data), strict=True)
+            if reader.is_encrypted:
+                raise PDFValidationError("PDF_ENCRYPTED")
+            page_count = len(reader.pages)
+            if page_count > max_page_count:
+                raise PDFValidationError("PDF_PAGE_LIMIT")
+            if _contains_active_content(reader.trailer):
+                raise PDFValidationError("PDF_ACTIVE_CONTENT")
+            text_found = False
+            decoded_size = 0
+            for page in reader.pages:
+                remaining_bytes = max_size_bytes - decoded_size
+                decoded_size += _decode_page_content_size(page, remaining_bytes)
+                text = page.extract_text() or ""
+                if text.strip():
+                    text_found = True
+            if not text_found:
+                raise PDFValidationError("PDF_SCAN_ONLY")
     except PDFValidationError:
         raise
     except _PDFScanLimit as exc:

@@ -144,7 +144,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 
 - [x] Run `uv run ruff check .` from `backend/`.
 - [x] Run `uv run black --check .` from `backend/`.
-- [x] Run `uv run pytest -v` from `backend/` with `RUN_DATABASE_TESTS=1`: 184 passed.
+- [x] Run `uv run pytest -v` from `backend/` with `RUN_DATABASE_TESTS=1`: 185 passed.
 - [x] With isolated PostgreSQL 17 healthy, run `alembic upgrade head`, `alembic downgrade 20260828_0005`, and `alembic upgrade head`.
 - [x] Run database tests and confirm the two-worker test has exactly one winner.
 - [x] Run `docker compose config` and a real presigned POST/object HEAD smoke test.

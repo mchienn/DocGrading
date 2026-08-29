@@ -3,6 +3,7 @@ from io import BytesIO
 
 import pytest
 from pypdf import PdfWriter
+from pypdf import filters as pdf_filters
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from app.services.pdf_validation import PDFValidationError, validate_pdf
@@ -56,6 +57,30 @@ def test_pdf_decoded_too_large_raises_error_before_extract_text() -> None:
         validate_pdf(pdf_bytes, max_size_bytes=1500)
 
     assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
+
+
+def test_flate_limit_is_applied_before_decompression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    large_stream = b"BT /F1 12 Tf 10 10 Td (" + b"A" * 2500 + b") Tj ET"
+    pdf_bytes = _make_pdf_with_stream([large_stream], compress=True)
+    original_limit = pdf_filters.ZLIB_MAX_OUTPUT_LENGTH
+    observed_limits: list[int] = []
+    decompress = pdf_filters._decompress_with_limit
+
+    def observe_limit(data: bytes) -> bytes:
+        observed_limits.append(pdf_filters.ZLIB_MAX_OUTPUT_LENGTH)
+        return decompress(data)
+
+    monkeypatch.setattr(pdf_filters, "_decompress_with_limit", observe_limit)
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(pdf_bytes, max_size_bytes=1500)
+
+    assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
+    assert observed_limits
+    assert max(observed_limits) <= 1500
+    assert original_limit == pdf_filters.ZLIB_MAX_OUTPUT_LENGTH
 
 
 def test_decoded_limit_is_cumulative_across_pages() -> None:
