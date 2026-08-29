@@ -20,7 +20,6 @@ from app.services import analysis_job as job_service
 from app.services.pdf_validation import PDFValidationError, validate_pdf
 from app.services.storage import ObjectHead, S3Storage
 from app.services.submission import _reused_response, complete_upload, initiate_upload
-from app.workers import tasks as worker_tasks
 
 
 def _blank_pdf(*, active: bool = False, attachment: bool = False) -> bytes:
@@ -111,7 +110,16 @@ def test_presign_uses_five_minute_expiry_and_exact_object_key() -> None:
     ]
 
 
-def test_duplicate_sha_reuses_active_upload_instead_of_inserting() -> None:
+def test_duplicate_sha_reuses_active_upload_instead_of_inserting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.submission.get_settings",
+        lambda: SimpleNamespace(
+            pdf_max_size_bytes=50_000_000,
+            storage_presign_expiry_seconds=300,
+        ),
+    )
     assignment = SimpleNamespace(
         id=uuid.uuid4(),
         course_id=uuid.uuid4(),
@@ -186,6 +194,20 @@ def test_duplicate_sha_reuses_active_upload_instead_of_inserting() -> None:
     assert response["upload_url"] == "http://localhost:9000/docgrading"
 
 
+@pytest.fixture
+def worker_tasks(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("POSTGRES_DB", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_USER", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "test-only")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    from app.workers import tasks
+
+    yield tasks
+    get_settings.cache_clear()
+
+
 class _WorkerSessionContext:
     def __init__(self, db: object) -> None:
         self.db = db
@@ -198,16 +220,21 @@ class _WorkerSessionContext:
 
 
 def _patch_worker_session(
-    monkeypatch: pytest.MonkeyPatch, db: object, job: object
+    monkeypatch: pytest.MonkeyPatch, worker_tasks_mod: object, db: object, job: object
 ) -> None:
     monkeypatch.setattr(
-        worker_tasks, "_session_factory", lambda: lambda: _WorkerSessionContext(db)
+        worker_tasks_mod,
+        "_session_factory",
+        lambda: lambda: _WorkerSessionContext(db),
     )
-    monkeypatch.setattr(worker_tasks, "claim_job_by_id", AsyncMock(return_value=job))
+    monkeypatch.setattr(
+        worker_tasks_mod, "claim_job_by_id", AsyncMock(return_value=job)
+    )
 
 
 def test_worker_rejects_server_computed_sha_mismatch(
     monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
 ) -> None:
     document = SimpleNamespace(
         storage_key="private/object.pdf",
@@ -219,7 +246,7 @@ def test_worker_rejects_server_computed_sha_mismatch(
     )
     job = SimpleNamespace(id=uuid.uuid4(), document_version=document)
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
-    _patch_worker_session(monkeypatch, db, job)
+    _patch_worker_session(monkeypatch, worker_tasks, db, job)
     monkeypatch.setattr(
         worker_tasks,
         "S3Storage",
@@ -248,6 +275,7 @@ def test_worker_rejects_server_computed_sha_mismatch(
 
 def test_worker_storage_failure_marks_document_failed_without_secret(
     monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
 ) -> None:
     document = SimpleNamespace(
         storage_key="private/object.pdf",
@@ -258,7 +286,7 @@ def test_worker_storage_failure_marks_document_failed_without_secret(
     )
     job = SimpleNamespace(id=uuid.uuid4(), document_version=document)
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
-    _patch_worker_session(monkeypatch, db, job)
+    _patch_worker_session(monkeypatch, worker_tasks, db, job)
 
     class BrokenStorage:
         def get_bounded(self, *_args: object) -> bytes:
@@ -374,8 +402,15 @@ def test_completion_sanitizes_generic_storage_failure_and_marks_failed() -> None
     ],
 )
 def test_completion_uses_server_observed_metadata(
-    head: ObjectHead, detail: str
+    monkeypatch: pytest.MonkeyPatch, head: ObjectHead, detail: str
 ) -> None:
+    monkeypatch.setattr(
+        "app.services.submission.get_settings",
+        lambda: SimpleNamespace(
+            pdf_max_size_bytes=50_000_000,
+            storage_presign_expiry_seconds=300,
+        ),
+    )
     version_id = "version"
     user_id = "student"
     version = SimpleNamespace(
