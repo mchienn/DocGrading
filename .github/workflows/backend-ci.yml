@@ -11,6 +11,10 @@ jobs:
     name: Lint and test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      POSTGRES_DB: docgrading_test
+      POSTGRES_USER: docgrading_test
+      POSTGRES_PASSWORD: ci-test-only
     defaults:
       run:
         working-directory: backend

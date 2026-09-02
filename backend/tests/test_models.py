@@ -1,11 +1,12 @@
 import sqlalchemy as sa
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, inspect
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, inspect
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import configure_mappers
 
 from app.db.base import Base
 from app.models import (
     AnalysisJob,
+    AnalysisJobDispatch,
     Assignment,
     AssignmentRequirement,
     AuditEvent,
@@ -32,6 +33,7 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     Submission: "submissions",
     DocumentVersion: "document_versions",
     AnalysisJob: "analysis_jobs",
+    AnalysisJobDispatch: "analysis_job_dispatches",
     AuditEvent: "audit_events",
     Session: "sessions",
 }
@@ -87,6 +89,7 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
     assert {"document_versions.id", "rubric_versions.id"} <= foreign_key_targets(
         AnalysisJob
     )
+    assert "analysis_jobs.id" in foreign_key_targets(AnalysisJobDispatch)
 
 
 def test_critical_constraints_and_indexes_have_stable_names() -> None:
@@ -112,12 +115,12 @@ def test_critical_constraints_and_indexes_have_stable_names() -> None:
     }
     assert {"ck_audit_events_actor", "ck_audit_events_snapshots"} <= audit_events_checks
 
-    analysis_jobs_indexes = {
-        idx.name
-        for idx in Base.metadata.tables["analysis_jobs"].indexes
-        if isinstance(idx, Index)
+    analysis_jobs_constraints = {
+        constraint.name
+        for constraint in Base.metadata.tables["analysis_jobs"].constraints
+        if isinstance(constraint, sa.UniqueConstraint)
     }
-    assert "uq_analysis_jobs_active_document_rubric" in analysis_jobs_indexes
+    assert "uq_analysis_jobs_document_rubric" in analysis_jobs_constraints
 
 
 def test_required_text_columns_have_stable_nonblank_constraints() -> None:
@@ -180,6 +183,12 @@ def test_assignment_first_submission_metadata_is_nullable_timezone() -> None:
     assert column.nullable
     assert isinstance(column.type, sa.DateTime)
     assert column.type.timezone
+
+
+def test_document_version_declared_sha256_hint_is_nullable() -> None:
+    configure_mappers()
+    column = Base.metadata.tables["document_versions"].c.declared_sha256
+    assert column.nullable
 
 
 def test_criterion_version_nested_json_mutation_tracks_dirty() -> None:

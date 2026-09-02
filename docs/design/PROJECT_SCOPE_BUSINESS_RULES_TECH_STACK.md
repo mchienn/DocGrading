@@ -148,8 +148,8 @@ ACTIVE → ARCHIVED
 DRAFT → OPEN → CLOSED → ARCHIVED
 ```
 
-- Chỉ `OPEN` nhận bài.
-- `CLOSED` không nhận phiên bản mới nhưng giảng viên vẫn có thể review và công bố.
+- Chỉ `OPEN` nhận bài mới và chấp nhận lần completion đầu tiên; API completion phải khóa cả Assignment và `DocumentVersion`, rồi kiểm tra lại `status` cùng `due_at`. Một document đã completion vẫn trả lại job hiện có theo hợp đồng idempotent dù Assignment đóng hoặc quá hạn sau đó.
+- `CLOSED` không nhận phiên bản mới hoặc completion đầu tiên nhưng giảng viên vẫn có thể review và công bố.
 - `ARCHIVED` chỉ đọc; muốn sử dụng lại phải nhân bản thành đợt mới.
 
 ### 5.4. Vòng đời một phiên bản bài nộp
@@ -162,9 +162,21 @@ UPLOADING → VALIDATING ──→ INVALID
 ```
 
 - `INVALID` cần sinh viên nộp file khác.
-- `PROCESSING_FAILED` là lỗi hệ thống; Admin/Giảng viên có thể thử lại mà không yêu cầu upload lại.
+- `PROCESSING_FAILED` là lỗi hệ thống; Admin/Giảng viên có thể thử lại mà không yêu cầu upload lại. Riêng lỗi `STORAGE_UNAVAILABLE` xảy ra trước khi tạo job cho phép gọi lại completion của cùng document, không phụ thuộc cửa sổ presign cũ nhưng vẫn phải qua khóa và cổng `OPEN`/`due_at` của Assignment.
 - `APPROVED` và `PUBLISHED` là hai trạng thái riêng.
 - Nộp lại tạo `DocumentVersion` mới; không ghi đè phiên bản cũ.
+
+### 5.5. Vòng đời job phân tích
+
+```text
+QUEUED → RUNNING → DONE
+              └──→ ERROR ──retry──→ QUEUED
+```
+
+- Mỗi tổ hợp `DocumentVersion + RubricVersion` dùng đúng một `AnalysisJob` bền vững; retry và recovery sau worker loss đặt lại chính row đó, không tạo job hoặc kết quả giả.
+- Worker claim bằng khóa hàng PostgreSQL, bỏ qua row đã bị worker khác khóa và kiểm tra lại `QUEUED` hoặc `RUNNING` đã hết lease sau khi có khóa. Worker đang chạy cập nhật heartbeat; nếu redelivery tới khi lease còn hiệu lực, Celery task retry có countdown bằng phần lease còn lại thay vì ack và làm mất đường recovery. Job stale được claim lại khi còn attempt, hoặc chuyển `ERROR` khi hết attempt. Mỗi heartbeat và chuyển trạng thái terminal dùng `attempt_count` đã claim làm generation compare-and-set; worker cũ mất lease không thể gia hạn hoặc ghi đè kết quả của attempt mới.
+- Mọi transaction có thể commit một job ở trạng thái `QUEUED` tạo duy nhất một `AnalysisJobDispatch` trong chính transaction PostgreSQL đó. API thử publish sau commit; poller lifespan của FastAPI tiếp tục drain row đến hạn theo lô giới hạn, `FOR UPDATE SKIP LOCKED` và backoff. Chỉ xóa dispatch sau khi Redis chấp nhận message; broker lỗi không đổi phản hồi `202` và không làm mất wake-up bền vững.
+- Mỗi chuyển trạng thái job `QUEUED`, `RUNNING`, `DONE`, `ERROR` và `ERROR → QUEUED` được ghi `AuditEvent` trong cùng transaction với thay đổi nghiệp vụ. Claim đồng thời chuyển `DocumentVersion` sang `PROCESSING`; hoàn tất ingestion chuyển sang `AWAITING_REVIEW`; cả hai chuyển trạng thái document đều được audit trong cùng transaction.
 
 ## 6. Luật nghiệp vụ
 
@@ -176,10 +188,10 @@ UPLOADING → VALIDATING ──→ INVALID
 | BR-04 | Tổng trọng số tiêu chí đang bật phải bằng 100%. Mỗi tiêu chí phải có đủ mức 0–4, mô tả, trọng số và phương pháp đánh giá trước khi mở Assignment. |
 | BR-05 | Mỗi job lưu snapshot của Course, Assignment, RubricVersion, CriterionVersion, rule version, model/provider và cấu hình xử lý. Chạy lại cùng snapshot phải có thể truy nguyên kết quả. |
 | BR-06 | Chỉ nhận file có magic bytes và MIME là PDF, tối đa 50 MB và 100 trang, không mã hóa/mật khẩu, không attachment hoặc JavaScript nhúng. |
-| BR-07 | Một trang bị coi là nghi scan khi ảnh raster phủ từ 80% diện tích trang và có dưới 30 ký tự text hữu ích. File có bất kỳ trang nghi scan nào bị từ chối; trang trắng thật không tính là trang scan. |
+| BR-07 | Một trang bị coi là nghi scan khi ảnh raster phủ từ 80% diện tích trang và có dưới 30 ký tự text hữu ích. File có bất kỳ trang nghi scan nào bị từ chối; trang trắng thật không tính là trang scan. Clipping đã áp dụng nhưng không thể đo chính xác trong walker giới hạn phải fail closed thành `PDF_MALFORMED`, không được coi là 0% coverage. |
 | BR-08 | File gốc được lưu ngoài web root. Truy cập file dùng quyền theo object và URL ký có hạn 5 phút. Không lưu PDF blob trong PostgreSQL. |
 | BR-09 | SHA-256 nhận diện file. Upload lặp đúng cùng file cho cùng sinh viên, Assignment và lần nộp phải trả lại phiên bản hiện có thay vì tạo job trùng. |
-| BR-10 | Tối đa một job hoạt động cho một tổ hợp DocumentVersion + RubricVersion. Queue có thể giao việc lặp nhưng task phải idempotent. Job thử tối đa ba lần với exponential backoff rồi chuyển `PROCESSING_FAILED`. |
+| BR-10 | Tối đa một `AnalysisJob` bền vững cho một tổ hợp DocumentVersion + RubricVersion. Mọi transaction có thể commit job ở `QUEUED` phải tạo dispatch outbox cùng transaction; queue có thể giao việc lặp nhưng claim dùng khóa hàng và task phải idempotent. Retry dùng lại row hiện có, tối đa ba lần; lỗi hệ thống đồng thời chuyển DocumentVersion sang `PROCESSING_FAILED`. |
 | BR-11 | Mọi finding tự động phải có criterion, phương pháp, mô tả, page number, text quote và tọa độ hoặc section anchor. Không xác minh được anchor thì không hiển thị finding như bằng chứng; criterion chuyển `NEEDS_MANUAL_REVIEW`. |
 | BR-12 | Nội dung PDF là dữ liệu không tin cậy. Chỉ gửi phần text cần thiết cho từng criterion; nội dung tài liệu không được thay đổi system instruction, gọi tool đặc quyền hoặc quyết định quyền truy cập. |
 | BR-13 | LLM phải trả structured output theo JSON Schema và được Pydantic validate. Output lỗi schema được retry một lần; vẫn lỗi thì criterion chuyển thủ công, không suy đoán để điền dữ liệu. |
@@ -240,9 +252,9 @@ AT-01 đến AT-28 và AT-30 là release blocker. AT-29 là SLO vận hành ph�
 | AT-02 | Giảng viên tạo được Course và Assignment từ nháp tới mở nhận bài, dry-run rubric trên PDF mẫu; hệ thống chặn mở khi rubric sai tổng trọng số hoặc thiếu level; sau hạn hoặc hết số lượt, upload bị từ chối mà không trừ thêm lượt. |
 | AT-03 | Rubric đã dùng không sửa tại chỗ; thao tác sửa tạo version mới và bài cũ vẫn hiển thị đúng snapshot cũ. |
 | AT-04 | PDF text-native trong giới hạn được nhận, có SHA-256 và tạo đúng một DocumentVersion cùng một AnalysisJob. |
-| AT-05 | File sai định dạng, quá 50 MB, quá 100 trang, có mật khẩu, active content hoặc trang nghi scan bị từ chối với lý do và trang liên quan; không enqueue evaluator. |
+| AT-05 | File sai định dạng, quá 50 MB, quá 100 trang, có mật khẩu, active content, clipping đã áp dụng nhưng không đo chính xác, hoặc trang nghi scan bị từ chối với lý do và trang liên quan; không enqueue evaluator. |
 | AT-06 | Sau upload, sinh viên thấy đúng các trạng thái Validating, Queued, Processing, Awaiting review, Published hoặc lỗi; không có spinner vô hạn và phần trăm giả. |
-| AT-07 | Upload lặp hoặc redelivery từ queue không tạo kết quả/finding trùng. Dừng worker giữa job rồi khởi động lại không làm mất job; retry dừng sau ba lần. |
+| AT-07 | Upload lặp hoặc redelivery từ queue không tạo kết quả/finding trùng. Commit `QUEUED`, API restart hoặc broker lỗi không làm mất wake-up nhờ dispatch outbox; dừng worker giữa job rồi khởi động lại không làm mất job; retry dừng sau ba lần. |
 | AT-08 | Document IR lưu được text theo trang, section, requirement, use case và coordinate. Mỗi evidence mở đúng trang; anchor sai bị đánh dấu thủ công thay vì hiển thị như hợp lệ. |
 | AT-09 | Cả 12 criterion xuất hiện trong kết quả. Criterion qua gate có đề xuất; criterion chưa qua gate có trạng thái Needs manual review và cho phép giảng viên nhập mức. |
 | AT-10 | Báo cáo benchmark chứng minh từng evaluator đang bật đạt toàn bộ ngưỡng tại mục 7 trên holdout độc lập. |
@@ -279,7 +291,7 @@ Browser
   ├─ React/Vite SPA ── REST/OpenAPI ── FastAPI modular monolith ── PostgreSQL
   │        └─ PDF.js                         │          └────────── File storage
   │                                         │
-  └─ trạng thái job / review                └─ enqueue ── Redis ── Celery worker
+  └─ trạng thái job / review                └─ dispatch outbox ── Redis ── Celery worker
                                                                ├─ PDF parser
                                                                ├─ Rule evaluators
                                                                └─ LLM provider adapter
@@ -343,9 +355,9 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 | Course | `GET/POST /courses`, `GET/PATCH /courses/{course_id}`, `GET/POST /courses/{course_id}/members`, `DELETE /courses/{course_id}/members/{user_id}` | CRUD Course và membership; chỉ Admin hoặc Teacher được phân công mới mutation. |
 | Assignment | `GET/POST /courses/{course_id}/assignments`, `GET/PATCH /assignments/{assignment_id}`, `POST /assignments/{assignment_id}/open`, `POST /assignments/{assignment_id}/close` | Lưu details, submission requirements, rubric link và lifecycle. `open` chỉ thành công khi rubric/requirements hợp lệ. Từ **publish** chỉ dành cho kết quả; Assignment dùng **open/close**. |
 | Rubric | `GET/POST /rubrics`, `GET /rubrics/{rubric_id}/versions`, `POST /rubrics/{rubric_id}/versions`, `PUT /assignments/{assignment_id}/rubric-version` | Nhân bản/version rubric; không sửa version đã được Assignment sử dụng. |
-| Submission | `GET /assignments/{assignment_id}/submissions`, `POST /assignments/{assignment_id}/submissions`, `GET /submissions/{submission_id}`, `GET /submissions/{submission_id}/versions` | Upload dùng `multipart/form-data`; sau kiểm tra đồng bộ cơ bản, tạo DocumentVersion + AnalysisJob và trả `202`. Upload trùng theo BR-09 trả resource hiện có. |
+| Submission | `GET /assignments/{assignment_id}/submissions`, `POST /assignments/{assignment_id}/uploads/presign`, `POST /document-versions/{version_id}/complete`, `GET /submissions/{submission_id}`, `GET /submissions/{submission_id}/versions` | Upload hai bước: presign yêu cầu `Idempotency-Key`, SHA-256 và client hints, trả presigned POST tối đa 5 phút khóa đúng object key/MIME/size; completion kiểm tra metadata từ object storage rồi tạo hoặc trả lại đúng một AnalysisJob. Upload trùng theo BR-09 trả resource hiện có mà không cấp credential ghi đè. |
 | File/evidence | `GET /document-versions/{version_id}/download`, `GET /document-versions/{version_id}/evidence/{anchor_id}` | Kiểm tra quyền trước khi trả redirect/URL ký tối đa 5 phút hoặc evidence anchor; hỗ trợ mở đúng page/coordinate. |
-| Job | `GET /analysis-jobs/{job_id}`, `POST /analysis-jobs/{job_id}/retry`, `GET /operations/analysis-jobs` | Frontend poll `status_url`; không giả lập phần trăm khi worker không có progress thật. MVP không dùng WebSocket/SSE. Retry tuân BR-10 và quyền vận hành. |
+| Job | `GET /analysis-jobs/{job_id}`, `POST /analysis-jobs/{job_id}/retry`, `GET /operations/analysis-jobs` | Trạng thái job là `QUEUED`, `RUNNING`, `DONE`, `ERROR`; retry dùng lại row và tuân BR-10. Admin được xem/retry mọi job; Teacher chỉ job thuộc Course mình phụ trách; Student chỉ xem job của mình và không retry. Frontend poll, không giả lập phần trăm. |
 | Review | `GET /document-versions/{version_id}/review`, `POST/DELETE /document-versions/{version_id}/review-lock`, `PATCH /criterion-results/{criterion_result_id}` | Review workspace trả rubric snapshot, criterion result, finding và evidence; lock/heartbeat theo BR-18; edit dùng `If-Match`. |
 | Approve/publish | `POST /document-versions/{version_id}/approve`, `POST /document-versions/{version_id}/publish`, `POST /published-results/{published_result_id}/unpublish` | Approve và publish là hai command riêng. Publish/unpublish atomic, idempotent, có reason/audit và không lộ kết quả một phần. |
 | Student result | `GET /submissions/{submission_id}/published-result`, `POST /published-results/{published_result_id}/review-requests` | Chỉ trả published snapshot và field được phép công khai; tạo review request theo BR-23/BR-30. |
@@ -354,10 +366,10 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 
 #### 9.4.3. Hợp đồng trạng thái bất đồng bộ
 
-1. Upload thành công ở tầng HTTP trả `202` với `submission_id`, `document_version_id`, `job_id`, `status`, `status_url` và `retry_after_seconds`.
-2. Frontend poll `status_url` sau thời gian server chỉ định, dùng backoff từ 2 đến tối đa 10 giây và dừng ở `INVALID`, `PROCESSING_FAILED`, `AWAITING_REVIEW` hoặc `PUBLISHED`.
-3. API chỉ trả `progress_percent` khi worker có số bước đo được; nếu không thì trả `null` cùng `status` và `status_message` trung thực.
-4. `PROCESSING_FAILED` trả `retryable` và `user_action`; chi tiết kỹ thuật chỉ xuất hiện ở endpoint Operations cho Admin.
+1. Presign upload thành công trả `201` với `submission_id`, `document_version_id`, object key, URL/form fields ký, `expires_in`, `status` và cờ `reused`. Response `reused` của bản đã hoàn tất không trả credential ghi đè.
+2. Browser upload trực tiếp lên object storage rồi gọi completion. Completion thành công trả `202` với `submission_id`, `document_version_id`, `analysis_job_id` và trạng thái job.
+3. Frontend poll `GET /analysis-jobs/{job_id}` theo backoff từ 2 đến tối đa 10 giây và dừng ở `DONE` hoặc `ERROR`; trạng thái tài liệu vẫn theo state machine tại mục 5.4.
+4. API chỉ trả progress khi worker có số bước đo được; nếu không thì không giả lập phần trăm. `ERROR` dùng mã lỗi ổn định; chi tiết provider, URL ký và nội dung PDF không được trả cho người dùng.
 5. Browser refresh phải khôi phục trạng thái từ API bằng `status_url`; timer và state trong prototype không phải nguồn sự thật.
 
 #### 9.4.4. Điều kiện hoàn tất contract
@@ -381,7 +393,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 | Runtime backend | Python 3.13 | Hệ sinh thái PDF/AI phù hợp và còn được hỗ trợ tới 2029; pin minor qua container. |
 | API/domain | FastAPI, Pydantic 2 | OpenAPI tự sinh, validation mạnh, async I/O cho upload/provider. Heavy work không chạy bằng BackgroundTasks của web process. |
 | ORM/migration | SQLAlchemy 2, Alembic | Transaction rõ, schema migration có version; không tạo SQL bằng LLM. |
-| Queue | Celery 5.6 + Redis 7 | Chỉ dùng task, retry, late acknowledgement và routing cơ bản; không dùng chain/canvas/beat trong MVP. Task phải idempotent. |
+| Queue | Celery 5.6 + Redis 7 | Chỉ dùng task, retry, late acknowledgement và routing cơ bản; PostgreSQL dispatch outbox được drain sau commit và bởi poller lifespan FastAPI, không dùng chain/canvas/beat trong MVP. Task phải idempotent. |
 | Database | PostgreSQL 17, latest minor | Lưu nguồn sự thật, JSONB cho evaluator payload có schema và relational columns cho dữ liệu cần query. Không dùng MongoDB. |
 | PDF backend | pypdf + pdfplumber | pypdf cho kiểm tra/cấu trúc/text cơ bản; pdfplumber cho character/line/table coordinate. Chạy trong worker process. |
 | File storage | Storage adapter: local volume ở dev, S3-compatible ở staging/prod | Không buộc developer chạy MinIO hằng ngày; production không phụ thuộc local disk của container. |

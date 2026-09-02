@@ -28,6 +28,46 @@ services:
       retries: 10
     networks: [backend]
 
+  storage:
+    image: localstack/localstack:4.11.1
+    environment:
+      SERVICES: s3
+      EAGER_SERVICE_LOADING: "1"
+      PERSISTENCE: "1"
+      AWS_DEFAULT_REGION: ${STORAGE_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}
+    ports:
+      - "127.0.0.1:${STORAGE_PORT:-9000}:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [backend]
+
+  storage-init:
+    image: localstack/localstack:4.11.1
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        awslocal --endpoint-url http://storage:4566 s3api head-bucket
+        --bucket "$${STORAGE_BUCKET}" ||
+        awslocal --endpoint-url http://storage:4566 s3api create-bucket
+        --bucket "$${STORAGE_BUCKET}"
+    environment:
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-docgrading}
+      AWS_DEFAULT_REGION: ${STORAGE_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}
+    depends_on:
+      storage:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
   api:
     build:
       context: backend
@@ -37,19 +77,29 @@ services:
       POSTGRES_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      STORAGE_PATH: /var/lib/docgrading/storage
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-docgrading}
+      STORAGE_ENDPOINT_URL: http://storage:4566
+      STORAGE_PUBLIC_ENDPOINT_URL: ${STORAGE_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}
+      STORAGE_PRESIGN_EXPIRY_SECONDS: ${STORAGE_PRESIGN_EXPIRY_SECONDS:-300}
+      PDF_MAX_SIZE_BYTES: ${PDF_MAX_SIZE_BYTES:-50000000}
+      PDF_MAX_PAGE_COUNT: ${PDF_MAX_PAGE_COUNT:-100}
+      ANALYSIS_JOB_LEASE_SECONDS: ${ANALYSIS_JOB_LEASE_SECONDS:-300}
+      ANALYSIS_JOB_HEARTBEAT_SECONDS: ${ANALYSIS_JOB_HEARTBEAT_SECONDS:-30}
     command: >-
       sh -c "alembic upgrade head &&
       exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "${API_PORT:-8000}:8000"
-    volumes:
-      - pdf_storage:/var/lib/docgrading/storage
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     networks: [backend]
 
   worker:
@@ -61,15 +111,25 @@ services:
       POSTGRES_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      STORAGE_PATH: /var/lib/docgrading/storage
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-docgrading}
+      STORAGE_ENDPOINT_URL: http://storage:4566
+      STORAGE_PUBLIC_ENDPOINT_URL: ${STORAGE_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}
+      STORAGE_PRESIGN_EXPIRY_SECONDS: ${STORAGE_PRESIGN_EXPIRY_SECONDS:-300}
+      PDF_MAX_SIZE_BYTES: ${PDF_MAX_SIZE_BYTES:-50000000}
+      PDF_MAX_PAGE_COUNT: ${PDF_MAX_PAGE_COUNT:-100}
+      ANALYSIS_JOB_LEASE_SECONDS: ${ANALYSIS_JOB_LEASE_SECONDS:-300}
+      ANALYSIS_JOB_HEARTBEAT_SECONDS: ${ANALYSIS_JOB_HEARTBEAT_SECONDS:-30}
     command: celery -A app.workers.celery_app:celery_app worker --loglevel=INFO
-    volumes:
-      - pdf_storage:/var/lib/docgrading/storage
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
       api:
         condition: service_healthy
     healthcheck:
@@ -87,7 +147,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  pdf_storage:
+  localstack_data:
 
 networks:
   backend:

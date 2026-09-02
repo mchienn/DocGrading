@@ -69,6 +69,8 @@ class TestSessionCookieSecurity:
             postgres_db="test",
             postgres_user="test",
             postgres_password="test",
+            storage_access_key_id="explicit-key",
+            storage_secret_access_key="explicit-secret",
         )
         assert settings.session_cookie_secure is expected
 

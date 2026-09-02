@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
@@ -77,6 +78,11 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "sha256",
             name="uq_document_versions_submission_sha256",
         ),
+        sa.UniqueConstraint(
+            "submission_id",
+            "idempotency_key",
+            name="uq_document_versions_submission_idempotency_key",
+        ),
         sa.CheckConstraint(
             "version_number > 0",
             name="ck_document_versions_version_number_positive",
@@ -133,6 +139,14 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     size_bytes: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
     page_count: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     sha256: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    declared_sha256: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
+    idempotency_fingerprint: Mapped[str | None] = mapped_column(
+        sa.String(64), nullable=True
+    )
+    upload_expires_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
     status: Mapped[DocumentStatus] = mapped_column(
         pg_enum(DocumentStatus, name="document_status"),
         default=DocumentStatus.UPLOADING,
