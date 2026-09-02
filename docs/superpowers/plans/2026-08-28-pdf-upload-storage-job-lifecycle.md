@@ -4,7 +4,7 @@
 
 **Goal:** Deliver backend-only PDF upload through a short-lived, object-scoped S3-compatible presigned POST; validate the received object as untrusted data; create one idempotent `AnalysisJob`; and enforce audited, race-safe `QUEUED → RUNNING → DONE/ERROR` transitions.
 
-**Architecture:** Use a two-step upload contract. The API creates or reuses an `UPLOADING` `DocumentVersion` using `Idempotency-Key`, returns a five-minute S3 presigned POST constrained to one random object key, `application/pdf`, and the accepted byte range, then a completion endpoint locks both the document and its Assignment before verifying metadata and queueing the job. Workers claim queued or lease-expired `RUNNING` jobs from PostgreSQL with `SELECT ... FOR UPDATE SKIP LOCKED`, maintain a heartbeat, and fence every heartbeat/terminal write by the claimed `attempt_count` generation before transitioning the same job row. A specific-job redelivery received before lease expiry uses an unbounded Celery retry delayed until the remaining lease elapses, ensuring stale recovery remains reachable. Retries and worker-loss recovery reset that row rather than creating a new `Submission`, `DocumentVersion`, job, or future result.
+**Architecture:** Use a two-step upload contract. The API creates or reuses an `UPLOADING` `DocumentVersion` using `Idempotency-Key`, returns a five-minute S3 presigned POST constrained to one random object key, `application/pdf`, and the accepted byte range, then a completion endpoint locks both the document and its Assignment before verifying metadata and queueing the job. Every committed `QUEUED` job owns a transactional PostgreSQL dispatch row; the API drains it after commit and a FastAPI lifespan poller recovers broker failures. Workers claim queued or lease-expired `RUNNING` jobs with `SELECT ... FOR UPDATE SKIP LOCKED`, maintain a heartbeat, and fence every heartbeat/terminal write by the claimed `attempt_count` generation before transitioning the same job row. A specific-job redelivery received before lease expiry uses an unbounded Celery retry delayed until the remaining lease elapses, ensuring stale recovery remains reachable. Retries and worker-loss recovery reset that row rather than creating a new `Submission`, `DocumentVersion`, job, or future result.
 
 **Tech Stack:** Python 3.13, FastAPI, Pydantic 2, SQLAlchemy 2 async, PostgreSQL 17, Alembic, Celery 5.6, Redis 7, Boto3/S3-compatible storage, pypdf 6.x, Docker Compose, pytest, Ruff, Black.
 
@@ -16,7 +16,7 @@
 
 - `POST /api/v1/assignments/{assignment_id}/uploads/presign` requires `Idempotency-Key` and the client-declared SHA-256, plus bounded hints `filename`, `content_type`, and `size_bytes`; the worker recomputes and verifies the digest from stored bytes.
 - The policy fixes the exact random object key, fixes `Content-Type=application/pdf`, applies `content-length-range`, and expires after 300 seconds.
-- `POST /api/v1/document-versions/{version_id}/complete` locks the `DocumentVersion` and Assignment together. The first completion is accepted only while the Assignment is `OPEN` and its optional deadline has not passed; an already completed document remains idempotently readable afterward. It performs `HeadObject`, rejects server-observed content type/size mismatches, marks the document queued, creates/reuses exactly one job, and sends a lightweight Celery wake-up. A transient `HeadObject` failure commits sanitized `PROCESSING_FAILED/STORAGE_UNAVAILABLE`; the same no-job document can retry completion without re-upload or a renewed presigned window while the Assignment gate still passes.
+- `POST /api/v1/document-versions/{version_id}/complete` locks the `DocumentVersion` and Assignment together. The first completion is accepted only while the Assignment is `OPEN` and its optional deadline has not passed; an already completed document remains idempotently readable afterward. It performs `HeadObject`, rejects server-observed content type/size mismatches, marks the document queued, and creates/reuses exactly one job plus one dispatch outbox row in the same transaction. After commit the API makes a bounded Celery publish attempt; the lifespan poller retains and retries failed dispatches without changing the accepted response. A transient `HeadObject` failure commits sanitized `PROCESSING_FAILED/STORAGE_UNAVAILABLE`; the same no-job document can retry completion without re-upload or a renewed presigned window while the Assignment gate still passes.
 - The worker downloads at most the configured limit, verifies `%PDF-`, SHA-256, encryption, page count, active content/attachments, and a usable text layer. Total decoded page content shares one configured byte budget and is checked before each page's text extraction. pypdf never executes PDF JavaScript; malformed/parser failures become explicit validation errors.
 
 ### Alternatives rejected
@@ -44,6 +44,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 - [x] Replace `uq_analysis_jobs_active_document_rubric` with a full unique constraint on `(document_version_id, rubric_version_id)` so one logical analysis owns one durable job row across retries.
 - [x] Add and downgrade the upload idempotency fields/index without dropping or truncating append-only tables.
 - [x] **Production preflight:** before upgrading a populated database, query `public.analysis_jobs` grouped by `(document_version_id, rubric_version_id)` and require zero groups with `count(*) > 1`. If historical terminal duplicates exist under the old partial index, stop for audited reconciliation; migration 0006 deliberately never deletes job history to force the new unique constraint.
+- [x] **Migration 0007 dispatch safety:** upgrade locks `public.analysis_jobs`, installs a schema-pinned compatibility trigger, and backfills one dispatch for every existing `QUEUED` job. Before downgrading below `20260829_0007`, quiesce the application, lock both tables in order, and require zero rows in `public.analysis_job_dispatches`; drain or explicitly reconcile pending rows because the migration refuses to discard them.
 
 ## Requirements traceability
 
@@ -51,10 +52,11 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 | --- | --- |
 | Short-lived, one-object presigned upload | `S3Storage.create_presigned_post`; exact key, MIME and size conditions; 300-second expiry tests |
 | Client-hint and server-side verification | Request schema bounds plus `HeadObject` and bounded `GetObject` validation |
-| PDF size / magic / scan-only errors | Stable error codes `PDF_TOO_LARGE`, `PDF_DECODED_TOO_LARGE`, `NOT_A_PDF`, `PDF_SCAN_ONLY`; BR-07 recursively measures visible raster placements against crop, Form, and supported content clipping; raw/decoded-size and scan-geometry regression tests |
+| PDF size / magic / scan-only errors | Stable error codes `PDF_TOO_LARGE`, `PDF_DECODED_TOO_LARGE`, `NOT_A_PDF`, `PDF_SCAN_ONLY`; BR-07 recursively measures visible raster placements against crop, Form, and supported content clipping, and fails unsupported applied clipping closed as `PDF_MALFORMED`; raw/decoded-size and scan-geometry regression tests |
 | Treat PDF as untrusted | Current pinned pypdf, strict parsing, raw-byte/total-decoded/page-count limits, no execution, active-content/attachment rejection |
 | Idempotent job creation/retry | Full DB uniqueness, locked create/retry, same-row transition tests |
 | Race-safe pickup and worker-loss recovery | PostgreSQL `FOR UPDATE SKIP LOCKED`, locked-status re-check, lease/heartbeat recovery, delayed Celery retry for redelivery during an active lease, `attempt_count` compare-and-set fencing for heartbeat/terminal writes, and committed-`RUNNING` split-brain integration tests |
+| Durable queue wake-up | Transactional `AnalysisJobDispatch`, migration backfill/guard, bounded post-commit drain, one-second FastAPI lifespan poller, backoff, and concurrent `SKIP LOCKED` publisher tests |
 | Audited job/document lifecycle | `record_system_audit`/`record_audit` in the same transaction as job transitions and document `PROCESSING`/`AWAITING_REVIEW` changes |
 | Cross-object authorization | Admin/Teacher/Student precedence and other-user denial tests |
 | Retry creates no duplicate data | Submission/DocumentVersion/job row counts remain stable after `ERROR → QUEUED → RUNNING → DONE` |
@@ -110,7 +112,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 - [x] Add failing tests for active Student membership, `OPEN`/deadline/attempt limits, required `Idempotency-Key`, same-key/same-payload replay, same-key/different-payload conflict, and duplicate SHA reuse.
 - [x] Add failing tests proving client-declared MIME/size are only hints and completion trusts server-observed object metadata/bytes.
 - [x] Implement initiation under a transaction/row lock; create no duplicate `Submission` or `DocumentVersion` under retry.
-- [x] Implement completion as idempotent: lock the document and Assignment together; accept first completion only while the Assignment is `OPEN` and not past its optional deadline; already queued/processed returns the existing job even after later closure/deadline; first completion creates/reuses the single job and enqueues only after commit. Persist transient storage failure before 503 and allow only that `STORAGE_UNAVAILABLE`/no-job state to retry completion without re-upload or presign-expiry rejection.
+- [x] Implement completion as idempotent: lock the document and Assignment together; accept first completion only while the Assignment is `OPEN` and not past its optional deadline; already queued/processed returns the existing job even after later closure/deadline; first completion creates/reuses the single job and its unique dispatch row in the same transaction, then makes a bounded post-commit publish attempt. Persist transient storage failure before 503 and allow only that `STORAGE_UNAVAILABLE`/no-job state to retry completion without re-upload or presign-expiry rejection.
 - [x] Register the router without changing `frontend/`.
 - [x] Run focused upload API/service tests until green.
 
@@ -129,7 +131,7 @@ This checklist is a hard gate before creating migration `20260828_0006`.
 - [x] Add tests for Admin viewing/retrying any job, owning Teacher viewing/retrying course jobs, Student viewing only their own job, and other-user access returning 404.
 - [x] Add a dedicated multi-role test proving `ADMIN`/`TEACHER` is evaluated before `STUDENT` and an owning Teacher+Student may view another Student's job in that Course.
 - [x] Add a retry test proving `ERROR → QUEUED` mutates the same job/document objects, preserves attempt count until the next claim, and adds no new domain row; T-009 intentionally creates no evaluation-result model or row.
-- [x] Implement retry on the locked existing row, enforce `max_attempts`, clear terminal error fields, and enqueue after commit.
+- [x] Implement retry on the locked existing row, enforce `max_attempts`, clear terminal error fields, create its unique dispatch row atomically, and attempt publish only after commit.
 - [x] Run focused authorization/retry tests until green.
 
 ## Task 6: Wire S3-compatible DevOps configuration

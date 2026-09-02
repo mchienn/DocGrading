@@ -6,6 +6,7 @@ from sqlalchemy.orm import configure_mappers
 from app.db.base import Base
 from app.models import (
     AnalysisJob,
+    AnalysisJobDispatch,
     Assignment,
     AssignmentRequirement,
     AuditEvent,
@@ -32,6 +33,7 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     Submission: "submissions",
     DocumentVersion: "document_versions",
     AnalysisJob: "analysis_jobs",
+    AnalysisJobDispatch: "analysis_job_dispatches",
     AuditEvent: "audit_events",
     Session: "sessions",
 }
@@ -87,6 +89,7 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
     assert {"document_versions.id", "rubric_versions.id"} <= foreign_key_targets(
         AnalysisJob
     )
+    assert "analysis_jobs.id" in foreign_key_targets(AnalysisJobDispatch)
 
 
 def test_critical_constraints_and_indexes_have_stable_names() -> None:

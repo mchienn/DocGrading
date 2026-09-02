@@ -17,6 +17,7 @@ from app.models.analysis import AnalysisJob
 from app.models.assignment import Assignment
 from app.models.course import Membership
 from app.models.enums import (
+    AnalysisJobStatus,
     AssignmentStatus,
     DocumentStatus,
     MembershipRole,
@@ -25,6 +26,7 @@ from app.models.enums import (
 )
 from app.models.identity import User
 from app.models.submission import DocumentVersion, Submission
+from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.analysis_job import create_or_get_job
 from app.services.storage import S3Storage, StorageObjectNotFound
 
@@ -282,6 +284,8 @@ async def complete_upload(
             raise HTTPException(
                 status_code=409, detail="Document completion is inconsistent"
             )
+        if job.status is AnalysisJobStatus.QUEUED:
+            await enqueue_analysis_job_dispatch(db, job.id)
         return version, job
     if version.status == DocumentStatus.INVALID:
         raise HTTPException(status_code=409, detail="Document upload is invalid")

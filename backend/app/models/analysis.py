@@ -112,3 +112,54 @@ class AnalysisJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="analysis_jobs",
         foreign_keys=[rubric_version_id],
     )
+    dispatch: Mapped[AnalysisJobDispatch | None] = relationship(
+        "AnalysisJobDispatch",
+        back_populates="analysis_job",
+        foreign_keys="AnalysisJobDispatch.analysis_job_id",
+        uselist=False,
+        passive_deletes=True,
+    )
+
+
+class AnalysisJobDispatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "analysis_job_dispatches"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "attempt_count >= 0",
+            name="ck_analysis_job_dispatches_attempt_count_nonnegative",
+        ),
+        sa.Index(
+            "ix_analysis_job_dispatches_due",
+            "next_attempt_at",
+            "created_at",
+            "id",
+        ),
+    )
+
+    analysis_job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "analysis_jobs.id",
+            ondelete="CASCADE",
+            name="fk_analysis_job_dispatches_analysis_job_id_analysis_jobs",
+        ),
+        unique=True,
+        nullable=False,
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        sa.Integer,
+        default=0,
+        server_default=sa.text("0"),
+        nullable=False,
+    )
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        server_default=sa.func.now(),
+        nullable=False,
+    )
+
+    analysis_job: Mapped[AnalysisJob] = relationship(
+        "AnalysisJob",
+        back_populates="dispatch",
+        foreign_keys=[analysis_job_id],
+    )

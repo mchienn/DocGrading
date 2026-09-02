@@ -4,7 +4,7 @@
 
 **Goal:** Enforce BR-07 by rejecting any PDF page where one visible raster-image placement covers at least 80% of the page crop box and fewer than 30 useful text characters are present.
 
-**Architecture:** Extend the existing bounded PDF validator with a dependency-free content-stream geometry walker. The walker tracks transformation, graphics, and supported convex clipping state; recursively enters Form XObjects with decoded-byte, repeated-work, cycle, depth, and operation limits; and returns the maximum visible image coverage for each page. Unsupported compound, curved, or even-odd clipping is treated as unknown coverage to avoid false rejection.
+**Architecture:** Extend the existing bounded PDF validator with a dependency-free content-stream geometry walker. The walker tracks transformation, graphics, and supported convex clipping state; recursively enters Form XObjects with decoded-byte, repeated-work, cycle, depth, and operation limits; and returns the maximum visible image coverage for each page. Unsupported compound, curved, non-convex, or even-odd clipping is accepted while drawing but fails closed as `PDF_MALFORMED` when applied, preventing unknown geometry from becoming zero coverage.
 
 **Tech Stack:** Python 3.13, pypdf 6.x, pytest, Ruff, Black.
 
@@ -135,7 +135,7 @@ Expected: all focused PDF tests pass.
 
 - [x] **Step 1: Reconcile canonical implementation notes**
 
-Record that BR-07 now uses recursive PDF placement geometry; crop, Form, and supported content clipping; the inclusive 80% image threshold; the exclusive 30-character text threshold; and cumulative Form decoded/work bounds. Update the final pytest count after verification.
+Record that BR-07 now uses recursive PDF placement geometry; crop, Form, and supported content clipping; fail-closed rejection of unsupported applied clipping; the inclusive 80% image threshold; the exclusive 30-character text threshold; and cumulative Form decoded/work bounds. Update the final pytest count after verification.
 
 - [x] **Step 2: Run complete verification**
 

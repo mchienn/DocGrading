@@ -26,6 +26,8 @@ An image paints the unit square. Transform its four corners into page space, cli
 
 The implementation intentionally does not rasterize pages or decode image pixels. Coverage depends on PDF placement geometry, not image resolution. No native renderer or new package is introduced.
 
+Applied clipping is exact only for the bounded supported case: one simple convex non-zero-winding path. Explicitly closed paths are normalized. Compound, curved, self-intersecting, non-convex, degenerate, over-limit, or even-odd clipping that is actually applied raises the geometry-limit boundary and is returned as `PDF_MALFORMED`; it is never interpreted as zero visible coverage. Unsupported paths used only for drawing remain accepted.
+
 ## Validation Flow
 
 For every page, inside the existing bounded pypdf context:
@@ -33,8 +35,9 @@ For every page, inside the existing bounded pypdf context:
 1. Decode and cache page content using the cumulative byte budget.
 2. Extract text and count useful characters.
 3. Walk image placements recursively and calculate maximum visible coverage.
-4. Raise `PDF_SCAN_ONLY` when coverage is at least 80% and useful text count is below 30.
-5. Ignore a true blank page for page-level scan detection.
+4. Raise `PDF_MALFORMED` if an applied clip cannot be represented exactly by the bounded geometry walker.
+5. Raise `PDF_SCAN_ONLY` when coverage is at least 80% and useful text count is below 30.
+6. Ignore a true blank page for page-level scan detection.
 
 Existing active-content, encryption, raw-size, decoded-size, page-count, and malformed-PDF behavior remains unchanged.
 

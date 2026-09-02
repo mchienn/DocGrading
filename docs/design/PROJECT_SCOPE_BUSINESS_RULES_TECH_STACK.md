@@ -175,6 +175,7 @@ QUEUED → RUNNING → DONE
 
 - Mỗi tổ hợp `DocumentVersion + RubricVersion` dùng đúng một `AnalysisJob` bền vững; retry và recovery sau worker loss đặt lại chính row đó, không tạo job hoặc kết quả giả.
 - Worker claim bằng khóa hàng PostgreSQL, bỏ qua row đã bị worker khác khóa và kiểm tra lại `QUEUED` hoặc `RUNNING` đã hết lease sau khi có khóa. Worker đang chạy cập nhật heartbeat; nếu redelivery tới khi lease còn hiệu lực, Celery task retry có countdown bằng phần lease còn lại thay vì ack và làm mất đường recovery. Job stale được claim lại khi còn attempt, hoặc chuyển `ERROR` khi hết attempt. Mỗi heartbeat và chuyển trạng thái terminal dùng `attempt_count` đã claim làm generation compare-and-set; worker cũ mất lease không thể gia hạn hoặc ghi đè kết quả của attempt mới.
+- Mọi transaction có thể commit một job ở trạng thái `QUEUED` tạo duy nhất một `AnalysisJobDispatch` trong chính transaction PostgreSQL đó. API thử publish sau commit; poller lifespan của FastAPI tiếp tục drain row đến hạn theo lô giới hạn, `FOR UPDATE SKIP LOCKED` và backoff. Chỉ xóa dispatch sau khi Redis chấp nhận message; broker lỗi không đổi phản hồi `202` và không làm mất wake-up bền vững.
 - Mỗi chuyển trạng thái job `QUEUED`, `RUNNING`, `DONE`, `ERROR` và `ERROR → QUEUED` được ghi `AuditEvent` trong cùng transaction với thay đổi nghiệp vụ. Claim đồng thời chuyển `DocumentVersion` sang `PROCESSING`; hoàn tất ingestion chuyển sang `AWAITING_REVIEW`; cả hai chuyển trạng thái document đều được audit trong cùng transaction.
 
 ## 6. Luật nghiệp vụ
@@ -187,10 +188,10 @@ QUEUED → RUNNING → DONE
 | BR-04 | Tổng trọng số tiêu chí đang bật phải bằng 100%. Mỗi tiêu chí phải có đủ mức 0–4, mô tả, trọng số và phương pháp đánh giá trước khi mở Assignment. |
 | BR-05 | Mỗi job lưu snapshot của Course, Assignment, RubricVersion, CriterionVersion, rule version, model/provider và cấu hình xử lý. Chạy lại cùng snapshot phải có thể truy nguyên kết quả. |
 | BR-06 | Chỉ nhận file có magic bytes và MIME là PDF, tối đa 50 MB và 100 trang, không mã hóa/mật khẩu, không attachment hoặc JavaScript nhúng. |
-| BR-07 | Một trang bị coi là nghi scan khi ảnh raster phủ từ 80% diện tích trang và có dưới 30 ký tự text hữu ích. File có bất kỳ trang nghi scan nào bị từ chối; trang trắng thật không tính là trang scan. |
+| BR-07 | Một trang bị coi là nghi scan khi ảnh raster phủ từ 80% diện tích trang và có dưới 30 ký tự text hữu ích. File có bất kỳ trang nghi scan nào bị từ chối; trang trắng thật không tính là trang scan. Clipping đã áp dụng nhưng không thể đo chính xác trong walker giới hạn phải fail closed thành `PDF_MALFORMED`, không được coi là 0% coverage. |
 | BR-08 | File gốc được lưu ngoài web root. Truy cập file dùng quyền theo object và URL ký có hạn 5 phút. Không lưu PDF blob trong PostgreSQL. |
 | BR-09 | SHA-256 nhận diện file. Upload lặp đúng cùng file cho cùng sinh viên, Assignment và lần nộp phải trả lại phiên bản hiện có thay vì tạo job trùng. |
-| BR-10 | Tối đa một `AnalysisJob` bền vững cho một tổ hợp DocumentVersion + RubricVersion. Queue có thể giao việc lặp nhưng claim dùng khóa hàng và task phải idempotent. Retry dùng lại row hiện có, tối đa ba lần; lỗi hệ thống đồng thời chuyển DocumentVersion sang `PROCESSING_FAILED`. |
+| BR-10 | Tối đa một `AnalysisJob` bền vững cho một tổ hợp DocumentVersion + RubricVersion. Mọi transaction có thể commit job ở `QUEUED` phải tạo dispatch outbox cùng transaction; queue có thể giao việc lặp nhưng claim dùng khóa hàng và task phải idempotent. Retry dùng lại row hiện có, tối đa ba lần; lỗi hệ thống đồng thời chuyển DocumentVersion sang `PROCESSING_FAILED`. |
 | BR-11 | Mọi finding tự động phải có criterion, phương pháp, mô tả, page number, text quote và tọa độ hoặc section anchor. Không xác minh được anchor thì không hiển thị finding như bằng chứng; criterion chuyển `NEEDS_MANUAL_REVIEW`. |
 | BR-12 | Nội dung PDF là dữ liệu không tin cậy. Chỉ gửi phần text cần thiết cho từng criterion; nội dung tài liệu không được thay đổi system instruction, gọi tool đặc quyền hoặc quyết định quyền truy cập. |
 | BR-13 | LLM phải trả structured output theo JSON Schema và được Pydantic validate. Output lỗi schema được retry một lần; vẫn lỗi thì criterion chuyển thủ công, không suy đoán để điền dữ liệu. |
@@ -251,9 +252,9 @@ AT-01 đến AT-28 và AT-30 là release blocker. AT-29 là SLO vận hành ph�
 | AT-02 | Giảng viên tạo được Course và Assignment từ nháp tới mở nhận bài, dry-run rubric trên PDF mẫu; hệ thống chặn mở khi rubric sai tổng trọng số hoặc thiếu level; sau hạn hoặc hết số lượt, upload bị từ chối mà không trừ thêm lượt. |
 | AT-03 | Rubric đã dùng không sửa tại chỗ; thao tác sửa tạo version mới và bài cũ vẫn hiển thị đúng snapshot cũ. |
 | AT-04 | PDF text-native trong giới hạn được nhận, có SHA-256 và tạo đúng một DocumentVersion cùng một AnalysisJob. |
-| AT-05 | File sai định dạng, quá 50 MB, quá 100 trang, có mật khẩu, active content hoặc trang nghi scan bị từ chối với lý do và trang liên quan; không enqueue evaluator. |
+| AT-05 | File sai định dạng, quá 50 MB, quá 100 trang, có mật khẩu, active content, clipping đã áp dụng nhưng không đo chính xác, hoặc trang nghi scan bị từ chối với lý do và trang liên quan; không enqueue evaluator. |
 | AT-06 | Sau upload, sinh viên thấy đúng các trạng thái Validating, Queued, Processing, Awaiting review, Published hoặc lỗi; không có spinner vô hạn và phần trăm giả. |
-| AT-07 | Upload lặp hoặc redelivery từ queue không tạo kết quả/finding trùng. Dừng worker giữa job rồi khởi động lại không làm mất job; retry dừng sau ba lần. |
+| AT-07 | Upload lặp hoặc redelivery từ queue không tạo kết quả/finding trùng. Commit `QUEUED`, API restart hoặc broker lỗi không làm mất wake-up nhờ dispatch outbox; dừng worker giữa job rồi khởi động lại không làm mất job; retry dừng sau ba lần. |
 | AT-08 | Document IR lưu được text theo trang, section, requirement, use case và coordinate. Mỗi evidence mở đúng trang; anchor sai bị đánh dấu thủ công thay vì hiển thị như hợp lệ. |
 | AT-09 | Cả 12 criterion xuất hiện trong kết quả. Criterion qua gate có đề xuất; criterion chưa qua gate có trạng thái Needs manual review và cho phép giảng viên nhập mức. |
 | AT-10 | Báo cáo benchmark chứng minh từng evaluator đang bật đạt toàn bộ ngưỡng tại mục 7 trên holdout độc lập. |
@@ -290,7 +291,7 @@ Browser
   ├─ React/Vite SPA ── REST/OpenAPI ── FastAPI modular monolith ── PostgreSQL
   │        └─ PDF.js                         │          └────────── File storage
   │                                         │
-  └─ trạng thái job / review                └─ enqueue ── Redis ── Celery worker
+  └─ trạng thái job / review                └─ dispatch outbox ── Redis ── Celery worker
                                                                ├─ PDF parser
                                                                ├─ Rule evaluators
                                                                └─ LLM provider adapter
@@ -392,7 +393,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 | Runtime backend | Python 3.13 | Hệ sinh thái PDF/AI phù hợp và còn được hỗ trợ tới 2029; pin minor qua container. |
 | API/domain | FastAPI, Pydantic 2 | OpenAPI tự sinh, validation mạnh, async I/O cho upload/provider. Heavy work không chạy bằng BackgroundTasks của web process. |
 | ORM/migration | SQLAlchemy 2, Alembic | Transaction rõ, schema migration có version; không tạo SQL bằng LLM. |
-| Queue | Celery 5.6 + Redis 7 | Chỉ dùng task, retry, late acknowledgement và routing cơ bản; không dùng chain/canvas/beat trong MVP. Task phải idempotent. |
+| Queue | Celery 5.6 + Redis 7 | Chỉ dùng task, retry, late acknowledgement và routing cơ bản; PostgreSQL dispatch outbox được drain sau commit và bởi poller lifespan FastAPI, không dùng chain/canvas/beat trong MVP. Task phải idempotent. |
 | Database | PostgreSQL 17, latest minor | Lưu nguồn sự thật, JSONB cho evaluator payload có schema và relational columns cho dữ liệu cần query. Không dùng MongoDB. |
 | PDF backend | pypdf + pdfplumber | pypdf cho kiểm tra/cấu trúc/text cơ bản; pdfplumber cho character/line/table coordinate. Chạy trong worker process. |
 | File storage | Storage adapter: local volume ở dev, S3-compatible ở staging/prod | Không buộc developer chạy MinIO hằng ngày; production không phụ thuộc local disk của container. |

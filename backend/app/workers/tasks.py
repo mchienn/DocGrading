@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
 from celery import Task
@@ -11,6 +12,7 @@ from app.core.config import get_settings
 from app.db.session import _session_factory
 from app.models.enums import DocumentStatus
 from app.models.submission import DocumentVersion
+from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.analysis_job import (
     active_lease_retry_delay,
     claim_job_by_id,
@@ -66,6 +68,12 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                 if target_job_id is not None
                 else None
             )
+            if retry_after is not None:
+                await enqueue_analysis_job_dispatch(
+                    db,
+                    target_job_id,
+                    next_attempt_at=datetime.now(UTC) + timedelta(seconds=retry_after),
+                )
             await db.commit()
             if retry_after is not None:
                 raise _ActiveLease(retry_after)

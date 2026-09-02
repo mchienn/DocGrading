@@ -542,12 +542,20 @@ def test_worker_retries_specific_redelivery_until_active_lease_expires(
             "active_lease_retry_delay",
             AsyncMock(return_value=287),
         ) as retry_delay,
+        patch.object(
+            worker_tasks,
+            "enqueue_analysis_job_dispatch",
+            AsyncMock(),
+        ) as enqueue_dispatch,
         pytest.raises(worker_tasks._ActiveLease) as exc_info,
     ):
         asyncio.run(worker_tasks._run_analysis_job(str(job_id)))
 
     assert exc_info.value.retry_after == 287
     retry_delay.assert_awaited_once_with(db, job_id)
+    enqueue_dispatch.assert_awaited_once()
+    assert enqueue_dispatch.await_args.args[:2] == (db, job_id)
+    assert enqueue_dispatch.await_args.kwargs["next_attempt_at"] > datetime.now(UTC)
     db.commit.assert_awaited_once()
     db.rollback.assert_not_called()
 

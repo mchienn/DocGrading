@@ -17,6 +17,7 @@ from app.models.course import Course
 from app.models.enums import AnalysisJobStatus, DocumentStatus, UserRole
 from app.models.identity import User
 from app.models.submission import DocumentVersion, Submission
+from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.audit import record_audit, record_system_audit
 
 
@@ -66,6 +67,8 @@ async def create_or_get_job(
     )
     job = (await db.execute(stmt)).scalar_one_or_none()
     if job is not None:
+        if job.status is AnalysisJobStatus.QUEUED:
+            await enqueue_analysis_job_dispatch(db, job.id)
         return job
     job = AnalysisJob(
         id=uuid.uuid4(),
@@ -76,6 +79,7 @@ async def create_or_get_job(
     )
     db.add(job)
     await db.flush()
+    await enqueue_analysis_job_dispatch(db, job.id)
     await record_system_audit(
         db,
         resource_type="AnalysisJob",
@@ -419,6 +423,11 @@ async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJ
     locked.started_at = None
     locked.heartbeat_at = None
     locked.queued_at = datetime.now(UTC)
+    await enqueue_analysis_job_dispatch(
+        db,
+        locked.id,
+        next_attempt_at=locked.queued_at,
+    )
     await record_audit(
         db,
         actor_user_id=user.id,

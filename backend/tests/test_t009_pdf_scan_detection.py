@@ -7,11 +7,17 @@ from pypdf.generic import (
     DecodedStreamObject,
     DictionaryObject,
     EncodedStreamObject,
+    FloatObject,
     NameObject,
     NumberObject,
 )
 
-from app.services.pdf_validation import PDFValidationError, validate_pdf
+from app.services.pdf_validation import (
+    PDFValidationError,
+    _clip_polygon,
+    _PDFGeometryLimit,
+    validate_pdf,
+)
 
 
 def _image_xobject() -> DecodedStreamObject:
@@ -46,6 +52,7 @@ def _add_page(
     image_rect: tuple[float, float, float, float] | None = None,
     text: str = "",
     image_in_form: bool = False,
+    form_bbox: tuple[float, float, float, float] | None = None,
     page_size: tuple[float, float] = (100, 100),
     pre_image_operations: str = "",
 ) -> None:
@@ -73,10 +80,8 @@ def _add_page(
                     NameObject("/Subtype"): NameObject("/Form"),
                     NameObject("/BBox"): ArrayObject(
                         [
-                            NumberObject(0),
-                            NumberObject(0),
-                            NumberObject(1),
-                            NumberObject(1),
+                            FloatObject(value)
+                            for value in (form_bbox or (0.0, 0.0, 1.0, 1.0))
                         ]
                     ),
                     NameObject("/Matrix"): ArrayObject(
@@ -172,6 +177,33 @@ def test_page_clip_reduces_visible_image_coverage() -> None:
     assert validate_pdf(data).has_text is True
 
 
+def test_explicitly_closed_convex_clip_remains_supported() -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 100, 100),
+            "pre_image_operations": ("0 0 m 10 0 l 10 100 l 0 100 l 0 0 l W n"),
+            "text": "A",
+        }
+    )
+
+    assert validate_pdf(data).has_text is True
+
+
+def test_compound_clip_cannot_disable_scan_detection() -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 100, 100),
+            "pre_image_operations": ("0 0 50 100 re 50 0 50 100 re W n"),
+            "text": "A",
+        }
+    )
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(data)
+
+    assert exc_info.value.code == "PDF_MALFORMED"
+
+
 def test_self_overlapping_even_odd_clip_does_not_inflate_coverage() -> None:
     doubled_rectangle = (
         "0 0 m 100 0 l 100 100 l 0 100 l 0 0 l " "100 0 l 100 100 l 0 100 l 0 0 l W* n"
@@ -184,7 +216,51 @@ def test_self_overlapping_even_odd_clip_does_not_inflate_coverage() -> None:
         }
     )
 
-    assert validate_pdf(data).has_text is True
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(data)
+
+    assert exc_info.value.code == "PDF_MALFORMED"
+
+
+@pytest.mark.parametrize(
+    "clip_operations",
+    [
+        "0 0 m 30 0 70 100 100 100 c 100 0 l W n",
+        "0 0 m 100 0 l 50 40 l 100 100 l 0 100 l W n",
+    ],
+)
+def test_unsupported_applied_clip_fails_closed(
+    clip_operations: str,
+) -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 100, 100),
+            "pre_image_operations": clip_operations,
+            "text": "A",
+        }
+    )
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(data)
+
+    assert exc_info.value.code == "PDF_MALFORMED"
+
+
+def test_self_intersecting_nonzero_clip_fails_closed() -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 100, 100),
+            "pre_image_operations": (
+                "50 0 m 79.39 90.45 l 2.45 34.55 l " "97.55 34.55 l 20.61 90.45 l h W n"
+            ),
+            "text": "A",
+        }
+    )
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(data)
+
+    assert exc_info.value.code == "PDF_MALFORMED"
 
 
 def test_graphics_restore_restores_previous_clip() -> None:
@@ -295,3 +371,31 @@ def test_nested_form_decode_is_bounded_before_geometry_parse() -> None:
         validate_pdf(data, max_size_bytes=max_size_bytes)
 
     assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
+
+
+def test_extreme_finite_form_bbox_is_rejected_fail_closed() -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 100, 100),
+            "text": "A" * 29,
+            "image_in_form": True,
+            "form_bbox": (-1e308, -1e308, 1e308, 1e308),
+        }
+    )
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(data)
+    assert exc_info.value.code == "PDF_MALFORMED"
+
+
+def test_nonfinite_intermediate_clip_geometry_fails_closed() -> None:
+    subject = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+    clip = [
+        (-1e308, -1e308),
+        (1e308, -1e308),
+        (1e308, 1e308),
+        (-1e308, 1e308),
+    ]
+
+    with pytest.raises(_PDFGeometryLimit):
+        _clip_polygon(subject, clip)

@@ -13,9 +13,11 @@ from app.api.schemas_submission import (
     PresignResponse,
 )
 from app.db.session import get_db_session
+from app.models.enums import AnalysisJobStatus
 from app.models.identity import User
 from app.services import analysis_job as job_svc
 from app.services import submission as submission_svc
+from app.services.analysis_dispatch import dispatch_analysis_job_now
 
 router = APIRouter(tags=["submissions"])
 
@@ -62,10 +64,8 @@ async def complete_upload(
         db, version_id=version_id, user=user
     )
     await db.commit()
-    if getattr(job, "status", None).value == "QUEUED":
-        from app.workers.tasks import process_analysis_job
-
-        process_analysis_job.delay(str(job.id))
+    if job.status is AnalysisJobStatus.QUEUED:
+        await dispatch_analysis_job_now(job.id)
     return CompletionResponse(
         submission_id=version.submission_id,
         document_version_id=version.id,
@@ -98,7 +98,5 @@ async def retry_analysis_job(
         raise HTTPException(status_code=404, detail="Analysis job not found")
     job = await job_svc.retry_job(db, job, user)
     await db.commit()
-    from app.workers.tasks import process_analysis_job
-
-    process_analysis_job.delay(str(job.id))
+    await dispatch_analysis_job_now(job.id)
     return AnalysisJobResponse.model_validate(job)

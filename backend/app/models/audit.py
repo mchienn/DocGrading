@@ -72,11 +72,11 @@ class AuditEvent(UUIDPrimaryKeyMixin, Base):
         nullable=True,
     )
     before: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB,
+        JSONB(none_as_null=True),
         nullable=True,
     )
     after: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB,
+        JSONB(none_as_null=True),
         nullable=True,
     )
     reason: Mapped[str] = mapped_column(

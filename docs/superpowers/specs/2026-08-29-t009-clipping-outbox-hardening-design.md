@@ -25,14 +25,14 @@ Upload completion and job retry commit `AnalysisJob.status = QUEUED` before publ
 
 ## Decision 1: Fail Closed for Unsupported PDF Clipping
 
-The validator continues exact geometry for the supported case: one simple convex path applied with the non-zero winding operator `W`. Page crop boxes, Form bounding boxes, CTM composition, graphics-state save/restore, and supported content clipping remain polygon intersections.
+The validator continues exact geometry for the supported case: one simple convex path applied with the non-zero winding operator `W`. Page crop boxes, Form bounding boxes, CTM composition, graphics-state save/restore, and supported content clipping remain polygon intersections. Explicitly closed paths are normalized before this validation.
 
 The walker raises `_PDFGeometryLimit` when a clipping operation is pending and its path is not representable exactly by the supported geometry. This includes:
 
 - a second `re` or `m` subpath;
 - a curved segment (`c`, `v`, or `y`);
 - even-odd clipping (`W*`);
-- a non-convex or degenerate polygon;
+- a non-convex, self-intersecting, degenerate, or over-limit polygon;
 - inherited unsupported clipping state.
 
 `validate_pdf()` already maps `_PDFGeometryLimit` through the malformed-input boundary to `PDF_MALFORMED`. Unsupported clipping is therefore rejected explicitly instead of being treated as zero raster coverage. Paths used only for drawing do not fail validation; the failure occurs only when an unsupported path is applied as a clip.
@@ -53,7 +53,7 @@ Add `public.analysis_job_dispatches` in Alembic revision `20260829_0007`:
 - `updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`;
 - an index on `(next_attempt_at, created_at, id)` for deterministic due-row polling.
 
-The migration follows the repository security rules: pin `search_path` and schema-qualify DDL and foreign keys. Its upgrade backfills one pending dispatch row for every `analysis_jobs.status = 'QUEUED'` row that exists at revision `0006`, so deployment recovers jobs that may already have lost their broker wake-up. Its downgrade first checks for pending dispatch rows and raises a clear database exception when any exist; operators must drain or explicitly reconcile those rows before downgrading to `20260828_0006`. The downgrade never silently discards pending work.
+The migration follows the repository security rules: pin `search_path` and schema-qualify DDL and foreign keys. Upgrade first takes an `ACCESS EXCLUSIVE` lock on `public.analysis_jobs`, creates the outbox, installs a schema-pinned database trigger that inserts a dispatch for every inserted or newly `QUEUED` job, then backfills one pending dispatch row for every `analysis_jobs.status = 'QUEUED'` row that exists at revision `0006`. The lock plus trigger covers the mixed-version window while old API processes are draining. Downgrade locks `public.analysis_jobs` and `public.analysis_job_dispatches` in that order before dropping the trigger and checking for pending rows; operators must quiesce the application before downgrading below `20260829_0007`, because revision `0006` has no durable dispatch table. A downgrade raises a clear database exception when pending rows exist and never silently discards them.
 
 Only one pending dispatch row may exist per analysis job. Successful publication deletes the row, so a later explicit retry can create a new dispatch for the same durable job row.
 
@@ -83,11 +83,13 @@ For each locked row:
 
 The broker call has no access to the database session. A timed-out worker thread may return later and may have published successfully; retaining the row can then cause a duplicate publication, which is safe under the existing idempotent claim contract. Finite transport timeouts bound the thread lifetime, while the async timeout keeps the API event loop and poller responsive.
 
+When a targeted worker delivery finds the same job still under an unexpired lease, it upserts a dispatch row scheduled for lease expiry before using `Task.retry()`. This updates an existing row as well as inserting a missing row, preserving a durable redelivery path across a publish-before-delete race.
+
 No provider exception text is persisted or logged. Logs contain only a generic dispatch-failure message and safe identifiers when existing logging policy permits them.
 
 ### Immediate and recovery paths
 
-After the request transaction commits, the completion and retry routes invoke a job-specific outbox drain. This preserves low normal-case queueing latency. Failure of this immediate attempt does not change the successful HTTP response because the pending row is already durable.
+After the request transaction commits, the completion and retry routes invoke a job-specific outbox drain. This preserves low normal-case queueing latency. The immediate drain shares a process-local publisher gate with the recovery poller, but a total five-second asynchronous timeout covers gate acquisition, database work, and broker publication. If the gate is busy or publication fails, the wrapper returns false without changing the successful HTTP response; the pending row is already durable for the poller.
 
 FastAPI lifespan starts one asynchronous poller per API process. The poller:
 
@@ -97,7 +99,7 @@ FastAPI lifespan starts one asynchronous poller per API process. The poller:
 - catches transient database and broker failures without terminating; a failed session is rolled back/discarded and is never reused;
 - is cancelled and awaited during graceful shutdown after any in-flight bounded publication returns.
 
-Multiple pollers are safe because PostgreSQL row locks and `SKIP LOCKED` serialize ownership. A restarted API discovers persisted pending rows automatically. This preserves the documented no-Celery-Beat MVP architecture and keeps normal enqueue latency under the five-second acceptance bound.
+Multiple pollers are safe because PostgreSQL row locks and `SKIP LOCKED` serialize ownership. A restarted API discovers persisted pending rows automatically. This preserves the documented no-Celery-Beat MVP architecture and keeps normal enqueue latency under the five-second acceptance bound even when the shared publisher gate is contended.
 
 ## Delivery Semantics
 

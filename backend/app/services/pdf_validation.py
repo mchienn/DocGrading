@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from io import BytesIO
-from math import isclose
+from math import isclose, isfinite
 from threading import RLock
 from typing import Any
 
@@ -69,6 +69,7 @@ _IMAGE_COVERAGE_THRESHOLD = 0.80
 _MIN_USEFUL_TEXT_CHARACTERS = 30
 _MAX_FORM_DEPTH = 32
 _MAX_GEOMETRY_OPERATIONS = 10_000
+_MAX_CLIP_VERTICES = 256
 
 type Matrix = tuple[float, float, float, float, float, float]
 type Point = tuple[float, float]
@@ -161,7 +162,7 @@ def _decode_page_content_size(page: Any, max_output_length: int) -> int:
 
 
 def _multiply_matrix(m: Matrix, n: Matrix) -> Matrix:
-    return (
+    result = (
         m[0] * n[0] + m[1] * n[2],
         m[0] * n[1] + m[1] * n[3],
         m[2] * n[0] + m[3] * n[2],
@@ -169,31 +170,48 @@ def _multiply_matrix(m: Matrix, n: Matrix) -> Matrix:
         m[4] * n[0] + m[5] * n[2] + n[4],
         m[4] * n[1] + m[5] * n[3] + n[5],
     )
+    if not all(isfinite(coordinate) for coordinate in result):
+        raise _PDFGeometryLimit
+    return result
 
 
 def _transform_polygon(polygon: Polygon, matrix: Matrix) -> Polygon:
-    return [
+    transformed = [
         (
             x * matrix[0] + y * matrix[2] + matrix[4],
             x * matrix[1] + y * matrix[3] + matrix[5],
         )
         for x, y in polygon
     ]
+    if not all(isfinite(coordinate) for point in transformed for coordinate in point):
+        raise _PDFGeometryLimit
+    return transformed
 
 
 def _signed_polygon_area(polygon: Polygon) -> float:
-    return 0.5 * sum(
-        x1 * y2 - x2 * y1
-        for (x1, y1), (x2, y2) in zip(
-            polygon,
-            polygon[1:] + polygon[:1],
-            strict=True,
-        )
-    )
+    area = 0.0
+    for (x1, y1), (x2, y2) in zip(
+        polygon,
+        polygon[1:] + polygon[:1],
+        strict=True,
+    ):
+        term = x1 * y2 - x2 * y1
+        if not isfinite(term):
+            raise _PDFGeometryLimit
+        area += term
+        if not isfinite(area):
+            raise _PDFGeometryLimit
+    area *= 0.5
+    if not isfinite(area):
+        raise _PDFGeometryLimit
+    return area
 
 
 def _polygon_area(polygon: Polygon) -> float:
-    return abs(_signed_polygon_area(polygon))
+    area = abs(_signed_polygon_area(polygon))
+    if not isfinite(area):
+        raise _PDFGeometryLimit
+    return area
 
 
 def _clip_polygon(subject: Polygon, clip: Polygon) -> Polygon:
@@ -203,9 +221,15 @@ def _clip_polygon(subject: Polygon, clip: Polygon) -> Polygon:
     output = subject
 
     def inside(point: Point, start: Point, end: Point) -> bool:
-        cross = (end[0] - start[0]) * (point[1] - start[1]) - (end[1] - start[1]) * (
-            point[0] - start[0]
-        )
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        point_dx = point[0] - start[0]
+        point_dy = point[1] - start[1]
+        if not all(isfinite(value) for value in (dx, dy, point_dx, point_dy)):
+            raise _PDFGeometryLimit
+        cross = dx * point_dy - dy * point_dx
+        if not isfinite(cross):
+            raise _PDFGeometryLimit
         return orientation * cross >= -1e-9
 
     def intersection(
@@ -218,17 +242,32 @@ def _clip_polygon(subject: Polygon, clip: Polygon) -> Polygon:
         segment_dy = segment_end[1] - segment_start[1]
         clip_dx = clip_end[0] - clip_start[0]
         clip_dy = clip_end[1] - clip_start[1]
+        if not all(
+            isfinite(value) for value in (segment_dx, segment_dy, clip_dx, clip_dy)
+        ):
+            raise _PDFGeometryLimit
         denominator = segment_dx * clip_dy - segment_dy * clip_dx
+        if not isfinite(denominator):
+            raise _PDFGeometryLimit
         if abs(denominator) < 1e-12:
+            if not all(isfinite(coordinate) for coordinate in segment_end):
+                raise _PDFGeometryLimit
             return segment_end
-        distance = (
-            (clip_start[0] - segment_start[0]) * clip_dy
-            - (clip_start[1] - segment_start[1]) * clip_dx
-        ) / denominator
-        return (
+        numerator = (clip_start[0] - segment_start[0]) * clip_dy - (
+            clip_start[1] - segment_start[1]
+        ) * clip_dx
+        if not isfinite(numerator):
+            raise _PDFGeometryLimit
+        distance = numerator / denominator
+        if not isfinite(distance):
+            raise _PDFGeometryLimit
+        intersection_point = (
             segment_start[0] + distance * segment_dx,
             segment_start[1] + distance * segment_dy,
         )
+        if not all(isfinite(coordinate) for coordinate in intersection_point):
+            raise _PDFGeometryLimit
+        return intersection_point
 
     for clip_start, clip_end in zip(clip, clip[1:] + clip[:1], strict=True):
         input_polygon = output
@@ -263,8 +302,92 @@ def _clip_polygon(subject: Polygon, clip: Polygon) -> Polygon:
     return output
 
 
+def _polygon_cross(first: Point, second: Point, third: Point) -> float:
+    return (second[0] - first[0]) * (third[1] - second[1]) - (second[1] - first[1]) * (
+        third[0] - second[0]
+    )
+
+
+def _point_on_segment(point: Point, start: Point, end: Point) -> bool:
+    return (
+        isclose(_polygon_cross(start, end, point), 0.0, abs_tol=1e-9)
+        and min(start[0], end[0]) - 1e-9 <= point[0] <= max(start[0], end[0]) + 1e-9
+        and min(start[1], end[1]) - 1e-9 <= point[1] <= max(start[1], end[1]) + 1e-9
+    )
+
+
+def _segments_intersect(
+    first_start: Point,
+    first_end: Point,
+    second_start: Point,
+    second_end: Point,
+) -> bool:
+    first_turn = _polygon_cross(first_start, first_end, second_start)
+    second_turn = _polygon_cross(first_start, first_end, second_end)
+    third_turn = _polygon_cross(second_start, second_end, first_start)
+    fourth_turn = _polygon_cross(second_start, second_end, first_end)
+    proper_intersection = (
+        first_turn > 0 > second_turn or first_turn < 0 < second_turn
+    ) and (third_turn > 0 > fourth_turn or third_turn < 0 < fourth_turn)
+    return proper_intersection or (
+        (
+            isclose(first_turn, 0.0, abs_tol=1e-9)
+            and _point_on_segment(second_start, first_start, first_end)
+        )
+        or (
+            isclose(second_turn, 0.0, abs_tol=1e-9)
+            and _point_on_segment(second_end, first_start, first_end)
+        )
+        or (
+            isclose(third_turn, 0.0, abs_tol=1e-9)
+            and _point_on_segment(first_start, second_start, second_end)
+        )
+        or (
+            isclose(fourth_turn, 0.0, abs_tol=1e-9)
+            and _point_on_segment(first_end, second_start, second_end)
+        )
+    )
+
+
+def _without_repeated_closing_point(polygon: Polygon) -> Polygon:
+    if len(polygon) > 1 and all(
+        isclose(first, second, abs_tol=1e-9)
+        for first, second in zip(polygon[0], polygon[-1], strict=True)
+    ):
+        return polygon[:-1]
+    return polygon
+
+
+def _is_simple_polygon(polygon: Polygon) -> bool:
+    if len(polygon) > _MAX_CLIP_VERTICES:
+        return False
+    edges = list(zip(polygon, polygon[1:] + polygon[:1], strict=True))
+    for first_index, (first_start, first_end) in enumerate(edges):
+        for second_index in range(first_index + 1, len(edges)):
+            if second_index in {
+                first_index,
+                (first_index - 1) % len(edges),
+                (first_index + 1) % len(edges),
+            }:
+                continue
+            second_start, second_end = edges[second_index]
+            if _segments_intersect(
+                first_start,
+                first_end,
+                second_start,
+                second_end,
+            ):
+                return False
+    return True
+
+
 def _is_convex_polygon(polygon: Polygon) -> bool:
-    if len(polygon) < 3:
+    polygon = _without_repeated_closing_point(polygon)
+    if len(polygon) < 3 or not all(
+        isfinite(coordinate) for point in polygon for coordinate in point
+    ):
+        return False
+    if not _is_simple_polygon(polygon):
         return False
     direction = 0
     for first, second, third in zip(
@@ -273,9 +396,9 @@ def _is_convex_polygon(polygon: Polygon) -> bool:
         polygon[2:] + polygon[:2],
         strict=True,
     ):
-        cross_product = (second[0] - first[0]) * (third[1] - second[1]) - (
-            second[1] - first[1]
-        ) * (third[0] - second[0])
+        cross_product = _polygon_cross(first, second, third)
+        if not isfinite(cross_product):
+            return False
         if isclose(cross_product, 0.0, abs_tol=1e-12):
             continue
         current_direction = 1 if cross_product > 0 else -1
@@ -285,39 +408,52 @@ def _is_convex_polygon(polygon: Polygon) -> bool:
     return direction != 0
 
 
-def _rectangle_polygon(values: Any) -> Polygon:
+def _rectangle_polygon(values: Any, *, required: bool = False) -> Polygon:
     resolved = _resolve_pdf_object(values)
     if not isinstance(resolved, (list, tuple)) or len(resolved) < 4:
+        if required:
+            raise _PDFGeometryLimit
         return []
     left, bottom, right, top = map(float, resolved[:4])
-    return [
+    rectangle = [
         (left, bottom),
         (right, bottom),
         (right, top),
         (left, top),
     ]
+    if (
+        not all(isfinite(coordinate) for point in rectangle for coordinate in point)
+        or right <= left
+        or top <= bottom
+    ):
+        raise _PDFGeometryLimit
+    return rectangle
 
 
 def _matrix_from_pdf(value: Any) -> Matrix:
     resolved = _resolve_pdf_object(value)
     if not isinstance(resolved, (list, tuple)) or len(resolved) < 6:
-        return _IDENTITY_MATRIX
-    return tuple(map(float, resolved[:6]))
+        raise _PDFGeometryLimit
+    matrix = tuple(map(float, resolved[:6]))
+    if not all(isfinite(coordinate) for coordinate in matrix):
+        raise _PDFGeometryLimit
+    return matrix
 
 
 def _image_coverage(
     matrix: Matrix,
-    clip_polygon: Polygon | None,
+    clip_polygon: Polygon,
     page_area: float,
 ) -> float:
-    if clip_polygon is None:
-        return 0.0
     image_polygon = _transform_polygon(
         [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
         matrix,
     )
     visible_polygon = _clip_polygon(image_polygon, clip_polygon)
-    return _polygon_area(visible_polygon) / page_area
+    coverage = _polygon_area(visible_polygon) / page_area
+    if not isfinite(coverage):
+        raise _PDFGeometryLimit
+    return coverage
 
 
 def _coverage_reaches_threshold(coverage: float) -> bool:
@@ -364,37 +500,36 @@ def _walk_raster_coverage(
     context: _RasterGeometryContext,
     *,
     initial_matrix: Matrix,
-    clip_polygon: Polygon | None,
+    clip_polygon: Polygon,
     page_area: float,
     form_path: set[int],
     depth: int,
 ) -> float:
     if depth > _MAX_FORM_DEPTH:
         raise _PDFGeometryLimit
-    initial_clip = None if clip_polygon is None else clip_polygon.copy()
+    initial_clip = clip_polygon.copy()
     current_matrix = initial_matrix
-    current_clip = None if initial_clip is None else initial_clip.copy()
-    graphics_stack: list[tuple[Matrix, Polygon | None]] = []
+    current_clip = initial_clip.copy()
     current_path: Polygon | None = []
     clip_pending = False
+    graphics_stack: list[tuple[Matrix, Polygon]] = []
     maximum_coverage = 0.0
-
     for operands, operator in content.operations:
         context.operation_count += 1
         if context.operation_count > _MAX_GEOMETRY_OPERATIONS:
             raise _PDFGeometryLimit
         if operator == b"q":
-            saved_clip = None if current_clip is None else current_clip.copy()
-            graphics_stack.append((current_matrix, saved_clip))
+            graphics_stack.append((current_matrix, current_clip.copy()))
         elif operator == b"Q":
             if graphics_stack:
                 current_matrix, current_clip = graphics_stack.pop()
             else:
                 current_matrix = initial_matrix
-                current_clip = None if initial_clip is None else initial_clip.copy()
+                current_clip = initial_clip.copy()
         elif operator == b"cm" and len(operands) >= 6:
+            matrix = tuple(map(float, operands[:6]))
             current_matrix = _multiply_matrix(
-                tuple(map(float, operands[:6])),
+                _matrix_from_pdf(matrix),
                 current_matrix,
             )
         elif operator == b"re" and len(operands) >= 4:
@@ -451,14 +586,12 @@ def _walk_raster_coverage(
             b"n",
         }:
             if clip_pending:
-                if (
-                    current_clip is None
-                    or current_path is None
-                    or not _is_convex_polygon(current_path)
-                ):
-                    current_clip = None
-                else:
-                    current_clip = _clip_polygon(current_clip, current_path)
+                if current_path is None:
+                    raise _PDFGeometryLimit
+                clip_path = _without_repeated_closing_point(current_path)
+                if not _is_convex_polygon(clip_path):
+                    raise _PDFGeometryLimit
+                current_clip = _clip_polygon(current_clip, clip_path)
             current_path = []
             clip_pending = False
         elif operator == b"INLINE IMAGE":
@@ -493,17 +626,18 @@ def _walk_raster_coverage(
                     _matrix_from_pdf(xobject.get("/Matrix", _IDENTITY_MATRIX)),
                     current_matrix,
                 )
-                form_clip = current_clip
-                form_bbox = _rectangle_polygon(xobject.get("/BBox", ()))
-                if form_bbox and current_clip is not None:
-                    transformed_bbox = _transform_polygon(
-                        form_bbox,
-                        form_matrix,
-                    )
-                    form_clip = _clip_polygon(
-                        current_clip,
-                        transformed_bbox,
-                    )
+                form_bbox = _rectangle_polygon(
+                    xobject.get("/BBox", ()),
+                    required=True,
+                )
+                transformed_bbox = _transform_polygon(
+                    form_bbox,
+                    form_matrix,
+                )
+                form_clip = _clip_polygon(
+                    current_clip,
+                    transformed_bbox,
+                )
                 form_resources = _resolve_pdf_object(
                     xobject.get("/Resources", resources)
                 )
@@ -544,7 +678,7 @@ def _maximum_raster_coverage(
     resources = _resolve_pdf_object(page.get("/Resources", DictionaryObject()))
     if not isinstance(resources, DictionaryObject):
         return 0.0
-    page_polygon = _rectangle_polygon(page.cropbox)
+    page_polygon = _rectangle_polygon(page.cropbox, required=True)
     page_area = _polygon_area(page_polygon)
     if page_area <= 0:
         raise _PDFGeometryLimit

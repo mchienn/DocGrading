@@ -320,7 +320,7 @@ def test_complete_upload_idempotent_for_completed_when_closed_or_late() -> None:
     existing_job = SimpleNamespace(
         id=uuid.uuid4(),
         document_version_id=version_id,
-        status=AnalysisJobStatus.RUNNING,
+        status=AnalysisJobStatus.QUEUED,
     )
 
     class LockResult:
@@ -335,14 +335,19 @@ def test_complete_upload_idempotent_for_completed_when_closed_or_late() -> None:
             return existing_job
 
     class DB:
+        def __init__(self):
+            self.statements = []
+
         async def execute(self, statement):
+            self.statements.append(statement)
             if "analysis_jobs" in str(statement):
                 return JobResult()
             return LockResult()
 
+    db = DB()
     v, job = asyncio.run(
         complete_upload(
-            DB(),
+            db,
             version_id=version_id,
             user=SimpleNamespace(id=user_id, roles={UserRole.STUDENT}),
             storage=SimpleNamespace(),
@@ -350,6 +355,9 @@ def test_complete_upload_idempotent_for_completed_when_closed_or_late() -> None:
     )
     assert v is version
     assert job is existing_job
+    assert any(
+        "analysis_job_dispatches" in str(statement) for statement in db.statements
+    )
 
 
 def test_complete_upload_commits_processing_failed_on_generic_storage_error() -> None:

@@ -8,7 +8,7 @@ import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import text
@@ -92,14 +92,19 @@ def test_retry_removes_legacy_cancelled_sentinel_unit(
 
         flush = AsyncMock()
 
+    db = DB()
+
     async def allow(*_args, **_kwargs):
         pass
 
     async def audit(*_args, **_kwargs):
         pass
 
+    enqueue = AsyncMock()
+
     monkeypatch.setattr(job_service, "authorize_job", allow)
     monkeypatch.setattr(job_service, "record_audit", audit)
+    monkeypatch.setattr(job_service, "enqueue_analysis_job_dispatch", enqueue)
 
     user = User(
         id=uuid.uuid4(),
@@ -108,13 +113,18 @@ def test_retry_removes_legacy_cancelled_sentinel_unit(
         password_hash="h",
         roles=[UserRole.TEACHER],
     )
-    result = asyncio.run(job_service.retry_job(DB(), job, user))
+    result = asyncio.run(job_service.retry_job(db, job, user))
 
     assert result is job
     assert result.status is AnalysisJobStatus.QUEUED
     assert "_alembic_20260828_0006_legacy_cancelled" not in result.snapshot
     assert result.snapshot["custom_data"] == {"test": 123}
     assert result.snapshot["num"] == 42
+    enqueue.assert_awaited_once_with(
+        db,
+        job.id,
+        next_attempt_at=result.queued_at,
+    )
 
 
 async def _seed_0005(engine: AsyncEngine, ids: dict[str, uuid.UUID]) -> None:
@@ -307,7 +317,16 @@ async def _verify_0006_and_process_jobs(
             password_hash="h",
             roles=[UserRole.TEACHER],
         )
-        retried_res = await job_service.retry_job(db, job_retried, teacher)
+        with patch.object(
+            job_service,
+            "enqueue_analysis_job_dispatch",
+            AsyncMock(),
+        ):
+            retried_res = await job_service.retry_job(
+                db,
+                job_retried,
+                teacher,
+            )
         await db.commit()
 
         assert retried_res.status is AnalysisJobStatus.QUEUED
@@ -616,4 +635,166 @@ def test_migration_0006_cancelled_reversible_roundtrip_postgres() -> None:
             asyncio.run(_cleanup(engine, ids))
         finally:
             alembic.command.upgrade(alembic_cfg, "head")
+            asyncio.run(engine.dispose())
+
+
+@pytest.mark.skipif(
+    os.environ.get("RUN_DATABASE_TESTS") != "1",
+    reason="Database integration tests require RUN_DATABASE_TESTS=1",
+)
+def test_migration_0007_backfills_and_guards_pending_dispatches() -> None:
+    import alembic.command
+    import alembic.config
+
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    alembic_cfg = alembic.config.Config(os.path.join(backend_dir, "alembic.ini"))
+    alembic_cfg.set_main_option(
+        "script_location",
+        os.path.join(backend_dir, "alembic"),
+    )
+    engine = create_async_engine(
+        get_settings().database_url,
+        poolclass=NullPool,
+    )
+    ids = {
+        name: uuid.uuid4()
+        for name in (
+            "teacher",
+            "student",
+            "course",
+            "member",
+            "rubric",
+            "assignment",
+            "submission",
+            "doc1",
+            "doc2",
+            "doc3",
+            "doc4",
+            "doc_retried",
+            "doc_collision",
+            "job_cancelled",
+            "job_cancelled_retried",
+            "job_failed",
+            "job_succeeded",
+            "job_queued",
+        )
+    }
+
+    async def insert_queued_job() -> None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("""
+                    INSERT INTO public.analysis_jobs
+                        (
+                            id,
+                            document_version_id,
+                            rubric_version_id,
+                            status,
+                            snapshot
+                        )
+                    VALUES
+                        (
+                            :job,
+                            :document,
+                            :rubric,
+                            'QUEUED'::public.analysis_job_status,
+                            '{}'::jsonb
+                        )
+                """),
+                {
+                    "job": ids["job_queued"],
+                    "document": ids["doc4"],
+                    "rubric": ids["rubric"],
+                },
+            )
+
+    async def assert_backfilled() -> None:
+        async with engine.begin() as conn:
+            row = (
+                await conn.execute(
+                    text("""
+                        SELECT analysis_job_id, attempt_count
+                        FROM public.analysis_job_dispatches
+                        WHERE analysis_job_id = :job
+                    """),
+                    {"job": ids["job_queued"]},
+                )
+            ).one()
+            assert row.analysis_job_id == ids["job_queued"]
+            assert row.attempt_count == 0
+            trigger_exists = (await conn.execute(text("""
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM pg_trigger
+                            WHERE tgname = 'trg_analysis_jobs_dispatch_outbox'
+                              AND NOT tgisinternal
+                        )
+                    """))).scalar_one()
+            assert trigger_exists
+            await conn.execute(
+                text("""
+                    DELETE FROM public.analysis_job_dispatches
+                    WHERE analysis_job_id = :job
+                """),
+                {"job": ids["job_queued"]},
+            )
+            await conn.execute(
+                text("""
+                    UPDATE public.analysis_jobs
+                    SET status = 'ERROR'::public.analysis_job_status
+                    WHERE id = :job
+                """),
+                {"job": ids["job_queued"]},
+            )
+            await conn.execute(
+                text("""
+                    UPDATE public.analysis_jobs
+                    SET status = 'QUEUED'::public.analysis_job_status
+                    WHERE id = :job
+                """),
+                {"job": ids["job_queued"]},
+            )
+            trigger_dispatch_count = (
+                await conn.execute(
+                    text("""
+                        SELECT count(*)
+                        FROM public.analysis_job_dispatches
+                        WHERE analysis_job_id = :job
+                    """),
+                    {"job": ids["job_queued"]},
+                )
+            ).scalar_one()
+            assert trigger_dispatch_count == 1
+
+    async def drain_dispatch() -> None:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("""
+                    DELETE FROM public.analysis_job_dispatches
+                    WHERE analysis_job_id = :job
+                """),
+                {"job": ids["job_queued"]},
+            )
+
+    try:
+        alembic.command.downgrade(alembic_cfg, "20260828_0005")
+        asyncio.run(_seed_0005(engine, ids))
+        alembic.command.upgrade(alembic_cfg, "20260828_0006")
+        asyncio.run(insert_queued_job())
+
+        alembic.command.upgrade(alembic_cfg, "20260829_0007")
+        asyncio.run(assert_backfilled())
+        with pytest.raises(
+            Exception,
+            match="pending analysis job dispatches",
+        ):
+            alembic.command.downgrade(alembic_cfg, "20260828_0006")
+
+        asyncio.run(drain_dispatch())
+        alembic.command.downgrade(alembic_cfg, "20260828_0006")
+    finally:
+        try:
+            alembic.command.upgrade(alembic_cfg, "head")
+            asyncio.run(_cleanup(engine, ids))
+        finally:
             asyncio.run(engine.dispose())
