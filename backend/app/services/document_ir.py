@@ -37,6 +37,7 @@ _MAX_TABLE_SOURCE_OBJECTS = 256
 _MAX_TABLE_EDGES = 1024
 _MAX_TABLE_INTERSECTIONS = 8192
 _MAX_TABLE_CELLS = 4096
+_MAX_TABLE_TEXT_OBJECTS = 1024
 _TABLE_WORK_RESERVE = 4
 
 
@@ -385,6 +386,41 @@ def _normalized_cell_boundaries(
     return sorted(boundaries)
 
 
+def _table_bboxes_overlap(first: _BBox, second: _BBox) -> bool:
+    intersection_width = min(first.x1, second.x1) - max(first.x0, second.x0)
+    intersection_height = min(first.bottom, second.bottom) - max(
+        first.top,
+        second.top,
+    )
+    if intersection_width <= 0 or intersection_height <= 0:
+        return False
+    intersection = intersection_width * intersection_height
+    first_area = (first.x1 - first.x0) * (first.bottom - first.top)
+    second_area = (second.x1 - second.x0) * (second.bottom - second.top)
+    return intersection / min(first_area, second_area) >= 0.8
+
+
+def _text_table_has_column_gap(
+    page: Any,
+    table_bbox: _BBox,
+    *,
+    page_width: float,
+) -> bool:
+    words = page.extract_words()
+    in_table = [
+        word
+        for word in words
+        if table_bbox.x0 <= (word["x0"] + word["x1"]) / 2 <= table_bbox.x1
+        and table_bbox.top <= (word["top"] + word["bottom"]) / 2 <= table_bbox.bottom
+    ]
+    in_table.sort(key=lambda word: (word["top"], word["x0"]))
+    return any(
+        next_word["x0"] - word["x1"] >= max(12.0, page_width * 0.02)
+        for word, next_word in zip(in_table, in_table[1:])
+        if abs(next_word["top"] - word["top"]) <= 3
+    )
+
+
 def _extract_tables(
     page: Any,
     *,
@@ -395,13 +431,15 @@ def _extract_tables(
 ) -> list[tuple[dict[str, Any], list[tuple[float, float]], int, list[_BBox]]]:
     objects = page.objects
     source_count = sum(
-        len(objects.get(object_type, ())) for object_type in _TABLE_SOURCE_OBJECT_TYPES
+        len(objects.get(object_type, ()))
+        for object_type in _TABLE_SOURCE_OBJECT_TYPES
     )
     estimated_edges = (
         len(objects.get("line", ()))
         + (4 * len(objects.get("rect", ())))
         + sum(
-            max(0, len(curve.get("pts", ())) - 1) for curve in objects.get("curve", ())
+            max(0, len(curve.get("pts", ())) - 1)
+            for curve in objects.get("curve", ())
         )
     )
     if (
@@ -418,9 +456,77 @@ def _extract_tables(
     budget.consume(len(edges))
     if len(edges) * len(edges) > _MAX_TABLE_INTERSECTIONS:
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
-    found_tables = page.find_tables()
+
+    ruled_tables = page.find_tables()
+    ruled_bboxes = [
+        _table_bbox(
+            table.bbox,
+            page_width=page_width,
+            page_height=page_height,
+        )
+        for table in ruled_tables
+    ]
+    candidates: list[tuple[Any, Any, _BBox, bool]] = [
+        (page, table, bbox, False)
+        for table, bbox in zip(ruled_tables, ruled_bboxes, strict=True)
+    ]
+
+    def keep_object(obj: Mapping[str, Any]) -> bool:
+        try:
+            center_x = (float(obj["x0"]) + float(obj["x1"])) / 2
+            center_y = (float(obj["top"]) + float(obj["bottom"])) / 2
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return True
+        return not any(
+            bbox.x0 <= center_x <= bbox.x1
+            and bbox.top <= center_y <= bbox.bottom
+            for bbox in ruled_bboxes
+        )
+
+    text_page = page.filter(keep_object)
+    text_source_count = len(text_page.objects.get("char", ()))
+    if (
+        text_source_count > _MAX_TABLE_TEXT_OBJECTS
+        or budget.used + _TABLE_WORK_RESERVE > budget.limit
+    ):
+        raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+    text_tables = text_page.find_tables(
+        {
+            "vertical_strategy": "text",
+            "horizontal_strategy": "text",
+            "min_words_vertical": 2,
+        }
+    )
+    for table in text_tables:
+        table_bbox = _table_bbox(
+            table.bbox,
+            page_width=page_width,
+            page_height=page_height,
+        )
+        if (
+            _text_table_has_column_gap(
+                text_page,
+                table_bbox,
+                page_width=page_width,
+            )
+            and not any(
+                _table_bboxes_overlap(table_bbox, ruled_bbox)
+                for ruled_bbox in ruled_bboxes
+            )
+            and not any(
+                _table_bboxes_overlap(table_bbox, candidate_bbox)
+                for (
+                    _candidate_page,
+                    _candidate,
+                    candidate_bbox,
+                    _is_text,
+                ) in candidates
+            )
+        ):
+            candidates.append((text_page, table, table_bbox, True))
+
     parsed_tables = []
-    for table in found_tables:
+    for _table_page, table, table_bbox, is_text in candidates:
         budget.consume(2)
         table_bbox = _table_bbox(
             table.bbox,
@@ -470,6 +576,10 @@ def _extract_tables(
                             },
                         }
                     )
+                if is_text and not any(
+                    cell is not None and cell["text"] for cell in cell_values
+                ):
+                    continue
                 rows.append(
                     {
                         "page_number": page_number,

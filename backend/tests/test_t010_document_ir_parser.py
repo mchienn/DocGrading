@@ -361,6 +361,106 @@ def test_parser_builds_layout_inside_bounded_hook(
     assert calls
 
 
+def _make_borderless_table_page(
+    rows: list[list[str]],
+    *,
+    x_positions: list[float] | None = None,
+    y_positions: list[float] | None = None,
+) -> list[str]:
+    x_positions = x_positions or [72, 300]
+    y_positions = y_positions or [
+        700 - (20 * index) for index in range(len(rows))
+    ]
+    return [
+        f"BT /F1 11 Tf {x} {y} Td ({text}) Tj ET"
+        for row, y in zip(rows, y_positions, strict=True)
+        for text, x in zip(row, x_positions, strict=True)
+    ]
+
+
+def test_borderless_text_aligned_table_extracts_cells() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            _make_borderless_table_page(
+                [["Name", "Value"], ["Alice", "1"], ["Bob", "2"]]
+            )
+        )
+    )
+
+    assert len(parsed.content["tables"]) == 1
+    rows = parsed.content["tables"][0]["rows"]
+    assert [
+        [cell["text"] if cell is not None else None for cell in row["cells"]]
+        for row in rows
+        if any(cell is not None and cell["text"] for cell in row["cells"])
+    ] == [["Name", "Value"], ["Alice", "1"], ["Bob", "2"]]
+    assert all(
+        cell["bbox"]["x1"] > cell["bbox"]["x0"]
+        for row in rows
+        for cell in row["cells"]
+        if cell is not None
+    )
+    assert all(
+        "Alice" not in paragraph["text"]
+        for paragraph in parsed.content["paragraphs"]
+    )
+
+
+def test_ruled_table_is_not_duplicated_by_text_strategy() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            _make_ruled_table_page(
+                [["Name", "Value"], ["Alice", "1"]],
+                y_lines=[92, 142, 192],
+            )
+        )
+    )
+
+    assert len(parsed.content["tables"]) == 1
+
+
+def test_mixed_ruled_and_borderless_tables_both_extract() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            _make_ruled_table_page(
+                [["Name", "Value"], ["Alice", "1"]],
+                y_lines=[92, 142, 192],
+            )
+            + _make_borderless_table_page(
+                [["Code", "Score"], ["B", "9"]],
+                y_positions=[400, 380],
+            )
+        )
+    )
+
+    assert len(parsed.content["tables"]) == 2
+
+
+def test_dense_text_fails_before_text_strategy_find_tables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operations = _make_borderless_table_page(
+        [["X", "Y"] for _ in range(600)],
+        y_positions=[750 - index for index in range(600)],
+    )
+    calls: list[Any] = []
+    original_find_tables = document_ir.pdfplumber.page.Page.find_tables
+
+    def track_find_tables(page: Any, settings: Any = None) -> list[Any]:
+        calls.append(settings)
+        return original_find_tables(page, settings)
+
+    monkeypatch.setattr(
+        document_ir.pdfplumber.page.Page,
+        "find_tables",
+        track_find_tables,
+    )
+    with pytest.raises(PDFValidationError) as exc_info:
+        parse_document_ir(_make_operations_pdf(operations))
+    assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
+    assert calls == [None]
+
+
 @pytest.mark.parametrize(
     ("table_bbox", "row_bbox", "cell_bbox"),
     [
@@ -391,7 +491,7 @@ def test_malformed_table_row_or_cell_bbox_rejected(
     monkeypatch.setattr(
         document_ir.pdfplumber.page.Page,
         "find_tables",
-        lambda _page: [FakeTable()],
+        lambda _page, _settings=None: [FakeTable()],
     )
     with pytest.raises(PDFValidationError) as exc_info:
         parse_document_ir(
