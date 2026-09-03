@@ -463,8 +463,9 @@ def test_dense_text_fails_before_text_strategy_find_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     operations = _make_borderless_table_page(
-        [["X", "Y"] for _ in range(600)],
-        y_positions=[750 - index for index in range(600)],
+        [[str(column) for column in range(20)] for _ in range(55)],
+        x_positions=[20 + (28 * index) for index in range(20)],
+        y_positions=[750 - (13 * index) for index in range(55)],
     )
     calls: list[Any] = []
     original_find_tables = document_ir.pdfplumber.page.Page.find_tables
@@ -482,6 +483,18 @@ def test_dense_text_fails_before_text_strategy_find_tables(
         parse_document_ir(_make_operations_pdf(operations))
     assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
     assert calls == [None]
+
+
+def test_many_characters_in_few_text_clusters_are_allowed() -> None:
+    text = "ordinary " * 5000
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            [f"BT /F1 12 Tf 0.002 Tz 72 700 Td ({text}) Tj ET"]
+        )
+    )
+
+    assert parsed.content["tables"] == []
+    assert parsed.content["paragraphs"]
 
 
 @pytest.mark.parametrize(

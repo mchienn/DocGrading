@@ -37,7 +37,10 @@ _MAX_TABLE_SOURCE_OBJECTS = 256
 _MAX_TABLE_EDGES = 1024
 _MAX_TABLE_INTERSECTIONS = 8192
 _MAX_TABLE_CELLS = 4096
-_MAX_TABLE_TEXT_OBJECTS = 1024
+_MAX_TABLE_TEXT_CHARS = 100_000
+_MAX_TABLE_TEXT_WORDS = 10_000
+_TEXT_TABLE_MIN_WORDS_VERTICAL = 2
+_TEXT_TABLE_MIN_WORDS_HORIZONTAL = 1
 _TABLE_WORK_RESERVE = 4
 
 
@@ -400,13 +403,58 @@ def _table_bboxes_overlap(first: _BBox, second: _BBox) -> bool:
     return intersection / min(first_area, second_area) >= 0.8
 
 
+def _cluster_count(
+    values: Sequence[float],
+    *,
+    tolerance: float = 1.0,
+    min_size: int = 1,
+) -> int:
+    ordered = sorted(values)
+    if not ordered:
+        return 0
+    count = 0
+    cluster_size = 1
+    previous = ordered[0]
+    for value in ordered[1:]:
+        if value > previous + tolerance:
+            count += cluster_size >= min_size
+            cluster_size = 1
+        else:
+            cluster_size += 1
+        previous = value
+    return count + (cluster_size >= min_size)
+
+
+def _estimate_text_edges(words: Sequence[Mapping[str, Any]]) -> int:
+    vertical_clusters = sum(
+        _cluster_count(
+            [float(word[key]) for word in words],
+            min_size=_TEXT_TABLE_MIN_WORDS_VERTICAL,
+        )
+        for key in ("x0", "x1")
+    )
+    vertical_clusters += _cluster_count(
+        [
+            (float(word["x0"]) + float(word["x1"])) / 2
+            for word in words
+        ],
+        min_size=_TEXT_TABLE_MIN_WORDS_VERTICAL,
+    )
+    horizontal_clusters = _cluster_count(
+        [float(word["top"]) for word in words],
+        min_size=_TEXT_TABLE_MIN_WORDS_HORIZONTAL,
+    )
+    return (vertical_clusters + 1 if vertical_clusters else 0) + (
+        horizontal_clusters * 2
+    )
+
+
 def _text_table_has_column_gap(
-    page: Any,
+    words: Sequence[Mapping[str, Any]],
     table_bbox: _BBox,
     *,
     page_width: float,
 ) -> bool:
-    words = page.extract_words()
     in_table = [
         word
         for word in words
@@ -484,9 +532,18 @@ def _extract_tables(
         )
 
     text_page = page.filter(keep_object)
-    text_source_count = len(text_page.objects.get("char", ()))
+    text_char_count = len(text_page.objects.get("char", ()))
+    if text_char_count > _MAX_TABLE_TEXT_CHARS:
+        raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+    text_words = text_page.extract_words()
+    if len(text_words) > _MAX_TABLE_TEXT_WORDS:
+        raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+    budget.consume(len(text_words))
+    text_edges = _estimate_text_edges(text_words)
     if (
-        text_source_count > _MAX_TABLE_TEXT_OBJECTS
+        text_edges > _MAX_TABLE_EDGES
+        or text_edges * text_edges > _MAX_TABLE_INTERSECTIONS
+        or text_edges * text_edges > _MAX_TABLE_CELLS
         or budget.used + _TABLE_WORK_RESERVE > budget.limit
     ):
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
@@ -494,7 +551,8 @@ def _extract_tables(
         {
             "vertical_strategy": "text",
             "horizontal_strategy": "text",
-            "min_words_vertical": 2,
+            "min_words_vertical": _TEXT_TABLE_MIN_WORDS_VERTICAL,
+            "min_words_horizontal": _TEXT_TABLE_MIN_WORDS_HORIZONTAL,
         }
     )
     for table in text_tables:
@@ -505,7 +563,7 @@ def _extract_tables(
         )
         if (
             _text_table_has_column_gap(
-                text_page,
+                text_words,
                 table_bbox,
                 page_width=page_width,
             )
