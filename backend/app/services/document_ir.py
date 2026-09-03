@@ -1,8 +1,10 @@
 """Pure, bounded Document IR parser and structure extraction service."""
 from __future__ import annotations
 
+import asyncio
 import math
 import re
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -12,8 +14,13 @@ from threading import RLock
 from typing import Any, Mapping, Sequence
 
 import pdfplumber
+import sqlalchemy as sa
 from pdfplumber.page import PDFPageAggregatorWithMarkedContent
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.models.analysis import DocumentIR
+from app.models.submission import DocumentVersion
 from app.services.pdf_validation import (
     PDFValidationError,
     PDFValidationResult,
@@ -72,6 +79,72 @@ class ParsedDocumentIR:
 
     validation: PDFValidationResult
     content: dict[str, Any]
+
+
+async def get_or_build_document_ir(
+    db: AsyncSession,
+    document_version_id: uuid.UUID,
+    data: bytes,
+    *,
+    rebuild: bool = False,
+) -> DocumentIR:
+    document = (
+        await db.execute(
+            sa.select(DocumentVersion)
+            .where(DocumentVersion.id == document_version_id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    existing = (
+        await db.execute(
+            sa.select(DocumentIR).where(
+                DocumentIR.document_version_id == document_version_id
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None and not rebuild:
+        return existing
+
+    settings = get_settings()
+    parsed = await asyncio.to_thread(
+        parse_document_ir,
+        data,
+        max_size_bytes=settings.pdf_max_size_bytes,
+        max_page_count=settings.pdf_max_page_count,
+        max_nodes=settings.pdf_ir_max_nodes,
+    )
+    expected_sha256 = document.declared_sha256 or document.sha256
+    if expected_sha256 != parsed.validation.sha256:
+        raise PDFValidationError(
+            "PDF_SHA256_MISMATCH",
+            "PDF checksum does not match",
+        )
+    duplicate = (
+        await db.execute(
+            sa.select(DocumentVersion.id).where(
+                DocumentVersion.submission_id == document.submission_id,
+                DocumentVersion.sha256 == parsed.validation.sha256,
+                DocumentVersion.id != document.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        raise PDFValidationError("PDF_DUPLICATE", "Duplicate document version")
+
+    if existing is None:
+        existing = DocumentIR(
+            document_version_id=document.id,
+            schema_version=SCHEMA_VERSION,
+            parser_version=PARSER_VERSION,
+            content=parsed.content,
+        )
+        db.add(existing)
+    else:
+        existing.schema_version = SCHEMA_VERSION
+        existing.parser_version = PARSER_VERSION
+        existing.content = parsed.content
+    await db.flush()
+    return existing
 
 
 @dataclass
