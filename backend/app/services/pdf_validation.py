@@ -25,7 +25,6 @@ from pypdf.generic import (
     StreamObject,
 )
 
-
 _PYPDF_LOG_NAMESPACES = ("pypdf", "pdfminer", "pdfplumber")
 _PDF_LOG_LOCK = RLock()
 _PDF_LOGGING_SUPPRESSED: ContextVar[bool] = ContextVar(
@@ -64,12 +63,8 @@ def _suppress_untrusted_pdf_logs() -> Iterator[None]:
             add_target(root_logger)
             for namespace in _PYPDF_LOG_NAMESPACES:
                 for name, logger in logging.Logger.manager.loggerDict.items():
-                    if (
-                        isinstance(logger, logging.Logger)
-                        and (
-                            name == namespace
-                            or name.startswith(f"{namespace}.")
-                        )
+                    if isinstance(logger, logging.Logger) and (
+                        name == namespace or name.startswith(f"{namespace}.")
                     ):
                         add_target(logger)
             for target in tuple(targets):
@@ -190,9 +185,7 @@ def _preflight_page_tree(reader: PdfReader, max_page_count: int) -> int:
                 raise PDFValidationError("PDF_MALFORMED")
             if not isinstance(resolved, dict):
                 raise PDFValidationError("PDF_MALFORMED")
-            object_type = str(
-                _resolve_page_tree_object(resolved.get("/Type"), work)
-            )
+            object_type = str(_resolve_page_tree_object(resolved.get("/Type"), work))
             if object_type == "/Page":
                 page_count += 1
                 if page_count > max_page_count:
@@ -203,9 +196,7 @@ def _preflight_page_tree(reader: PdfReader, max_page_count: int) -> int:
             kids = _resolve_page_tree_object(resolved.get("/Kids"), work)
             if not isinstance(kids, (ArrayObject, list, tuple)):
                 raise PDFValidationError("PDF_MALFORMED")
-            if len(kids) > (
-                _MAX_PAGE_TREE_NODES - node_count - len(pending) - work[0]
-            ):
+            if len(kids) > (_MAX_PAGE_TREE_NODES - node_count - len(pending) - work[0]):
                 raise PDFValidationError("PDF_MALFORMED")
             pending.extend((child, depth + 1) for child in kids)
         return page_count

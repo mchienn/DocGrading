@@ -378,9 +378,7 @@ def _make_borderless_table_page(
     y_positions: list[float] | None = None,
 ) -> list[str]:
     x_positions = x_positions or [72, 300]
-    y_positions = y_positions or [
-        700 - (20 * index) for index in range(len(rows))
-    ]
+    y_positions = y_positions or [700 - (20 * index) for index in range(len(rows))]
     return [
         f"BT /F1 11 Tf {x} {y} Td ({text}) Tj ET"
         for row, y in zip(rows, y_positions, strict=True)
@@ -411,8 +409,7 @@ def test_borderless_text_aligned_table_extracts_cells() -> None:
         if cell is not None
     )
     assert all(
-        "Alice" not in paragraph["text"]
-        for paragraph in parsed.content["paragraphs"]
+        "Alice" not in paragraph["text"] for paragraph in parsed.content["paragraphs"]
     )
 
 
@@ -498,9 +495,7 @@ def test_dense_text_fails_before_text_strategy_find_tables(
 def test_many_characters_in_few_text_clusters_are_allowed() -> None:
     text = "ordinary " * 5000
     parsed = parse_document_ir(
-        _make_operations_pdf(
-            [f"BT /F1 12 Tf 0.002 Tz 72 700 Td ({text}) Tj ET"]
-        )
+        _make_operations_pdf([f"BT /F1 12 Tf 0.002 Tz 72 700 Td ({text}) Tj ET"])
     )
 
     assert parsed.content["tables"] == []
@@ -734,8 +729,7 @@ def test_page_tree_cycles_depth_and_structural_node_limits_fail_closed() -> None
             "/Type": "/Pages",
             "/Count": 100,
             "/Kids": [
-                {"/Type": "/Pages", "/Count": 0, "/Kids": []}
-                for _ in range(100)
+                {"/Type": "/Pages", "/Count": 0, "/Kids": []} for _ in range(100)
             ],
         }
         for _ in range(100)

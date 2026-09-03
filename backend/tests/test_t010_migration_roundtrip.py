@@ -357,8 +357,7 @@ def test_migration_0008_roundtrip_postgres() -> None:
             assert columns["updated_at"]["is_nullable"] == "NO"
 
             # 3. Constraints in pg_constraint
-            constraints_res = await conn.execute(
-                text("""
+            constraints_res = await conn.execute(text("""
                     SELECT
                         c.conname,
                         CAST(c.contype AS text) AS contype,
@@ -385,8 +384,7 @@ def test_migration_0008_roundtrip_postgres() -> None:
                     LEFT JOIN pg_namespace nsp_rel ON cl_rel.relnamespace = nsp_rel.oid
                     WHERE nsp_src.nspname = 'public'
                       AND cl_src.relname = 'document_irs'
-                """)
-            )
+                """))
             constraints_by_name = {
                 row.conname: row for row in constraints_res.fetchall()
             }

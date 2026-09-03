@@ -435,10 +435,7 @@ def _estimate_text_edges(words: Sequence[Mapping[str, Any]]) -> int:
         for key in ("x0", "x1")
     )
     vertical_clusters += _cluster_count(
-        [
-            (float(word["x0"]) + float(word["x1"])) / 2
-            for word in words
-        ],
+        [(float(word["x0"]) + float(word["x1"])) / 2 for word in words],
         min_size=_TEXT_TABLE_MIN_WORDS_VERTICAL,
     )
     horizontal_clusters = _cluster_count(
@@ -480,15 +477,13 @@ def _extract_tables(
 ) -> list[tuple[dict[str, Any], list[tuple[float, float]], int, list[_BBox]]]:
     objects = page.objects
     source_count = sum(
-        len(objects.get(object_type, ()))
-        for object_type in _TABLE_SOURCE_OBJECT_TYPES
+        len(objects.get(object_type, ())) for object_type in _TABLE_SOURCE_OBJECT_TYPES
     )
     estimated_edges = (
         len(objects.get("line", ()))
         + (4 * len(objects.get("rect", ())))
         + sum(
-            max(0, len(curve.get("pts", ())) - 1)
-            for curve in objects.get("curve", ())
+            max(0, len(curve.get("pts", ())) - 1) for curve in objects.get("curve", ())
         )
     )
     if (
@@ -527,8 +522,7 @@ def _extract_tables(
         except (KeyError, TypeError, ValueError, OverflowError):
             return True
         return not any(
-            bbox.x0 <= center_x <= bbox.x1
-            and bbox.top <= center_y <= bbox.bottom
+            bbox.x0 <= center_x <= bbox.x1 and bbox.top <= center_y <= bbox.bottom
             for bbox in ruled_bboxes
         )
 

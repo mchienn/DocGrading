@@ -6,6 +6,7 @@ import threading
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -566,6 +567,7 @@ async def _run_postgresql_concurrency_test() -> None:
 def test_postgresql_document_ir_concurrency() -> None:
     asyncio.run(_run_postgresql_concurrency_test())
 
+
 async def _run_postgresql_duplicate_race_test() -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
@@ -678,27 +680,40 @@ async def _run_postgresql_duplicate_race_test() -> None:
             first_initial_sha = "a" * 64
             second_initial_sha = "b" * 64
             assert first_initial_sha != second_initial_sha
+
+            def insert_version(
+                sync_conn: Any,
+                version_id: uuid.UUID,
+                submission_id: uuid.UUID,
+                version_number: int,
+                key: str,
+                sha256: str,
+            ) -> None:
+                sync_conn.execute(
+                    DocumentVersion.__table__.insert().values(
+                        id=version_id,
+                        submission_id=submission_id,
+                        version_number=version_number,
+                        storage_key=f"uploads/{key}.pdf",
+                        original_filename=f"{key}.pdf",
+                        content_type="application/pdf",
+                        size_bytes=3,
+                        sha256=sha256,
+                        status=DocumentStatus.QUEUED,
+                    )
+                )
+
             for key, version_number, sha256 in (
                 ("version_a", 1, first_initial_sha),
                 ("version_b", 2, second_initial_sha),
             ):
                 await conn.run_sync(
-                    lambda sync_conn,
-                    key=key,
-                    version_number=version_number,
-                    sha256=sha256: sync_conn.execute(
-                        DocumentVersion.__table__.insert().values(
-                            id=ids[key],
-                            submission_id=ids["submission"],
-                            version_number=version_number,
-                            storage_key=f"uploads/{ids[key]}.pdf",
-                            original_filename=f"{key}.pdf",
-                            content_type="application/pdf",
-                            size_bytes=3,
-                            sha256=sha256,
-                            status=DocumentStatus.QUEUED,
-                        )
-                    )
+                    insert_version,
+                    ids[key],
+                    ids["submission"],
+                    version_number,
+                    key,
+                    sha256,
                 )
         graph_committed = True
         sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -706,9 +721,7 @@ async def _run_postgresql_duplicate_race_test() -> None:
         async with sessions() as first, sessions() as second:
             try:
                 async with engine.connect() as monitor:
-                    second_pid = await second.scalar(
-                        sa.text("SELECT pg_backend_pid()")
-                    )
+                    second_pid = await second.scalar(sa.text("SELECT pg_backend_pid()"))
                     assert isinstance(second_pid, int)
                     first_task = asyncio.create_task(
                         document_ir.get_or_build_document_ir(
@@ -724,25 +737,21 @@ async def _run_postgresql_duplicate_race_test() -> None:
                     )
                     tasks.append(second_task)
                     await asyncio.sleep(0)
-                    monitor_query = sa.text(
-                        """
+                    monitor_query = sa.text("""
                         SELECT wait_event_type, wait_event, state, query
                         FROM pg_stat_activity
                         WHERE pid = :pid
-                        """
-                    )
+                        """)
                     deadline = asyncio.get_running_loop().time() + 10
                     blocked = False
                     while asyncio.get_running_loop().time() < deadline:
                         activity = (
-                            await monitor.execute(
-                                monitor_query, {"pid": second_pid}
-                            )
-                        ).mappings().first()
+                            (await monitor.execute(monitor_query, {"pid": second_pid}))
+                            .mappings()
+                            .first()
+                        )
                         active_query = (
-                            str(activity["query"] or "").lower()
-                            if activity
-                            else ""
+                            str(activity["query"] or "").lower() if activity else ""
                         )
                         if (
                             activity
@@ -753,9 +762,7 @@ async def _run_postgresql_duplicate_race_test() -> None:
                             blocked = True
                             break
                         await asyncio.sleep(0)
-                    assert blocked, (
-                        "second session never waited on Submission lock"
-                    )
+                    assert blocked, "second session never waited on Submission lock"
                     release_parser.set()
                     await first_task
                     initial_versions = (
@@ -818,9 +825,7 @@ async def _run_postgresql_duplicate_race_test() -> None:
                 )
                 await conn.execute(
                     DocumentVersion.__table__.delete().where(
-                        DocumentVersion.id.in_(
-                            (ids["version_a"], ids["version_b"])
-                        )
+                        DocumentVersion.id.in_((ids["version_a"], ids["version_b"]))
                     )
                 )
                 for table, key in (
@@ -831,9 +836,7 @@ async def _run_postgresql_duplicate_race_test() -> None:
                     (Course.__table__, "course"),
                     (User.__table__, "user"),
                 ):
-                    await conn.execute(
-                        table.delete().where(table.c.id == ids[key])
-                    )
+                    await conn.execute(table.delete().where(table.c.id == ids[key]))
         await engine.dispose()
 
 
