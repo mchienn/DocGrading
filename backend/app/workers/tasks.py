@@ -95,9 +95,7 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                     job.document_version.storage_key,
                     get_settings().pdf_max_size_bytes,
                 )
-                ir = await get_or_build_document_ir(
-                    db, job.document_version.id, data
-                )
+                ir = await get_or_build_document_ir(db, job.document_version.id, data)
                 job_outcome = ("success", ir)
             except PDFValidationError as exc:
                 job_outcome = ("validation_error", exc)
@@ -130,9 +128,7 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
         elif job_outcome[0] == "ir_extraction_error":
             job.document_version.status = DocumentStatus.PROCESSING_FAILED
             job.document_version.failure_code = "PDF_IR_EXTRACTION_FAILED"
-            job.document_version.failure_detail = (
-                "Document structure extraction failed"
-            )
+            job.document_version.failure_detail = "Document structure extraction failed"
             success = await mark_error(
                 db,
                 job,

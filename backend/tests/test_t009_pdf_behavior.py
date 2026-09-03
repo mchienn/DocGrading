@@ -259,9 +259,7 @@ def test_worker_rejects_server_computed_sha_mismatch(
         )
     )
     monkeypatch.setattr(worker_tasks, "get_or_build_document_ir", build_ir)
-    monkeypatch.setattr(
-        worker_tasks, "update_heartbeat", AsyncMock(return_value=True)
-    )
+    monkeypatch.setattr(worker_tasks, "update_heartbeat", AsyncMock(return_value=True))
     mark_error = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
     result = asyncio.run(worker_tasks._run_analysis_job(str(job.id)))

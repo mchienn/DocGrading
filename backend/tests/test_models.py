@@ -75,6 +75,7 @@ def test_user_roles_and_json_snapshots_use_postgresql_types() -> None:
     assert isinstance(AuditEvent.__table__.c.after.type, JSONB)
     assert isinstance(DocumentIR.__table__.c.content.type, JSONB)
 
+
 def test_ownership_and_version_foreign_keys_are_explicit() -> None:
     configure_mappers()
     assert "users.id" in foreign_key_targets(Course)

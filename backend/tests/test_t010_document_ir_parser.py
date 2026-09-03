@@ -27,10 +27,7 @@ from app.services.pdf_validation import PDFValidationError
 
 def _make_text_pdf(*page_texts: str) -> bytes:
     return _make_operations_pdf(
-        *[
-            [f"BT /F1 12 Tf 72 700 Td ({text}) Tj ET"]
-            for text in page_texts
-        ]
+        *[[f"BT /F1 12 Tf 72 700 Td ({text}) Tj ET"] for text in page_texts]
     )
 
 
@@ -66,10 +63,7 @@ def _make_ruled_table_page(
     merge_first_row: bool = False,
 ) -> list[str]:
     x_lines = x_lines or [72, 300, 500]
-    operations = [
-        f"{x_lines[0]} {y} m {x_lines[-1]} {y} l S"
-        for y in y_lines
-    ]
+    operations = [f"{x_lines[0]} {y} m {x_lines[-1]} {y} l S" for y in y_lines]
 
     def vertical_operation(x: float) -> str:
         inner = x not in (x_lines[0], x_lines[-1])
@@ -80,13 +74,12 @@ def _make_ruled_table_page(
     operations.extend(vertical_operation(x) for x in x_lines)
     for row, (low, high) in zip(
         rows,
-        reversed(list(zip(y_lines, y_lines[1:]))),
+        reversed(list(zip(y_lines, y_lines[1:], strict=False))),
         strict=True,
     ):
         for text, x in zip(row, x_lines[:-1], strict=True):
             operations.append(
-                f"BT /F1 11 Tf {x + 8} {(low + high) / 2 - 4} Td "
-                f"({text}) Tj ET"
+                f"BT /F1 11 Tf {x + 8} {(low + high) / 2 - 4} Td " f"({text}) Tj ET"
             )
     return operations
 
@@ -126,10 +119,7 @@ def test_real_pdf_tables_merge_across_consecutive_pages() -> None:
             "bbox": {"x0": 72.0, "top": 100.0, "x1": 500.0, "bottom": 200.0},
         },
     ]
-    assert [
-        [cell["text"] for cell in row["cells"]]
-        for row in table["rows"]
-    ] == [
+    assert [[cell["text"] for cell in row["cells"]] for row in table["rows"]] == [
         ["Name", "Value"],
         ["Alice", "1"],
         ["Bob", "2"],
@@ -169,9 +159,7 @@ def test_real_pdf_table_cells_keep_geometry_and_missing_slots() -> None:
 
 
 def test_incompatible_table_boundaries_do_not_merge() -> None:
-    parsed = parse_document_ir(
-        _make_two_page_table_pdf(second_x_lines=[72, 280, 500])
-    )
+    parsed = parse_document_ir(_make_two_page_table_pdf(second_x_lines=[72, 280, 500]))
 
     assert [table["id"] for table in parsed.content["tables"]] == [
         "table-1",
@@ -219,8 +207,7 @@ def test_table_words_filtered_before_line_grouping() -> None:
 
     assert "Name" in parsed.content["pages"][0]["text"]
     assert any(
-        paragraph["text"] == "Outside."
-        for paragraph in parsed.content["paragraphs"]
+        paragraph["text"] == "Outside." for paragraph in parsed.content["paragraphs"]
     )
     assert all(
         "Name" not in item["text"] and "Alice" not in item["text"]
@@ -272,10 +259,7 @@ def test_dense_table_source_objects_fail_before_edge_materialization(
         "edges",
         property(track_edges),
     )
-    operations = [
-        f"72 {y} m 500 {y} l S"
-        for y in range(20, 780, 2)
-    ]
+    operations = [f"72 {y} m 500 {y} l S" for y in range(20, 780, 2)]
     operations.append("BT /F1 12 Tf 72 10 Td (Dense source text.) Tj ET")
     called = False
 
@@ -396,6 +380,7 @@ def test_malformed_table_row_or_cell_bbox_rejected(
     class FakeRow:
         bbox = row_bbox
         cells = [cell_bbox, (300, 600, 500, 650)]
+
     class FakeTable:
         bbox = table_bbox
         rows = [FakeRow()]
@@ -703,8 +688,7 @@ def test_coordinates_are_finite_ordered_and_inside_page() -> None:
         bbox = item["bbox"]
         assert all(isinstance(value, float) for value in bbox.values())
         assert all(
-            value == value and abs(value) != float("inf")
-            for value in bbox.values()
+            value == value and abs(value) != float("inf") for value in bbox.values()
         )
         assert 0 <= bbox["x0"] <= bbox["x1"] <= page["width"]
         assert 0 <= bbox["top"] <= bbox["bottom"] <= page["height"]
@@ -765,9 +749,7 @@ def test_ordered_list_sentences_are_not_numbered_headings() -> None:
         )
     )
     assert parsed.content["sections"] == []
-    assert parsed.content["paragraphs"][0]["text"] == (
-        "1. First item. 2. Second item."
-    )
+    assert parsed.content["paragraphs"][0]["text"] == ("1. First item. 2. Second item.")
 
 
 def test_top_level_unpunctuated_ordered_list_is_not_a_heading() -> None:
@@ -780,9 +762,7 @@ def test_top_level_unpunctuated_ordered_list_is_not_a_heading() -> None:
         )
     )
     assert parsed.content["sections"] == []
-    assert (
-        parsed.content["paragraphs"][0]["text"] == "1 First item 2 Second item"
-    )
+    assert parsed.content["paragraphs"][0]["text"] == "1 First item 2 Second item"
 
 
 def test_layout_hook_stops_and_restores_aggregator_method(
@@ -799,15 +779,15 @@ def test_layout_hook_stops_and_restores_aggregator_method(
         record,
     )
     budget = _NodeBudget(limit=1)
-    with pytest.raises(PDFValidationError) as exc_info:
-        with document_ir._bounded_layout_hook(budget):
-            document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(object())
-            document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(object())
+    with (
+        pytest.raises(PDFValidationError) as exc_info,
+        document_ir._bounded_layout_hook(budget),
+    ):
+        document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(object())
+        document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(object())
     assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
     assert len(calls) == 1
-    assert (
-        document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item is record
-    )
+    assert document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item is record
 
     with document_ir._bounded_layout_hook(_NodeBudget(limit=1)):
         document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(object())
@@ -828,9 +808,7 @@ def test_layout_hook_budgets_do_not_cross_contaminate_threads(
     def consume_one(budget: _NodeBudget) -> None:
         try:
             with document_ir._bounded_layout_hook(budget):
-                document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(
-                    object()
-                )
+                document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(object())
         except Exception as exc:  # pragma: no cover - assertion captures
             errors.append(exc)
 
@@ -862,9 +840,7 @@ def test_layout_hook_is_context_local_for_unrelated_threads(
             with document_ir._bounded_layout_hook(budget):
                 hook_ready.set()
                 assert external_done.wait(timeout=2)
-                document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(
-                    object()
-                )
+                document_ir.PDFPageAggregatorWithMarkedContent.tag_cur_item(object())
         except Exception as exc:  # pragma: no cover - assertion captures
             errors.append(exc)
 
@@ -885,8 +861,6 @@ def test_layout_hook_is_context_local_for_unrelated_threads(
     assert errors == []
     assert budget.used == 1
     assert len(calls) == 2
-
-
 
 
 def test_minimal_valid_text_pdf_returns_ir_payload() -> None:

@@ -1,17 +1,19 @@
 """Pure, bounded Document IR parser and structure extraction service."""
+
 from __future__ import annotations
 
 import asyncio
 import math
 import re
 import uuid
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from io import BytesIO
 from statistics import median
 from threading import RLock
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import pdfplumber
 import sqlalchemy as sa
@@ -261,9 +263,11 @@ def _line_from_words(words: Sequence[_Word]) -> _Line:
     )
     return _Line(
         text=" ".join(word.text for word in words if word.text),
-        bbox=_union_bbox(words[0].bbox, words[-1].bbox)
-        if len(words) == 1
-        else _union_words_bbox(words),
+        bbox=(
+            _union_bbox(words[0].bbox, words[-1].bbox)
+            if len(words) == 1
+            else _union_words_bbox(words)
+        ),
         font_size=max(word.font_size for word in words),
         font_name=font_name,
     )
@@ -378,20 +382,16 @@ def _extract_tables(
     page_width: float,
     page_height: float,
     budget: _NodeBudget,
-) -> list[
-    tuple[dict[str, Any], list[tuple[float, float]], int, list[_BBox]]
-]:
+) -> list[tuple[dict[str, Any], list[tuple[float, float]], int, list[_BBox]]]:
     objects = page.objects
     source_count = sum(
-        len(objects.get(object_type, ()))
-        for object_type in _TABLE_SOURCE_OBJECT_TYPES
+        len(objects.get(object_type, ())) for object_type in _TABLE_SOURCE_OBJECT_TYPES
     )
     estimated_edges = (
         len(objects.get("line", ()))
         + (4 * len(objects.get("rect", ())))
         + sum(
-            max(0, len(curve.get("pts", ())) - 1)
-            for curve in objects.get("curve", ())
+            max(0, len(curve.get("pts", ())) - 1) for curve in objects.get("curve", ())
         )
     )
     if (
@@ -516,14 +516,11 @@ def _is_heading(
     numbered = _NUMBERED_HEADING.match(line.text)
     if numbered:
         level = numbered.group(1).count(".") + 1
-        if (
-            not line.text.rstrip().endswith((".", "!", "?"))
-            and (
-                level >= 2
-                or numbering_has_nested_level
-                or line.font_size >= median_body_size * 1.25
-                or "bold" in line.font_name.lower()
-            )
+        if not line.text.rstrip().endswith((".", "!", "?")) and (
+            level >= 2
+            or numbering_has_nested_level
+            or line.font_size >= median_body_size * 1.25
+            or "bold" in line.font_name.lower()
         ):
             return True, level
         return False, 0
@@ -676,10 +673,7 @@ def _parse_pages(
         body_like_sizes = [
             line.font_size
             for line in content_lines
-            if (
-                line.text.rstrip().endswith((".", "!", "?"))
-                or len(line.text) >= 40
-            )
+            if (line.text.rstrip().endswith((".", "!", "?")) or len(line.text) >= 40)
         ]
         if body_like_sizes:
             median_body_size = median(body_like_sizes)
@@ -690,9 +684,7 @@ def _parse_pages(
         heading_lines: set[int] = set()
         page_heading_ids: list[str] = []
         page_lines = [line.text for line in all_lines]
-        current_section_id: str | None = (
-            section_stack[-1][1] if section_stack else None
-        )
+        current_section_id: str | None = section_stack[-1][1] if section_stack else None
         line_section_ids: dict[int, str | None] = {}
         for line_index, line in enumerate(content_lines):
             is_heading, level = _is_heading(
@@ -833,6 +825,7 @@ def _assemble_ir(
         "tables": tables,
     }
 
+
 def parse_document_ir(
     data: bytes,
     *,
@@ -852,21 +845,23 @@ def parse_document_ir(
     paragraphs: list[dict[str, Any]] = []
     tables: list[dict[str, Any]] = []
     try:
-        with pdfplumber.open(BytesIO(data)) as pdf:
-            with _bounded_layout_hook(budget):
-                pages = _parse_pages(
-                    pdf.pages,
-                    budget,
-                    sections,
-                    paragraphs,
-                    tables,
-                )
+        with (
+            pdfplumber.open(BytesIO(data)) as pdf,
+            _bounded_layout_hook(budget),
+        ):
+            pages = _parse_pages(
+                pdf.pages,
+                budget,
+                sections,
+                paragraphs,
+                tables,
+            )
     except PDFValidationError:
         raise
     except Exception as exc:
         for nested in (exc.__cause__, exc.__context__, *exc.args):
             if isinstance(nested, PDFValidationError):
-                raise nested
+                raise nested from None
         raise DocumentIRExtractionError("Document IR extraction failed") from exc
     content = _assemble_ir(validation, pages, sections, paragraphs, tables)
     return ParsedDocumentIR(validation=validation, content=content)

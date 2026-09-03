@@ -33,9 +33,9 @@ from app.models.rubric import RubricVersion
 from app.models.submission import DocumentVersion, Submission
 from app.services import document_ir
 from app.services.document_ir import (
-    DocumentIRExtractionError,
     PARSER_VERSION,
     SCHEMA_VERSION,
+    DocumentIRExtractionError,
     ParsedDocumentIR,
 )
 from app.services.pdf_validation import PDFValidationError, PDFValidationResult
@@ -398,18 +398,22 @@ async def _run_postgresql_concurrency_test() -> None:
             await conn.run_sync(
                 lambda sync_conn: sync_conn.execute(
                     Assignment.__table__.insert().values(
-                        id=ids["assignment"], course_id=ids["course"],
+                        id=ids["assignment"],
+                        course_id=ids["course"],
                         created_by_teacher_id=ids["user"],
                         rubric_version_id=ids["rubric"],
-                        title="Assignment", due_at=datetime.now(UTC),
-                        status=AssignmentStatus.DRAFT, max_submissions=3,
+                        title="Assignment",
+                        due_at=datetime.now(UTC),
+                        status=AssignmentStatus.DRAFT,
+                        max_submissions=3,
                     )
                 )
             )
             await conn.run_sync(
                 lambda sync_conn: sync_conn.execute(
                     Submission.__table__.insert().values(
-                        id=ids["submission"], assignment_id=ids["assignment"],
+                        id=ids["submission"],
+                        assignment_id=ids["assignment"],
                         student_id=ids["user"],
                     )
                 )
@@ -528,9 +532,7 @@ def _patch_worker(
         "_session_factory",
         lambda: lambda: _WorkerSessionContext(db),
     )
-    monkeypatch.setattr(
-        worker_tasks, "claim_next_job", AsyncMock(return_value=job)
-    )
+    monkeypatch.setattr(worker_tasks, "claim_next_job", AsyncMock(return_value=job))
     monkeypatch.setattr(
         worker_tasks,
         "get_settings",
@@ -542,13 +544,9 @@ def _patch_worker(
     monkeypatch.setattr(
         worker_tasks,
         "S3Storage",
-        lambda: SimpleNamespace(
-            get_bounded=lambda _key, _limit: b"bounded-pdf"
-        ),
+        lambda: SimpleNamespace(get_bounded=lambda _key, _limit: b"bounded-pdf"),
     )
-    monkeypatch.setattr(
-        worker_tasks, "update_heartbeat", AsyncMock(return_value=True)
-    )
+    monkeypatch.setattr(worker_tasks, "update_heartbeat", AsyncMock(return_value=True))
 
 
 def test_worker_builds_ir_and_copies_source_metadata(
@@ -632,9 +630,7 @@ def test_worker_persists_pdf_validation_errors(
     assert document.status is DocumentStatus.INVALID
     assert document.failure_code == code
     assert document.failure_detail == detail
-    mark_error.assert_awaited_once_with(
-        db, job, code, detail, attempt_count=2
-    )
+    mark_error.assert_awaited_once_with(db, job, code, detail, attempt_count=2)
     assert db.commit.await_count == 2
 
 

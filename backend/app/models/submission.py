@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.assignment import Assignment
     from app.models.identity import User
 
+
 class Submission(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "submissions"
     __table_args__ = (
