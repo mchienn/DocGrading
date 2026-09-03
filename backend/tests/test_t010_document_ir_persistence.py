@@ -17,11 +17,13 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.models.analysis import DocumentIR
 from app.models.assignment import Assignment
-from app.models.course import Course
+from app.models.course import Course, Membership
 from app.models.enums import (
     AssignmentStatus,
     CourseStatus,
     DocumentStatus,
+    MembershipRole,
+    MembershipStatus,
     RubricStatus,
     UserRole,
     UserStatus,
@@ -318,6 +320,7 @@ async def _run_postgresql_concurrency_test() -> None:
         for name in (
             "user",
             "course",
+            "membership",
             "rubric",
             "assignment",
             "submission",
@@ -349,7 +352,7 @@ async def _run_postgresql_concurrency_test() -> None:
                         email=f"{ids['user']}@example.test",
                         display_name="Student",
                         password_hash="hash",
-                        roles=[UserRole.STUDENT],
+                        roles=[UserRole.TEACHER, UserRole.STUDENT],
                         status=UserStatus.ACTIVE,
                     )
                 )
@@ -363,6 +366,17 @@ async def _run_postgresql_concurrency_test() -> None:
                         term="2026",
                         owner_teacher_id=ids["user"],
                         status=CourseStatus.ACTIVE,
+                    )
+                )
+            )
+            await conn.run_sync(
+                lambda sync_conn: sync_conn.execute(
+                    Membership.__table__.insert().values(
+                        id=ids["membership"],
+                        course_id=ids["course"],
+                        user_id=ids["user"],
+                        role=MembershipRole.STUDENT,
+                        status=MembershipStatus.ACTIVE,
                     )
                 )
             )
@@ -451,6 +465,7 @@ async def _run_postgresql_concurrency_test() -> None:
                     (Submission.__table__, "submission"),
                     (Assignment.__table__, "assignment"),
                     (RubricVersion.__table__, "rubric"),
+                    (Membership.__table__, "membership"),
                     (Course.__table__, "course"),
                     (User.__table__, "user"),
                 ):
