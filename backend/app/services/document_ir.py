@@ -26,6 +26,7 @@ from app.models.submission import DocumentVersion, Submission
 from app.services.pdf_validation import (
     PDFValidationError,
     PDFValidationResult,
+    _suppress_untrusted_pdf_logs,
     validate_pdf,
 )
 
@@ -464,7 +465,7 @@ def _text_table_has_column_gap(
     in_table.sort(key=lambda word: (word["top"], word["x0"]))
     return any(
         next_word["x0"] - word["x1"] >= max(12.0, page_width * 0.02)
-        for word, next_word in zip(in_table, in_table[1:])
+        for word, next_word in zip(in_table, in_table[1:], strict=False)
         if abs(next_word["top"] - word["top"]) <= 3
     )
 
@@ -1032,6 +1033,7 @@ def parse_document_ir(
     tables: list[dict[str, Any]] = []
     try:
         with (
+            _suppress_untrusted_pdf_logs(),
             pdfplumber.open(BytesIO(data)) as pdf,
             _bounded_layout_hook(budget),
         ):

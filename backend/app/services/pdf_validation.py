@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from io import BytesIO
 from math import isclose, isfinite
@@ -22,6 +24,72 @@ from pypdf.generic import (
     NullObject,
     StreamObject,
 )
+
+
+_PYPDF_LOG_NAMESPACES = ("pypdf", "pdfminer", "pdfplumber")
+_PDF_LOG_LOCK = RLock()
+_PDF_LOGGING_SUPPRESSED: ContextVar[bool] = ContextVar(
+    "pdf_logging_suppressed",
+    default=False,
+)
+
+
+class _UntrustedPDFLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not _PDF_LOGGING_SUPPRESSED.get():
+            return True
+        return not any(
+            record.name == namespace or record.name.startswith(f"{namespace}.")
+            for namespace in _PYPDF_LOG_NAMESPACES
+        )
+
+
+@contextmanager
+def _suppress_untrusted_pdf_logs() -> Iterator[None]:
+    """Hide raw third-party parser records during untrusted PDF handling."""
+    targets: list[logging.Filterer] = []
+    seen: set[int] = set()
+
+    def add_target(target: logging.Filterer) -> None:
+        marker = id(target)
+        if marker not in seen:
+            seen.add(marker)
+            targets.append(target)
+
+    token = _PDF_LOGGING_SUPPRESSED.set(True)
+    log_filter = _UntrustedPDFLogFilter()
+    try:
+        with _PDF_LOG_LOCK:
+            root_logger = logging.getLogger()
+            add_target(root_logger)
+            for namespace in _PYPDF_LOG_NAMESPACES:
+                for name, logger in logging.Logger.manager.loggerDict.items():
+                    if (
+                        isinstance(logger, logging.Logger)
+                        and (
+                            name == namespace
+                            or name.startswith(f"{namespace}.")
+                        )
+                    ):
+                        add_target(logger)
+            for target in tuple(targets):
+                if isinstance(target, logging.Logger):
+                    for handler in target.handlers:
+                        add_target(handler)
+            for handler in root_logger.handlers:
+                add_target(handler)
+            if logging.lastResort is not None:
+                add_target(logging.lastResort)
+            for target in targets:
+                target.addFilter(log_filter)
+        try:
+            yield
+        finally:
+            with _PDF_LOG_LOCK:
+                for target in targets:
+                    target.removeFilter(log_filter)
+    finally:
+        _PDF_LOGGING_SUPPRESSED.reset(token)
 
 
 @dataclass(frozen=True)
@@ -70,12 +138,81 @@ _MIN_USEFUL_TEXT_CHARACTERS = 30
 _MAX_FORM_DEPTH = 32
 _MAX_GEOMETRY_OPERATIONS = 10_000
 _MAX_CLIP_VERTICES = 256
+_MAX_PAGE_TREE_NODES = 10_000
+_MAX_PAGE_TREE_DEPTH = 100
 
 type Matrix = tuple[float, float, float, float, float, float]
 type Point = tuple[float, float]
 type Polygon = list[Point]
 
 _IDENTITY_MATRIX: Matrix = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+
+def _resolve_page_tree_object(value: Any, work: list[int]) -> Any:
+    while isinstance(value, IndirectObject):
+        work[0] += 1
+        if work[0] > _MAX_PAGE_TREE_NODES:
+            raise PDFValidationError("PDF_MALFORMED")
+        value = value.get_object()
+    return value
+
+
+def _preflight_page_tree(reader: PdfReader, max_page_count: int) -> int:
+    """Count page leaves without invoking pypdf's flattening machinery."""
+    try:
+        work = [0]
+        pages = _resolve_page_tree_object(reader.root_object.get("/Pages"), work)
+        if not isinstance(pages, dict):
+            raise PDFValidationError("PDF_MALFORMED")
+        count = _resolve_page_tree_object(pages.get("/Count"), work)
+        if (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and count > max_page_count
+        ):
+            raise PDFValidationError("PDF_PAGE_LIMIT")
+
+        pending: list[tuple[Any, int]] = [(pages, 0)]
+        seen: set[int] = set()
+        page_count = 0
+        node_count = 0
+        while pending:
+            value, depth = pending.pop()
+            if depth > _MAX_PAGE_TREE_DEPTH:
+                raise PDFValidationError("PDF_MALFORMED")
+            resolved = _resolve_page_tree_object(value, work)
+            marker = id(resolved)
+            if marker in seen:
+                raise PDFValidationError("PDF_MALFORMED")
+            seen.add(marker)
+            node_count += 1
+            if node_count + work[0] > _MAX_PAGE_TREE_NODES:
+                raise PDFValidationError("PDF_MALFORMED")
+            if not isinstance(resolved, dict):
+                raise PDFValidationError("PDF_MALFORMED")
+            object_type = str(
+                _resolve_page_tree_object(resolved.get("/Type"), work)
+            )
+            if object_type == "/Page":
+                page_count += 1
+                if page_count > max_page_count:
+                    raise PDFValidationError("PDF_PAGE_LIMIT")
+                continue
+            if object_type != "/Pages":
+                raise PDFValidationError("PDF_MALFORMED")
+            kids = _resolve_page_tree_object(resolved.get("/Kids"), work)
+            if not isinstance(kids, (ArrayObject, list, tuple)):
+                raise PDFValidationError("PDF_MALFORMED")
+            if len(kids) > (
+                _MAX_PAGE_TREE_NODES - node_count - len(pending) - work[0]
+            ):
+                raise PDFValidationError("PDF_MALFORMED")
+            pending.extend((child, depth + 1) for child in kids)
+        return page_count
+    except PDFValidationError:
+        raise
+    except Exception as exc:
+        raise PDFValidationError("PDF_MALFORMED") from exc
 
 
 @dataclass
@@ -712,11 +849,76 @@ def _bounded_pypdf_decode(max_output_length: int) -> Iterator[None]:
                 setattr(pdf_filters, name, value)
 
 
+_ACTIVE_CONTENT_KEYS = {
+    "/JS",
+    "/JavaScript",
+    "/OpenAction",
+    "/AA",
+    "/Launch",
+    "/EmbeddedFiles",
+    "/EmbeddedFile",
+    "/Filespec",
+    "/EF",
+    "/RF",
+    "/AF",
+    "/XFA",
+    "/AcroForm",
+    "/RichMedia",
+    "/RichMediaConfiguration",
+    "/RichMediaAssets",
+}
+_ACTIVE_CONTENT_SUBTYPES = {
+    "/EmbeddedFile",
+    "/Filespec",
+    "/RichMedia",
+    "/3D",
+    "/Screen",
+    "/Movie",
+    "/Sound",
+    "/FileAttachment",
+}
+_ACTIVE_ACTION_TYPES = {
+    "/JavaScript",
+    "/Launch",
+    "/GoToR",
+    "/GoToE",
+    "/SubmitForm",
+    "/ImportData",
+    "/ResetForm",
+    "/URI",
+    "/RichMediaExecute",
+    "/Rendition",
+    "/Movie",
+    "/Sound",
+    "/Hide",
+    "/SetOCGState",
+}
+_ACTION_CHILD_KEYS = {"/A", "/AA", "/OpenAction", "/Next"}
+
+
+def _resolve_active_object(value: Any, nodes: list[int]) -> Any:
+    seen: set[int] = set()
+    while isinstance(value, IndirectObject):
+        nodes[0] += 1
+        if nodes[0] > 10_000:
+            raise _PDFScanLimit
+        marker = id(value)
+        if marker in seen:
+            raise _PDFScanLimit
+        seen.add(marker)
+        try:
+            value = value.get_object()
+        except Exception as exc:
+            raise _PDFScanLimit from exc
+    return value
+
+
 def _contains_active_content(
     value: Any,
-    seen: set[int] | None = None,
+    seen: set[tuple[int, bool]] | None = None,
     *,
     nodes: list[int] | None = None,
+    _action_context: bool = False,
 ) -> bool:
     if seen is None:
         seen = set()
@@ -725,36 +927,58 @@ def _contains_active_content(
     nodes[0] += 1
     if nodes[0] > 10_000:
         raise _PDFScanLimit
-    marker = id(value)
+    if isinstance(value, IndirectObject):
+        value = _resolve_active_object(value, nodes)
+    marker = (id(value), _action_context)
     if marker in seen:
         return False
     seen.add(marker)
-    if isinstance(value, IndirectObject):
+    if isinstance(value, dict):
         try:
-            resolved = value.get_object()
+            object_type = _resolve_active_object(value.get("/Type"), nodes)
+            subtype = _resolve_active_object(value.get("/Subtype"), nodes)
+        except _PDFScanLimit:
+            raise
         except Exception as exc:
             raise _PDFScanLimit from exc
-        return _contains_active_content(resolved, seen, nodes=nodes)
-    if isinstance(value, dict):
+        object_type_name = str(object_type)
+        subtype_name = str(subtype)
+        is_action = _action_context or object_type_name == "/Action"
+        if (
+            subtype_name in _ACTIVE_CONTENT_SUBTYPES
+            or object_type_name in _ACTIVE_CONTENT_SUBTYPES
+        ):
+            return True
         for key, child in value.items():
             key_name = str(key)
-            if key_name in {
-                "/JavaScript",
-                "/JS",
-                "/OpenAction",
-                "/AA",
-                "/RichMedia",
-                "/Launch",
-                "/SubmitForm",
-                "/GoToR",
-                "/EmbeddedFiles",
-                "/Filespec",
-            }:
+            resolved_child = _resolve_active_object(child, nodes)
+            if resolved_child is None or isinstance(resolved_child, NullObject):
+                continue
+            if key_name in _ACTIVE_CONTENT_KEYS:
                 return True
-            if _contains_active_content(child, seen, nodes=nodes):
+            if (
+                key_name == "/S"
+                and is_action
+                and str(resolved_child) in _ACTIVE_ACTION_TYPES
+            ):
+                return True
+            if _contains_active_content(
+                resolved_child,
+                seen,
+                nodes=nodes,
+                _action_context=key_name in _ACTION_CHILD_KEYS,
+            ):
                 return True
     elif isinstance(value, (list, tuple)):
-        return any(_contains_active_content(item, seen, nodes=nodes) for item in value)
+        return any(
+            _contains_active_content(
+                item,
+                seen,
+                nodes=nodes,
+                _action_context=_action_context,
+            )
+            for item in value
+        )
     return False
 
 
@@ -769,18 +993,20 @@ def validate_pdf(
     if not data.startswith(b"%PDF-"):
         raise PDFValidationError("NOT_A_PDF")
     try:
-        with _bounded_pypdf_decode(max_size_bytes):
+        with (
+            _suppress_untrusted_pdf_logs(),
+            _bounded_pypdf_decode(max_size_bytes),
+        ):
             reader = PdfReader(BytesIO(data), strict=True)
             if reader.is_encrypted:
                 raise PDFValidationError("PDF_ENCRYPTED")
-            page_count = len(reader.pages)
-            if page_count > max_page_count:
-                raise PDFValidationError("PDF_PAGE_LIMIT")
+            page_count = _preflight_page_tree(reader, max_page_count)
+            pages = reader.pages
             if _contains_active_content(reader.trailer):
                 raise PDFValidationError("PDF_ACTIVE_CONTENT")
             text_found = False
             geometry_context = _RasterGeometryContext(max_size_bytes)
-            for page in reader.pages:
+            for page in pages:
                 page_content_size = _decode_page_content_size(
                     page,
                     geometry_context.remaining_decoded_bytes,

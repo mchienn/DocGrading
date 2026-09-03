@@ -1,6 +1,8 @@
+import logging
 import math
 from io import BytesIO
-from threading import Event, Thread
+from threading import Barrier, Event, Thread
+from types import SimpleNamespace
 from typing import Any
 
 import pydantic
@@ -9,11 +11,13 @@ from pypdf import PdfWriter
 from pypdf.generic import (
     DecodedStreamObject,
     DictionaryObject,
+    IndirectObject,
     NameObject,
+    NullObject,
 )
 
 from app.core.config import Settings
-from app.services import document_ir
+from app.services import document_ir, pdf_validation
 from app.services.document_ir import (
     PARSER_VERSION,
     SCHEMA_VERSION,
@@ -22,7 +26,13 @@ from app.services.document_ir import (
     _NodeBudget,
     parse_document_ir,
 )
-from app.services.pdf_validation import PDFValidationError
+from app.services.pdf_validation import (
+    PDFValidationError,
+    PDFValidationResult,
+    _contains_active_content,
+    _preflight_page_tree,
+    _suppress_untrusted_pdf_logs,
+)
 
 
 def _make_text_pdf(*page_texts: str) -> bytes:
@@ -622,6 +632,278 @@ def test_real_attachment_pdf_rejected_before_pdfplumber_open(
 
     assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
     assert calls == []
+
+
+def test_page_tree_root_count_fails_before_pages_access(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class Pages:
+        touched = False
+
+        def __len__(self) -> int:
+            self.touched = True
+            return 101
+
+    class Reader:
+        is_encrypted = False
+        trailer: dict[str, object] = {}
+
+        def __init__(self) -> None:
+            self.pages = Pages()
+            self.root_object = {
+                "/Pages": {
+                    "/Type": "/Pages",
+                    "/Count": 101,
+                    "/Kids": [],
+                }
+            }
+
+    reader = Reader()
+
+    def make_reader(*args: object, **kwargs: object) -> Reader:
+        logging.getLogger("pypdf._reader").warning("VALIDATION_PDF_SECRET")
+        logging.getLogger("app.validation").warning("VALIDATION_APP_LOG")
+        return reader
+
+    monkeypatch.setattr(pdf_validation, "PdfReader", make_reader)
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(PDFValidationError) as exc_info,
+    ):
+        pdf_validation.validate_pdf(b"%PDF-1.7", max_page_count=100)
+    assert exc_info.value.code == "PDF_PAGE_LIMIT"
+    assert reader.pages.touched is False
+    assert "VALIDATION_PDF_SECRET" not in caplog.text
+    assert "VALIDATION_APP_LOG" in caplog.text
+
+
+def test_page_tree_forged_low_count_and_indirect_chain_fail_closed() -> None:
+    page = {"/Type": "/Page"}
+    root = {"/Type": "/Pages", "/Count": 1, "/Kids": [page, page.copy()]}
+    reader = SimpleNamespace(root_object={"/Pages": root})
+    with pytest.raises(PDFValidationError) as exc_info:
+        _preflight_page_tree(reader, 1)
+    assert exc_info.value.code == "PDF_PAGE_LIMIT"
+
+    class Store:
+        objects: dict[int, object] = {}
+
+        def get_object(self, reference: IndirectObject) -> object:
+            return self.objects[reference.idnum]
+
+    store = Store()
+    chain: object = IndirectObject(0, 0, store)
+    for index in range(10_001):
+        store.objects[index] = IndirectObject(index + 1, 0, store)
+    store.objects[10_002] = {
+        "/Type": "/Pages",
+        "/Count": 0,
+        "/Kids": [],
+    }
+    with pytest.raises(PDFValidationError) as exc_info:
+        _preflight_page_tree(SimpleNamespace(root_object={"/Pages": chain}), 1)
+    assert exc_info.value.code == "PDF_MALFORMED"
+
+
+def test_page_tree_cycles_depth_and_structural_node_limits_fail_closed() -> None:
+    cycle: dict[str, object] = {
+        "/Type": "/Pages",
+        "/Count": 1,
+        "/Kids": [],
+    }
+    cycle["/Kids"] = [cycle]
+    with pytest.raises(PDFValidationError) as cycle_error:
+        _preflight_page_tree(SimpleNamespace(root_object={"/Pages": cycle}), 1)
+    assert cycle_error.value.code == "PDF_MALFORMED"
+
+    page: dict[str, object] = {"/Type": "/Page"}
+    deep: dict[str, object] = page
+    for _ in range(101):
+        deep = {
+            "/Type": "/Pages",
+            "/Count": 1,
+            "/Kids": [deep],
+        }
+    with pytest.raises(PDFValidationError) as depth_error:
+        _preflight_page_tree(SimpleNamespace(root_object={"/Pages": deep}), 1)
+    assert depth_error.value.code == "PDF_MALFORMED"
+
+    many_nodes = [
+        {
+            "/Type": "/Pages",
+            "/Count": 100,
+            "/Kids": [
+                {"/Type": "/Pages", "/Count": 0, "/Kids": []}
+                for _ in range(100)
+            ],
+        }
+        for _ in range(100)
+    ]
+    root = {"/Type": "/Pages", "/Count": 0, "/Kids": many_nodes}
+    with pytest.raises(PDFValidationError) as node_error:
+        _preflight_page_tree(SimpleNamespace(root_object={"/Pages": root}), 1)
+    assert node_error.value.code == "PDF_MALFORMED"
+
+
+def test_safe_action_and_structural_s_values_are_not_rejected() -> None:
+    assert not _contains_active_content({"/Type": "/Action", "/S": "/GoTo"})
+
+
+@pytest.mark.parametrize(
+    "active",
+    [
+        {"/Type": "/Action", "/S": "/URI"},
+        {"/A": {"/S": "/Launch"}},
+        {"/Filespec": {}},
+        {"/EF": {}},
+        {"/AcroForm": {}},
+        {"/XFA": {}},
+        {"/AF": {}},
+        {"/Subtype": "/FileAttachment"},
+    ],
+)
+def test_active_values_and_structures_are_rejected(active: dict[str, object]) -> None:
+    assert _contains_active_content(active)
+
+
+def test_null_active_keys_and_structural_s_are_benign() -> None:
+    assert not _contains_active_content({"/S": "/Table"})
+    assert not _contains_active_content(
+        {key: NullObject() for key in ("/AcroForm", "/AF", "/EF", "/XFA")}
+    )
+
+
+def test_library_log_filter_suppresses_only_untrusted_records(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        caplog.at_level(logging.WARNING),
+        _suppress_untrusted_pdf_logs(),
+    ):
+        logging.getLogger("pdfminer.pdfinterp").warning("PDF_SECRET")
+        logging.getLogger("pypdf._reader").warning("PYPDF_SECRET")
+        logging.getLogger("app.test").warning("APP_SECRET")
+    assert "PDF_SECRET" not in caplog.text
+    assert "PYPDF_SECRET" not in caplog.text
+    assert "APP_SECRET" in caplog.text
+
+    root = logging.getLogger()
+    filters = list(root.filters)
+    with _suppress_untrusted_pdf_logs():
+        pass
+    assert root.filters == filters
+    with pytest.raises(RuntimeError), _suppress_untrusted_pdf_logs():
+        raise RuntimeError("expected")
+    assert root.filters == filters
+
+
+def test_concurrent_log_contexts_isolate_library_records_and_restore() -> None:
+    root = logging.getLogger()
+    previous_level = root.level
+    filters = list(root.filters)
+    records: list[tuple[str, str]] = []
+
+    class Handler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append((record.name, record.getMessage()))
+
+    handler = Handler()
+    root.addHandler(handler)
+    root.setLevel(logging.WARNING)
+    entered = Barrier(2)
+    released = Barrier(2)
+    errors: list[BaseException] = []
+    library = logging.getLogger("pdfminer.concurrent")
+    application = logging.getLogger("app.concurrent")
+    other = logging.getLogger("other.concurrent")
+
+    def worker(label: str) -> None:
+        try:
+            with _suppress_untrusted_pdf_logs():
+                entered.wait(timeout=5)
+                library.warning(f"LIB_SECRET_{label}")
+                application.warning(f"APP_LOG_{label}")
+                other.warning(f"OTHER_LOG_{label}")
+                released.wait(timeout=5)
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [Thread(target=worker, args=(label,)) for label in ("A", "B")]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        library.warning("LIB_AFTER_CONTEXT")
+    finally:
+        root.removeHandler(handler)
+        root.setLevel(previous_level)
+
+    assert not errors
+    assert all(not message.startswith("LIB_SECRET_") for _, message in records)
+    assert any(message == "APP_LOG_A" for _, message in records)
+    assert any(message == "APP_LOG_B" for _, message in records)
+    assert any(message == "OTHER_LOG_A" for _, message in records)
+    assert any(message == "OTHER_LOG_B" for _, message in records)
+    assert any(message == "LIB_AFTER_CONTEXT" for _, message in records)
+    assert root.filters == filters
+
+
+def test_extraction_library_logs_are_suppressed_and_restored(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    validation = PDFValidationResult(
+        sha256="A" * 64,
+        size_bytes=4,
+        page_count=0,
+        has_text=True,
+    )
+    monkeypatch.setattr(document_ir, "validate_pdf", lambda *args, **kwargs: validation)
+
+    class FakePdf:
+        pages: list[object] = []
+
+        def __enter__(self) -> "FakePdf":
+            logging.getLogger("pdfminer.pdfinterp").warning("EXTRACT_SECRET")
+            logging.getLogger("pdfplumber").warning("PLUMBER_SECRET")
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    monkeypatch.setattr(document_ir.pdfplumber, "open", lambda _stream: FakePdf())
+    monkeypatch.setattr(
+        document_ir,
+        "_parse_pages",
+        lambda *args: [],
+    )
+    with caplog.at_level(logging.WARNING):
+        parse_document_ir(b"data")
+    assert "EXTRACT_SECRET" not in caplog.text
+    assert "PLUMBER_SECRET" not in caplog.text
+    root = logging.getLogger()
+    filters = list(root.filters)
+
+    class FailingPdf(FakePdf):
+        def __enter__(self) -> "FailingPdf":
+            super().__enter__()
+            raise RuntimeError("extract failure")
+
+    monkeypatch.setattr(
+        document_ir.pdfplumber,
+        "open",
+        lambda _stream: FailingPdf(),
+    )
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(DocumentIRExtractionError),
+    ):
+        parse_document_ir(b"data")
+    assert "EXTRACT_SECRET" not in caplog.text
+    assert "PLUMBER_SECRET" not in caplog.text
+    assert root.filters == filters
 
 
 def test_node_budget_fails_closed_on_overflow_and_negative() -> None:
