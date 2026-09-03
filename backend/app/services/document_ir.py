@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.analysis import DocumentIR
-from app.models.submission import DocumentVersion
+from app.models.submission import DocumentVersion, Submission
 from app.services.pdf_validation import (
     PDFValidationError,
     PDFValidationResult,
@@ -90,6 +90,14 @@ async def get_or_build_document_ir(
     *,
     rebuild: bool = False,
 ) -> DocumentIR:
+    (
+        await db.execute(
+            sa.select(Submission)
+            .join(DocumentVersion, DocumentVersion.submission_id == Submission.id)
+            .where(DocumentVersion.id == document_version_id)
+            .with_for_update(of=Submission)
+        )
+    ).scalar_one()
     document = (
         await db.execute(
             sa.select(DocumentVersion)
@@ -115,8 +123,10 @@ async def get_or_build_document_ir(
         max_page_count=settings.pdf_max_page_count,
         max_nodes=settings.pdf_ir_max_nodes,
     )
-    expected_sha256 = document.declared_sha256 or document.sha256
-    if expected_sha256 != parsed.validation.sha256:
+    if (
+        document.declared_sha256 is not None
+        and document.declared_sha256 != parsed.validation.sha256
+    ):
         raise PDFValidationError(
             "PDF_SHA256_MISMATCH",
             "PDF checksum does not match",

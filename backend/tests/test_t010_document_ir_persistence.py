@@ -98,7 +98,12 @@ async def _test_first_statement_locks_document_version_and_first_build_adds_one_
     parsed = _parsed("a" * 64, {"new": True})
     db = AsyncMock()
     db.add = MagicMock()
-    db.execute.side_effect = [_result(target), _result(None), _result(None)]
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(None),
+        _result(None),
+    ]
     db.flush = AsyncMock()
     parser = MagicMock(return_value=parsed)
     monkeypatch.setattr(document_ir, "parse_document_ir", parser)
@@ -122,9 +127,16 @@ async def _test_first_statement_locks_document_version_and_first_build_adds_one_
     parser.assert_called_once_with(
         b"pdf", max_size_bytes=11, max_page_count=12, max_nodes=13
     )
-    statement = db.execute.call_args_list[0].args[0]
+    submission_statement = db.execute.call_args_list[0].args[0]
+    statement = db.execute.call_args_list[1].args[0]
+    assert "submissions" in str(
+        submission_statement.compile(dialect=postgresql.dialect())
+    )
+    assert "FOR UPDATE" in str(
+        submission_statement.compile(dialect=postgresql.dialect())
+    )
     assert "FOR UPDATE" in str(statement.compile(dialect=postgresql.dialect()))
-    assert db.execute.call_count == 3
+    assert db.execute.call_count == 4
 
 
 def test_first_statement_locks_document_version_and_first_build_adds_one_ir(
@@ -144,14 +156,18 @@ async def _test_existing_ir_replay_does_not_parse(
     existing = SimpleNamespace(id=uuid.uuid4(), content={"old": True})
     db = AsyncMock()
     db.add = MagicMock()
-    db.execute.side_effect = [_result(target), _result(existing)]
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(existing),
+    ]
     parser = MagicMock(side_effect=AssertionError("replay parsed PDF"))
     monkeypatch.setattr(document_ir, "parse_document_ir", parser)
 
     assert await document_ir.get_or_build_document_ir(db, target.id, b"pdf") is existing
     parser.assert_not_called()
     db.flush.assert_not_awaited()
-    assert db.execute.await_count == 2
+    assert db.execute.await_count == 3
 
 
 def test_existing_ir_replay_does_not_parse(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -173,7 +189,12 @@ async def _test_rebuild_replaces_payload_and_retains_ir_id(
     parsed = _parsed("b" * 64, {"shared": "new"})
     db = AsyncMock()
     db.add = MagicMock()
-    db.execute.side_effect = [_result(target), _result(existing), _result(None)]
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(existing),
+        _result(None),
+    ]
     _patch_settings(monkeypatch)
     db.flush = AsyncMock()
     parser = MagicMock(return_value=parsed)
@@ -204,7 +225,11 @@ async def _test_declared_sha_mismatch_raises_before_ir_add(
     target = _target(declared_sha256="c" * 64)
     db = AsyncMock()
     db.add = MagicMock()
-    db.execute.side_effect = [_result(target), _result(None)]
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(None),
+    ]
     _patch_settings(monkeypatch)
     monkeypatch.setattr(
         document_ir, "parse_document_ir", MagicMock(return_value=_parsed("d" * 64, {}))
@@ -217,7 +242,7 @@ async def _test_declared_sha_mismatch_raises_before_ir_add(
     assert str(exc_info.value) == "PDF checksum does not match"
     db.add.assert_not_called()
     db.flush.assert_not_awaited()
-    assert db.execute.await_count == 2
+    assert db.execute.await_count == 3
 
 
 def test_declared_sha_mismatch_raises_before_ir_add(
@@ -232,7 +257,12 @@ async def _test_duplicate_sibling_sha_raises_before_ir_add(
     target = _target(sha256="e" * 64)
     db = AsyncMock()
     db.add = MagicMock()
-    db.execute.side_effect = [_result(target), _result(None), _result(uuid.uuid4())]
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(None),
+        _result(uuid.uuid4()),
+    ]
     _patch_settings(monkeypatch)
     monkeypatch.setattr(
         document_ir, "parse_document_ir", MagicMock(return_value=_parsed("e" * 64, {}))
@@ -253,33 +283,77 @@ def test_duplicate_sibling_sha_raises_before_ir_add(
     asyncio.run(_test_duplicate_sibling_sha_raises_before_ir_add(monkeypatch))
 
 
-async def _test_stored_sha_mismatch_raises_before_ir_add(
+async def _test_stale_stored_sha_hint_is_not_authoritative(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = _target(sha256="a" * 64)
     db = AsyncMock()
     db.add = MagicMock()
-    db.execute.side_effect = [_result(target), _result(None), _result(None)]
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(None),
+        _result(None),
+    ]
+    _patch_settings(monkeypatch)
+    db.flush = AsyncMock()
+    monkeypatch.setattr(
+        document_ir,
+        "parse_document_ir",
+        MagicMock(return_value=_parsed("b" * 64, {"new": True})),
+    )
+
+    result = await document_ir.get_or_build_document_ir(db, target.id, b"pdf")
+
+    assert result.content == {"new": True}
+    db.add.assert_called_once_with(result)
+    db.flush.assert_awaited_once()
+
+
+def test_stale_stored_sha_hint_is_not_authoritative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncio.run(_test_stale_stored_sha_hint_is_not_authoritative(monkeypatch))
+
+
+async def _test_submission_lock_precedes_document_version_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = _target()
+    submission = SimpleNamespace(id=target.submission_id)
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.execute.side_effect = [
+        _result(submission),
+        _result(target),
+        _result(None),
+        _result(None),
+    ]
     _patch_settings(monkeypatch)
     monkeypatch.setattr(
         document_ir,
         "parse_document_ir",
-        MagicMock(return_value=_parsed("b" * 64, {})),
+        MagicMock(return_value=_parsed("a" * 64, {"new": True})),
     )
 
-    with pytest.raises(PDFValidationError) as exc_info:
-        await document_ir.get_or_build_document_ir(db, target.id, b"pdf")
+    await document_ir.get_or_build_document_ir(db, target.id, b"pdf")
+    assert db.execute.await_count == 4
+    submission_sql = str(
+        db.execute.call_args_list[0].args[0].compile(dialect=postgresql.dialect())
+    )
+    document_sql = str(
+        db.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect())
+    )
+    assert "submissions" in submission_sql
+    assert "FOR UPDATE" in submission_sql
+    assert "document_versions" in document_sql
+    assert "FOR UPDATE" in document_sql
 
-    assert exc_info.value.code == "PDF_SHA256_MISMATCH"
-    assert str(exc_info.value) == "PDF checksum does not match"
-    db.add.assert_not_called()
-    db.flush.assert_not_awaited()
 
-
-def test_stored_sha_mismatch_raises_before_ir_add(
+def test_submission_lock_precedes_document_version_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    asyncio.run(_test_stored_sha_mismatch_raises_before_ir_add(monkeypatch))
+    asyncio.run(_test_submission_lock_precedes_document_version_lock(monkeypatch))
 
 
 async def _test_duplicate_check_excludes_target_and_uses_submission_sha(
@@ -288,7 +362,12 @@ async def _test_duplicate_check_excludes_target_and_uses_submission_sha(
     target = _target(sha256="f" * 64)
     db = AsyncMock()
     db.add = MagicMock()
-    db.execute.side_effect = [_result(target), _result(None), _result(None)]
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(None),
+        _result(None),
+    ]
     _patch_settings(monkeypatch)
     db.flush = AsyncMock()
     monkeypatch.setattr(
@@ -297,7 +376,7 @@ async def _test_duplicate_check_excludes_target_and_uses_submission_sha(
 
     await document_ir.get_or_build_document_ir(db, target.id, b"pdf")
 
-    duplicate_stmt = db.execute.call_args_list[2].args[0]
+    duplicate_stmt = db.execute.call_args_list[3].args[0]
     sql = str(duplicate_stmt.compile(dialect=postgresql.dialect()))
     assert "document_versions.submission_id" in sql
     assert "document_versions.sha256" in sql
@@ -486,6 +565,284 @@ async def _run_postgresql_concurrency_test() -> None:
 )
 def test_postgresql_document_ir_concurrency() -> None:
     asyncio.run(_run_postgresql_concurrency_test())
+
+async def _run_postgresql_duplicate_race_test() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    ids = {
+        name: uuid.uuid4()
+        for name in (
+            "user",
+            "course",
+            "membership",
+            "rubric",
+            "assignment",
+            "submission",
+            "version_a",
+            "version_b",
+        )
+    }
+    parser_entered = threading.Event()
+    release_parser = threading.Event()
+    parser_calls = 0
+    parser_lock = threading.Lock()
+
+    def gated_parser(data: bytes, **_: int) -> ParsedDocumentIR:
+        nonlocal parser_calls
+        with parser_lock:
+            parser_calls += 1
+            call_number = parser_calls
+        if call_number == 1:
+            parser_entered.set()
+            assert release_parser.wait(timeout=10)
+        return _parsed("f" * 64, {"pages": []})
+
+    original_parser = document_ir.parse_document_ir
+    document_ir.parse_document_ir = gated_parser
+    graph_committed = False
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(
+                lambda sync_conn: sync_conn.execute(
+                    User.__table__.insert().values(
+                        id=ids["user"],
+                        email=f"{ids['user']}@example.test",
+                        display_name="Student",
+                        password_hash="hash",
+                        roles=[UserRole.TEACHER, UserRole.STUDENT],
+                        status=UserStatus.ACTIVE,
+                    )
+                )
+            )
+            await conn.run_sync(
+                lambda sync_conn: sync_conn.execute(
+                    Course.__table__.insert().values(
+                        id=ids["course"],
+                        code=f"C-{ids['course']}",
+                        name="Course",
+                        term="2026",
+                        owner_teacher_id=ids["user"],
+                        status=CourseStatus.ACTIVE,
+                    )
+                )
+            )
+            await conn.run_sync(
+                lambda sync_conn: sync_conn.execute(
+                    Membership.__table__.insert().values(
+                        id=ids["membership"],
+                        course_id=ids["course"],
+                        user_id=ids["user"],
+                        role=MembershipRole.STUDENT,
+                        status=MembershipStatus.ACTIVE,
+                    )
+                )
+            )
+            await conn.run_sync(
+                lambda sync_conn: sync_conn.execute(
+                    RubricVersion.__table__.insert().values(
+                        id=ids["rubric"],
+                        rubric_id=uuid.uuid4(),
+                        version_number=1,
+                        name="Rubric",
+                        status=RubricStatus.DRAFT,
+                        calculation_method="WEIGHTED_SUM",
+                        total_weight=0,
+                        owner_user_id=ids["user"],
+                        created_by_user_id=ids["user"],
+                    )
+                )
+            )
+            await conn.run_sync(
+                lambda sync_conn: sync_conn.execute(
+                    Assignment.__table__.insert().values(
+                        id=ids["assignment"],
+                        course_id=ids["course"],
+                        created_by_teacher_id=ids["user"],
+                        rubric_version_id=ids["rubric"],
+                        title="Assignment",
+                        due_at=datetime.now(UTC),
+                        status=AssignmentStatus.DRAFT,
+                        max_submissions=3,
+                    )
+                )
+            )
+            await conn.run_sync(
+                lambda sync_conn: sync_conn.execute(
+                    Submission.__table__.insert().values(
+                        id=ids["submission"],
+                        assignment_id=ids["assignment"],
+                        student_id=ids["user"],
+                    )
+                )
+            )
+            first_initial_sha = "a" * 64
+            second_initial_sha = "b" * 64
+            assert first_initial_sha != second_initial_sha
+            for key, version_number, sha256 in (
+                ("version_a", 1, first_initial_sha),
+                ("version_b", 2, second_initial_sha),
+            ):
+                await conn.run_sync(
+                    lambda sync_conn,
+                    key=key,
+                    version_number=version_number,
+                    sha256=sha256: sync_conn.execute(
+                        DocumentVersion.__table__.insert().values(
+                            id=ids[key],
+                            submission_id=ids["submission"],
+                            version_number=version_number,
+                            storage_key=f"uploads/{ids[key]}.pdf",
+                            original_filename=f"{key}.pdf",
+                            content_type="application/pdf",
+                            size_bytes=3,
+                            sha256=sha256,
+                            status=DocumentStatus.QUEUED,
+                        )
+                    )
+                )
+        graph_committed = True
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        tasks: list[asyncio.Task] = []
+        async with sessions() as first, sessions() as second:
+            try:
+                async with engine.connect() as monitor:
+                    second_pid = await second.scalar(
+                        sa.text("SELECT pg_backend_pid()")
+                    )
+                    assert isinstance(second_pid, int)
+                    first_task = asyncio.create_task(
+                        document_ir.get_or_build_document_ir(
+                            first, ids["version_a"], b"pdf"
+                        )
+                    )
+                    tasks.append(first_task)
+                    assert await asyncio.to_thread(parser_entered.wait, 10)
+                    second_task = asyncio.create_task(
+                        document_ir.get_or_build_document_ir(
+                            second, ids["version_b"], b"pdf"
+                        )
+                    )
+                    tasks.append(second_task)
+                    await asyncio.sleep(0)
+                    monitor_query = sa.text(
+                        """
+                        SELECT wait_event_type, wait_event, state, query
+                        FROM pg_stat_activity
+                        WHERE pid = :pid
+                        """
+                    )
+                    deadline = asyncio.get_running_loop().time() + 10
+                    blocked = False
+                    while asyncio.get_running_loop().time() < deadline:
+                        activity = (
+                            await monitor.execute(
+                                monitor_query, {"pid": second_pid}
+                            )
+                        ).mappings().first()
+                        active_query = (
+                            str(activity["query"] or "").lower()
+                            if activity
+                            else ""
+                        )
+                        if (
+                            activity
+                            and activity["wait_event_type"] == "Lock"
+                            and "submissions" in active_query
+                            and "for update" in active_query
+                        ):
+                            blocked = True
+                            break
+                        await asyncio.sleep(0)
+                    assert blocked, (
+                        "second session never waited on Submission lock"
+                    )
+                    release_parser.set()
+                    await first_task
+                    initial_versions = (
+                        await first.scalars(
+                            sa.select(DocumentVersion).where(
+                                DocumentVersion.id.in_(
+                                    (ids["version_a"], ids["version_b"])
+                                )
+                            )
+                        )
+                    ).all()
+                    assert {
+                        version.id: version.sha256 for version in initial_versions
+                    } == {
+                        ids["version_a"]: first_initial_sha,
+                        ids["version_b"]: second_initial_sha,
+                    }
+                    first_document = next(
+                        version
+                        for version in initial_versions
+                        if version.id == ids["version_a"]
+                    )
+                    first_document.sha256 = "f" * 64
+                    assert first_document.sha256 != first_initial_sha
+                    await first.commit()
+                    with pytest.raises(PDFValidationError) as exc_info:
+                        await second_task
+                    assert exc_info.value.code == "PDF_DUPLICATE"
+                    assert str(exc_info.value) == "Duplicate document version"
+                    await second.rollback()
+                    assert (
+                        await second.scalar(
+                            sa.select(sa.func.count())
+                            .select_from(DocumentIR)
+                            .where(
+                                DocumentIR.document_version_id.in_(
+                                    (ids["version_a"], ids["version_b"])
+                                )
+                            )
+                        )
+                        == 1
+                    )
+                assert parser_calls == 2
+            finally:
+                release_parser.set()
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        document_ir.parse_document_ir = original_parser
+        if graph_committed:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    DocumentIR.__table__.delete().where(
+                        DocumentIR.document_version_id.in_(
+                            (ids["version_a"], ids["version_b"])
+                        )
+                    )
+                )
+                await conn.execute(
+                    DocumentVersion.__table__.delete().where(
+                        DocumentVersion.id.in_(
+                            (ids["version_a"], ids["version_b"])
+                        )
+                    )
+                )
+                for table, key in (
+                    (Submission.__table__, "submission"),
+                    (Assignment.__table__, "assignment"),
+                    (RubricVersion.__table__, "rubric"),
+                    (Membership.__table__, "membership"),
+                    (Course.__table__, "course"),
+                    (User.__table__, "user"),
+                ):
+                    await conn.execute(
+                        table.delete().where(table.c.id == ids[key])
+                    )
+        await engine.dispose()
+
+
+@pytest.mark.skipif(
+    os.environ.get("RUN_DATABASE_TESTS") != "1",
+    reason="Database integration tests require RUN_DATABASE_TESTS=1",
+)
+def test_postgresql_duplicate_race_is_safe() -> None:
+    asyncio.run(_run_postgresql_duplicate_race_test())
 
 
 class _WorkerSessionContext:
