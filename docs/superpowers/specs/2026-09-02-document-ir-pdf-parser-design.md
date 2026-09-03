@@ -151,15 +151,17 @@ The worker runs CPU-bound parsing in `asyncio.to_thread`. It does not log PDF by
 
 Add a positive `pdf_ir_max_nodes` setting. One shared budget counts every visited or emitted page, layout object, word, line, heading, paragraph, table, region, row, and cell. Exceeding the budget raises `PDF_STRUCTURE_LIMIT` before further traversal.
 
+`validate_pdf` performs an iterative `/Pages` preflight before touching `reader.pages`. It bounds page leaves, intermediate nodes, depth, cycles, and indirect-object dereferences, so forged page counts cannot force unbounded pypdf flattening.
+
 Additional invariants:
 
-- no recursion over PDF objects is added;
+- no unbounded traversal is added: page-tree preflight and active-content scanning use explicit node, depth, and cycle bounds;
+- active-content checks inspect action values in context; JavaScript, launch actions, remote/embedded actions, forms, attachments, URLs, and embedded files are rejected without opening or executing them;
 - section-stack depth is bounded by the same node budget;
 - non-finite or out-of-page coordinates are rejected;
-- table dimensions are checked before iterating cells;
+- ruled and text-aligned table discovery is bounded before pdfplumber's edge/intersection work;
 - only text/layout/table extraction APIs are used;
-- JavaScript, launch actions, forms, attachments, URLs, and embedded files are never executed or opened;
-- existing `validate_pdf` active-content, decoded-size, page-count, encryption, and scan-only checks remain authoritative.
+- pypdf/pdfminer/pdfplumber records are filtered only during untrusted validation/extraction; application records and filter state remain intact.
 
 `PDFValidationError` and `PDF_STRUCTURE_LIMIT` mark the document invalid with stable, non-sensitive details. Unexpected extractor/storage failures mark processing failed with sanitized details and no PDF content.
 
@@ -167,17 +169,19 @@ Additional invariants:
 
 `get_or_build_document_ir(db, document_version_id, data, rebuild=False)` owns the write contract:
 
-1. select the target `DocumentVersion` using `.with_for_update()`;
-2. read its one-to-one `DocumentIR` while the document row is locked;
-3. return the existing row immediately when present and `rebuild` is false;
-4. otherwise parse exactly once while retaining the document-version lock;
-5. verify parser SHA-256 against the declared/current document digest and preserve existing duplicate-document checks;
-6. insert the first row or replace `schema_version`, `parser_version`, and `content` on the existing row;
-7. flush in the caller's transaction.
+1. lock the owning `Submission` row with `.with_for_update(of=Submission)` through the target `DocumentVersion`;
+2. lock the target `DocumentVersion` with `.with_for_update()`;
+3. read its one-to-one `DocumentIR` while both rows are locked;
+4. return the existing row immediately when present and `rebuild` is false;
+5. otherwise parse exactly once while retaining both locks;
+6. compare the parser SHA-256 only with a non-null `declared_sha256`; the stored `sha256` field remains a client/server metadata hint until worker success updates it;
+7. check sibling versions for the parsed server SHA while the `Submission` lock is held;
+8. insert the first row or replace `schema_version`, `parser_version`, and `content` on the existing row;
+9. flush in the caller's transaction.
 
-The unique constraint is the final defense, not the primary concurrency mechanism. Concurrent normal builds serialize on `DocumentVersion`; the second caller reuses the first row. Forced rebuild updates the same row and leaves row count and identity stable.
+The unique constraint is the final defense, not the primary concurrency mechanism. Concurrent normal builds for one version serialize on `DocumentVersion`; concurrent versions under one `Submission` serialize on `Submission` before sibling duplicate detection. Forced rebuild updates the same row and leaves row count and identity stable.
 
-Holding the document lock during parsing is intentional. PDF work already runs in a background worker with a separate heartbeat session; strict one-parse behavior is more important than maximizing concurrent mutations of one document version.
+Holding the submission and document locks during parsing is intentional. It closes the sibling-duplicate race while PDF work runs in a background worker with a separate heartbeat session; strict one-parse and one-document-per-submission behavior is more important than maximizing concurrent mutations.
 
 ## 8. Worker integration
 

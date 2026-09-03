@@ -4,7 +4,7 @@
 
 **Goal:** Parse each validated text-native PDF once into one durable, idempotently replaceable Document IR containing pages, nested sections, paragraphs, tables, and page coordinates.
 
-**Architecture:** Add one `DocumentIR` owner row per `DocumentVersion`, storing a versioned JSONB payload. A pure parser calls existing `validate_pdf` first, then uses pdfplumber under one node budget. An async persistence service locks `DocumentVersion` with `FOR UPDATE`, reuses existing IR by default, or atomically replaces it for an explicit rebuild.
+**Architecture:** Add one `DocumentIR` owner row per `DocumentVersion`, storing a versioned JSONB payload. A pure parser calls existing `validate_pdf` first, then uses bounded pypdf/pdfplumber extraction under one node budget. An async persistence service locks the owning `Submission` first, then the target `DocumentVersion` with `FOR UPDATE`, reuses existing IR by default, or atomically replaces it for an explicit rebuild. Only non-null `declared_sha256` is checksum-authoritative; worker success overwrites server-observed `sha256` metadata.
 
 **Tech Stack:** Python 3.13, pypdf 6.x, pdfplumber 0.11.x, SQLAlchemy 2 async, PostgreSQL 17 JSONB, Alembic, pytest, Ruff, Black.
 
@@ -40,7 +40,7 @@
 - Modify: `backend/app/models/submission.py`
 - Modify: `backend/app/models/__init__.py`
 
-- [ ] **Step 1: Write failing model metadata tests**
+- [x] **Step 1: Write failing model metadata tests**
 
 Add `DocumentIR` to imports and `MODEL_TABLE_MAP`, then add assertions:
 
@@ -67,7 +67,7 @@ Expected model map entry:
 DocumentIR: "document_irs",
 ```
 
-- [ ] **Step 2: Run metadata test RED**
+- [x] **Step 2: Run metadata test RED**
 
 Run from `backend/`:
 
@@ -77,7 +77,7 @@ uv run pytest tests/test_models.py -q
 
 Expected: collection fails because `DocumentIR` is not exported.
 
-- [ ] **Step 3: Add minimal ORM model and relationships**
+- [x] **Step 3: Add minimal ORM model and relationships**
 
 Add to `backend/app/models/analysis.py`:
 
@@ -140,7 +140,7 @@ document_ir: Mapped[DocumentIR | None] = relationship(
 
 Export `DocumentIR` through `app.models`.
 
-- [ ] **Step 4: Create migration only after SC-1/2/3 checklist exists**
+- [x] **Step 4: Create migration only after SC-1/2/3 checklist exists**
 
 Create exact revision skeleton:
 
@@ -230,7 +230,7 @@ def downgrade() -> None:
 
 Do not add functions, triggers, raw unqualified names, audit-table operations, or data rewrites.
 
-- [ ] **Step 5: Run metadata test GREEN and offline migration smoke**
+- [x] **Step 5: Run metadata test GREEN and offline migration smoke**
 
 ```text
 uv run pytest tests/test_models.py -q
@@ -239,7 +239,7 @@ uv run alembic upgrade head --sql
 
 Expected: model tests pass; generated SQL creates only `public.document_irs` for revision 0008 and includes `public.document_versions.id`.
 
-- [ ] **Step 6: Commit schema slice**
+- [x] **Step 6: Commit schema slice**
 
 ```text
 git add backend/app/models backend/alembic/versions/20260902_0008_document_ir.py backend/tests/test_models.py
@@ -255,7 +255,7 @@ git commit -m "feat(t010): add durable document IR schema"
 - Create: `backend/app/services/document_ir.py`
 - Create: `backend/tests/test_t010_document_ir_parser.py`
 
-- [ ] **Step 1: Add pdfplumber through uv**
+- [x] **Step 1: Add pdfplumber through uv**
 
 Run from `backend/`:
 
@@ -265,7 +265,7 @@ uv add "pdfplumber>=0.11,<1"
 
 Expected: `pyproject.toml` and `uv.lock` change; no unrelated dependency removal.
 
-- [ ] **Step 2: Write validation-order and budget RED tests**
+- [x] **Step 2: Write validation-order and budget RED tests**
 
 Use monkeypatched collaborators, not source-text assertions:
 
@@ -309,7 +309,7 @@ to prove no later layout object is visited after exhaustion.
 
 Also test config rejects `PDF_IR_MAX_NODES=0`.
 
-- [ ] **Step 3: Run parser boundary tests RED**
+- [x] **Step 3: Run parser boundary tests RED**
 
 ```text
 uv run pytest tests/test_t010_document_ir_parser.py -q
@@ -317,7 +317,7 @@ uv run pytest tests/test_t010_document_ir_parser.py -q
 
 Expected: import fails because `app.services.document_ir` does not exist.
 
-- [ ] **Step 4: Add minimal parser boundary**
+- [x] **Step 4: Add minimal parser boundary**
 
 Create constants and types:
 
@@ -382,7 +382,7 @@ pdf_ir_max_nodes: int = Field(default=100_000, gt=0)
 
 Initially `_parse_pages` may return page metadata with empty structural arrays; later tasks fill it.
 
-- [ ] **Step 5: Run boundary tests GREEN**
+- [x] **Step 5: Run boundary tests GREEN**
 
 ```text
 uv run pytest tests/test_t010_document_ir_parser.py -q
@@ -390,7 +390,7 @@ uv run pytest tests/test_t010_document_ir_parser.py -q
 
 Expected: validation order, positive setting, and exact budget boundary pass.
 
-- [ ] **Step 6: Commit parser boundary**
+- [x] **Step 6: Commit parser boundary**
 
 ```text
 git add backend/pyproject.toml backend/uv.lock backend/app/core/config.py backend/app/services/document_ir.py backend/tests/test_t010_document_ir_parser.py
@@ -403,7 +403,7 @@ git commit -m "feat(t010): add bounded document IR parser boundary"
 - Modify: `backend/app/services/document_ir.py`
 - Modify: `backend/tests/test_t010_document_ir_parser.py`
 
-- [ ] **Step 1: Add a real text-PDF builder and edge tests**
+- [x] **Step 1: Add a real text-PDF builder and edge tests**
 
 Build PDFs with pypdf `DecodedStreamObject`, Helvetica resources, and explicit content operators. The helper accepts page operation lists:
 
@@ -474,7 +474,7 @@ remains in `content["pages"]` with empty text and block IDs. Add a typography
 case proving a short 18-point line above 12-point body text becomes a heading,
 while an ordinary 12-point capitalized sentence ending in a period does not.
 
-- [ ] **Step 2: Run structural tests RED**
+- [x] **Step 2: Run structural tests RED**
 
 ```text
 uv run pytest tests/test_t010_document_ir_parser.py -q
@@ -482,7 +482,7 @@ uv run pytest tests/test_t010_document_ir_parser.py -q
 
 Expected: empty placeholder structure does not satisfy heading/paragraph assertions.
 
-- [ ] **Step 3: Implement bounded word/line extraction**
+- [x] **Step 3: Implement bounded word/line extraction**
 
 Use `page.extract_words(extra_attrs=["fontname", "size"])`. Before emitting structures, consume budget for every page object list and extracted word. Group words whose `top` values differ by at most 3 points, then sort each line by `x0`.
 
@@ -507,7 +507,7 @@ class _Line:
 
 `_safe_bbox` rejects non-finite, reversed, negative, or out-of-page coordinates with `PDFValidationError("PDF_IR_MALFORMED")`; output values use `round(value, 3)`.
 
-- [ ] **Step 4: Implement heading and section stack**
+- [x] **Step 4: Implement heading and section stack**
 
 Use:
 
@@ -519,11 +519,11 @@ Numbered headings derive level from dot depth. Typography headings require short
 
 Create deterministic IDs in reading order: `section-1`, `section-2`; use a stack keyed by level and attach to closest preceding lower level.
 
-- [ ] **Step 5: Implement paragraph grouping**
+- [x] **Step 5: Implement paragraph grouping**
 
 Exclude heading lines and table-overlapping lines. Join adjacent lines when horizontal start differs by at most 12 points and vertical gap is no more than `max(6, previous_height * 1.5)`. Paragraph IDs are `paragraph-1`, `paragraph-2`; paragraph section is current section at the line position. Never join across pages.
 
-- [ ] **Step 6: Run structural tests GREEN**
+- [x] **Step 6: Run structural tests GREEN**
 
 ```text
 uv run pytest tests/test_t010_document_ir_parser.py -q
@@ -531,7 +531,7 @@ uv run pytest tests/test_t010_document_ir_parser.py -q
 
 Expected: no-heading, deep nesting, skipped-level, paragraph, text order, and coordinate invariants pass.
 
-- [ ] **Step 7: Commit structure extraction**
+- [x] **Step 7: Commit structure extraction**
 
 ```text
 git add backend/app/services/document_ir.py backend/tests/test_t010_document_ir_parser.py
@@ -544,7 +544,7 @@ git commit -m "feat(t010): extract pages sections and paragraphs"
 - Modify: `backend/app/services/document_ir.py`
 - Modify: `backend/tests/test_t010_document_ir_parser.py`
 
-- [ ] **Step 1: Add ruled-table PDF test across two pages**
+- [x] **Step 1: Add ruled-table PDF test across two pages**
 
 Generate page 1 grid in the lower continuation zone and page 2 grid in the upper continuation zone. Each has identical two-column x boundaries and a repeated `Name | Value` header. Assert:
 
@@ -568,7 +568,7 @@ assert all(
 
 Add a negative case: same page zones but incompatible column boundaries produce two tables.
 
-- [ ] **Step 2: Run table tests RED**
+- [x] **Step 2: Run table tests RED**
 
 ```text
 uv run pytest tests/test_t010_document_ir_parser.py -q
@@ -576,7 +576,7 @@ uv run pytest tests/test_t010_document_ir_parser.py -q
 
 Expected: tables remain empty.
 
-- [ ] **Step 3: Implement bounded page table regions**
+- [x] **Step 3: Implement bounded page table regions**
 
 For every `page.find_tables()` result:
 
@@ -589,7 +589,7 @@ For every `page.find_tables()` result:
 
 Store normalized column boundaries from non-null first-row cell bboxes divided by page width.
 
-- [ ] **Step 4: Implement conservative cross-page join**
+- [x] **Step 4: Implement conservative cross-page join**
 
 Join only consecutive-page regions when:
 
@@ -602,7 +602,7 @@ max_boundary_delta <= 0.02
 
 When normalized first-row text is identical, keep the first header and skip the repeated row. Otherwise preserve all rows. Keep page-specific regions; never create one cross-page bbox.
 
-- [ ] **Step 5: Run table tests GREEN**
+- [x] **Step 5: Run table tests GREEN**
 
 ```text
 uv run pytest tests/test_t010_document_ir_parser.py -q
@@ -610,7 +610,7 @@ uv run pytest tests/test_t010_document_ir_parser.py -q
 
 Expected: compatible fragments merge once; incompatible fragments stay separate; table text is absent from paragraphs.
 
-- [ ] **Step 6: Commit table extraction**
+- [x] **Step 6: Commit table extraction**
 
 ```text
 git add backend/app/services/document_ir.py backend/tests/test_t010_document_ir_parser.py
@@ -623,24 +623,25 @@ git commit -m "feat(t010): extract cross-page PDF tables"
 - Modify: `backend/app/services/document_ir.py`
 - Create: `backend/tests/test_t010_document_ir_persistence.py`
 
-- [ ] **Step 1: Write mock-session lock/reuse/rebuild RED tests**
+- [x] **Step 1: Write mock-session lock/reuse/rebuild RED tests**
 
 Prove observable behavior:
 
-- first SQL statement selects `DocumentVersion` and renders `FOR UPDATE` under PostgreSQL dialect;
+- first SQL statement locks owning `Submission`, then target `DocumentVersion` renders `FOR UPDATE` under PostgreSQL dialect;
 - existing IR plus `rebuild=False` returns without calling `parse_document_ir`;
 - `rebuild=True` calls parser once, retains the same IR ID, and replaces content rather than merging old keys;
 - first build adds exactly one `DocumentIR` and flushes;
-- declared SHA mismatch and sibling duplicate SHA raise stable `PDF_SHA256_MISMATCH` and `PDF_DUPLICATE` before adding IR.
+- only non-null declared SHA mismatch and sibling duplicate server SHA raise stable `PDF_SHA256_MISMATCH` and `PDF_DUPLICATE` before adding IR;
+- a legacy row with null `declared_sha256` accepts a stale stored SHA hint and lets worker metadata overwrite it.
 
-Compile the lock statement using:
+Compile lock statements using:
 
 ```python
 sql = str(statement.compile(dialect=postgresql.dialect()))
 assert "FOR UPDATE" in sql
 ```
 
-- [ ] **Step 2: Run persistence tests RED**
+- [x] **Step 2: Run persistence tests RED**
 
 ```text
 uv run pytest tests/test_t010_document_ir_persistence.py -q
@@ -648,7 +649,7 @@ uv run pytest tests/test_t010_document_ir_persistence.py -q
 
 Expected: `get_or_build_document_ir` does not exist.
 
-- [ ] **Step 3: Implement one locked operation**
+- [x] **Step 3: Implement one locked operation**
 
 Add:
 
@@ -660,6 +661,12 @@ async def get_or_build_document_ir(
     *,
     rebuild: bool = False,
 ) -> DocumentIR:
+    await db.execute(
+        sa.select(Submission)
+        .join(DocumentVersion, DocumentVersion.submission_id == Submission.id)
+        .where(DocumentVersion.id == document_version_id)
+        .with_for_update(of=Submission)
+    )
     document = (
         await db.execute(
             sa.select(DocumentVersion)
@@ -685,7 +692,9 @@ async def get_or_build_document_ir(
         max_page_count=settings.pdf_max_page_count,
         max_nodes=settings.pdf_ir_max_nodes,
     )
-    if document.declared_sha256 and document.declared_sha256 != parsed.validation.sha256:
+    if document.declared_sha256 is not None and (
+        document.declared_sha256 != parsed.validation.sha256
+    ):
         raise PDFValidationError(
             "PDF_SHA256_MISMATCH",
             "PDF checksum does not match",
@@ -718,9 +727,9 @@ async def get_or_build_document_ir(
     return existing
 ```
 
-Do not use an upsert as a substitute for the document lock.
+Do not use an upsert as a substitute for the submission/document locks.
 
-- [ ] **Step 4: Run persistence unit tests GREEN**
+- [x] **Step 4: Run persistence unit tests GREEN**
 
 ```text
 uv run pytest tests/test_t010_document_ir_persistence.py -q
@@ -728,25 +737,27 @@ uv run pytest tests/test_t010_document_ir_persistence.py -q
 
 Expected: lock, no-reparse replay, clean replacement, checksum, and duplicate tests pass.
 
-- [ ] **Step 5: Add real-PostgreSQL two-session test**
+- [x] **Step 5: Add real-PostgreSQL two-session tests**
 
-Guard with `RUN_DATABASE_TESTS=1`. Seed the minimum Course/Assignment/Submission/DocumentVersion graph using unique UUIDs. Start the first session and use a thread-safe event to observe its parser entering while it holds the document lock. Start the second session only after that event, let the first parser return, then commit the first transaction. The second session must acquire the lock afterward, reuse the stored IR, and commit without entering the parser. Assert:
+Guard with `RUN_DATABASE_TESTS=1`. Seed the minimum Course/Assignment/Submission/DocumentVersion graph using unique UUIDs. For one target version, observe the first parser entering while it holds the submission/document locks; the second same-version session must block, then reuse the stored IR without entering the parser. For two versions under one Submission, start with distinct stale SHA hints, observe the second session waiting on the Submission lock, update the first version with the parsed server SHA before commit, and require the second session to raise safe `PDF_DUPLICATE`.
+
+Assert:
 ```python
 assert parser_call_count == 1
 assert await scalar_count("public.document_irs", document_version_id) == 1
 ```
 
-The second session must block until the first commits, then return the existing row. Always delete seeded rows in reverse FK order.
+Always delete seeded rows in reverse FK order.
 
-- [ ] **Step 6: Run PostgreSQL concurrency test GREEN**
+- [x] **Step 6: Run PostgreSQL concurrency tests GREEN**
 
 ```text
 RUN_DATABASE_TESTS=1 uv run pytest tests/test_t010_document_ir_persistence.py -q
 ```
 
-Expected: one parser call, one IR row, both callers succeed.
+Expected: same-version replay parses once; sibling duplicate race yields one IR and safe `PDF_DUPLICATE`.
 
-- [ ] **Step 7: Commit persistence slice**
+- [x] **Step 7: Commit persistence slice**
 
 ```text
 git add backend/app/services/document_ir.py backend/tests/test_t010_document_ir_persistence.py
@@ -760,7 +771,7 @@ git commit -m "feat(t010): persist document IR idempotently"
 - Modify: `backend/tests/test_t010_document_ir_persistence.py`
 - Modify: relevant existing T-009 worker tests only where mocks need the new collaborator
 
-- [ ] **Step 1: Write worker RED tests**
+- [x] **Step 1: Write worker RED tests**
 
 Test four outcomes by mocking storage, `get_or_build_document_ir`, and existing job service calls:
 
@@ -769,7 +780,7 @@ Test four outcomes by mocking storage, `get_or_build_document_ir`, and existing 
 3. `DocumentIRExtractionError` marks document `PROCESSING_FAILED` with `PDF_IR_EXTRACTION_FAILED` and sanitized detail;
 4. stale `mark_done=False` rolls back, leaving no committed IR mutation.
 
-- [ ] **Step 2: Run worker tests RED**
+- [x] **Step 2: Run worker tests RED**
 
 ```text
 uv run pytest tests/test_t010_document_ir_persistence.py tests/test_t009_pdf_behavior.py tests/test_t009_job_recovery.py -q
@@ -777,7 +788,7 @@ uv run pytest tests/test_t010_document_ir_persistence.py tests/test_t009_pdf_beh
 
 Expected: worker never calls IR builder.
 
-- [ ] **Step 3: Replace validation-only worker branch**
+- [x] **Step 3: Replace validation-only worker branch**
 
 Import:
 
@@ -821,7 +832,7 @@ job.document_version.failure_detail = "Document structure extraction failed"
 
 Do not log exception text or extracted content.
 
-- [ ] **Step 4: Run focused worker tests GREEN**
+- [x] **Step 4: Run focused worker tests GREEN**
 
 ```text
 uv run pytest tests/test_t010_document_ir_persistence.py tests/test_t009_pdf_behavior.py tests/test_t009_job_recovery.py -q
@@ -829,7 +840,7 @@ uv run pytest tests/test_t010_document_ir_persistence.py tests/test_t009_pdf_beh
 
 Expected: T-010 outcomes pass; existing upload/job lifecycle remains green.
 
-- [ ] **Step 5: Commit worker integration**
+- [x] **Step 5: Commit worker integration**
 
 ```text
 git add backend/app/workers/tasks.py backend/tests/test_t010_document_ir_persistence.py backend/tests/test_t009_pdf_behavior.py backend/tests/test_t009_job_recovery.py
@@ -841,7 +852,7 @@ git commit -m "feat(t010): build document IR in analysis worker"
 **Files:**
 - Create: `backend/tests/test_t010_migration_roundtrip.py`
 
-- [ ] **Step 1: Write real-PostgreSQL migration test**
+- [x] **Step 1: Write real-PostgreSQL migration test**
 
 Guard with `RUN_DATABASE_TESTS=1`. Use Alembic config from existing T-009 migration tests. Test sequence:
 
@@ -855,7 +866,7 @@ Guard with `RUN_DATABASE_TESTS=1`. Use Alembic config from existing T-009 migrat
 
 Static contract assertions also inspect migration module attributes and exact down revision, but do not replace PostgreSQL behavior.
 
-- [ ] **Step 2: Run migration roundtrip**
+- [x] **Step 2: Run migration roundtrip**
 
 ```text
 RUN_DATABASE_TESTS=1 uv run pytest tests/test_t010_migration_roundtrip.py -q
@@ -864,7 +875,7 @@ RUN_DATABASE_TESTS=1 uv run pytest tests/test_t010_migration_roundtrip.py -q
 Expected: upgrade/downgrade/re-upgrade succeeds; audit TRUNCATE rejected in both schemas. Any failure must be fixed in migration or test setup, not suppressed.
 
 
-- [ ] **Step 3: Commit migration verification**
+- [x] **Step 3: Commit migration verification**
 
 ```text
 git add backend/tests/test_t010_migration_roundtrip.py
@@ -878,7 +889,7 @@ git commit -m "test(t010): verify document IR migration roundtrip"
 - Modify: `docs/superpowers/specs/2026-09-02-document-ir-pdf-parser-design.md` only for verified contract corrections
 - Modify: `docs/superpowers/plans/2026-09-02-document-ir-pdf-parser.md` checkboxes during execution
 
-- [ ] **Step 1: Run focused T-010 tests**
+- [x] **Step 1: Run focused T-010 tests**
 
 ```text
 uv run pytest tests/test_t010_document_ir_parser.py tests/test_t010_document_ir_persistence.py tests/test_t010_migration_roundtrip.py -v
@@ -886,7 +897,7 @@ uv run pytest tests/test_t010_document_ir_parser.py tests/test_t010_document_ir_
 
 Expected: all pass; database tests require `RUN_DATABASE_TESTS=1` for execution rather than skip evidence.
 
-- [ ] **Step 2: Run required format and test suite**
+- [x] **Step 2: Run required format and test suite**
 
 ```text
 uv run ruff check .
@@ -896,7 +907,7 @@ RUN_DATABASE_TESTS=1 uv run pytest -v
 
 Expected: all commands exit 0. Record exact passed/skipped counts.
 
-- [ ] **Step 3: Run explicit Alembic roundtrip on PostgreSQL 17**
+- [x] **Step 3: Run explicit Alembic roundtrip on PostgreSQL 17**
 
 ```text
 uv run alembic upgrade head
@@ -906,7 +917,7 @@ uv run alembic upgrade head
 
 Expected: all exit 0. Immediately rerun audit TRUNCATE guard test and T-010 concurrency test.
 
-- [ ] **Step 4: Functional Correctness review**
+- [x] **Step 4: Functional Correctness review**
 
 Confirm with named passing tests:
 
@@ -916,31 +927,35 @@ Confirm with named passing tests:
 - coordinates remain finite, ordered, and page-bounded;
 - table text is not duplicated as paragraph text.
 
-- [ ] **Step 5: Data Integrity & Integration review**
+- [x] **Step 5: Data Integrity & Integration review**
 
 Confirm with named passing tests:
 
 - normal replay does not invoke parser;
 - forced rebuild updates same row and removes old payload keys;
-- two sessions produce one parse and one row through `FOR UPDATE`;
+- one target version produces one parse and one row through `FOR UPDATE`;
+- sibling versions lock the owning `Submission` before duplicate-SHA validation;
+- null `declared_sha256` does not treat stale stored hints as authoritative;
 - worker persists IR and terminal job state in one fenced transaction;
 - migration and ORM metadata align.
 
-- [ ] **Step 6: Security & Privacy review**
+- [x] **Step 6: Security & Privacy review**
 
 Confirm with named passing tests:
 
 - `validate_pdf` runs before pdfplumber;
-- active/embedded content never reaches extractor;
-- node budget halts traversal;
+- page-tree preflight rejects forged count/cycle/depth/node/dereference abuse before page flattening;
+- active/embedded content never reaches extractor, while benign structural `/S` values pass;
+- node and table complexity budgets halt traversal before further work;
+- pypdf/pdfminer/pdfplumber records are suppressed without suppressing application logs, including concurrent contexts and exception cleanup;
 - no content or storage secrets enter persisted error detail/logs;
 - SC-1/2/3 hold and audit TRUNCATE remains blocked.
 
-- [ ] **Step 7: Reconcile canonical docs**
+- [x] **Step 7: Reconcile canonical docs**
 
 Update only verified facts: one JSONB IR per `DocumentVersion`, top-left point coordinates, parser versioning, pdfplumber table extraction, and worker parse-once lifecycle. Do not add frontend/evaluator behavior.
 
-- [ ] **Step 8: Run final verification after documentation edits**
+- [x] **Step 8: Run final verification after documentation edits**
 
 ```text
 uv run ruff check .
@@ -950,7 +965,7 @@ RUN_DATABASE_TESTS=1 uv run pytest -v
 
 Expected: all pass after final integrated state.
 
-- [ ] **Step 9: Commit final reconciliation**
+- [x] **Step 9: Commit final reconciliation**
 
 ```text
 git add docs/design/PROJECT_SCOPE_BUSINESS_RULES_TECH_STACK.md docs/superpowers/specs/2026-09-02-document-ir-pdf-parser-design.md docs/superpowers/plans/2026-09-02-document-ir-pdf-parser.md
