@@ -525,6 +525,14 @@ def _extract_tables(
         ):
             candidates.append((text_page, table, table_bbox, True))
 
+    candidates.sort(
+        key=lambda candidate: (
+            candidate[2].top,
+            candidate[2].x0,
+            candidate[2].bottom,
+            candidate[2].x1,
+        )
+    )
     parsed_tables = []
     for _table_page, table, table_bbox, is_text in candidates:
         budget.consume(2)

@@ -436,6 +436,29 @@ def test_mixed_ruled_and_borderless_tables_both_extract() -> None:
     assert len(parsed.content["tables"]) == 2
 
 
+def test_spatial_table_order_preserves_cross_page_continuation() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            _make_borderless_table_page(
+                [["Code", "Score"], ["B", "9"], ["C", "8"]],
+                y_positions=[650, 630, 610],
+            )
+            + _make_ruled_table_page(
+                [["Name", "Value"], ["Alice", "1"]],
+                y_lines=[92, 142, 192],
+            ),
+            _make_ruled_table_page(
+                [["Name", "Value"], ["Bob", "2"]],
+                y_lines=[592, 642, 692],
+            ),
+        )
+    )
+
+    assert parsed.content["pages"][0]["tables"] == ["table-1", "table-2"]
+    assert parsed.content["pages"][1]["tables"] == ["table-2"]
+    assert parsed.content["tables"][1]["page_end"] == 2
+
+
 def test_dense_text_fails_before_text_strategy_find_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
