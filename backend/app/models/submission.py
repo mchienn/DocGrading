@@ -13,10 +13,9 @@ from app.models.enums import DocumentStatus, pg_enum
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
-    from app.models.analysis import AnalysisJob
+    from app.models.analysis import AnalysisJob, DocumentIR
     from app.models.assignment import Assignment
     from app.models.identity import User
-
 
 class Submission(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "submissions"
@@ -177,4 +176,11 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="document_version",
         foreign_keys="AnalysisJob.document_version_id",
         passive_deletes="all",
+    )
+    document_ir: Mapped[DocumentIR | None] = relationship(
+        "DocumentIR",
+        back_populates="document_version",
+        foreign_keys="DocumentIR.document_version_id",
+        uselist=False,
+        passive_deletes=True,
     )
