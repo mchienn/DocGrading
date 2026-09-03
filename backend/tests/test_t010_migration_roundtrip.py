@@ -26,9 +26,7 @@ def _get_migration_0008_module() -> tuple[Any, Path]:
         / "versions"
         / "20260902_0008_document_ir.py"
     )
-    spec = importlib.util.spec_from_file_location(
-        "migration_0008", migration_path
-    )
+    spec = importlib.util.spec_from_file_location("migration_0008", migration_path)
     assert spec is not None and spec.loader is not None
     migration_0008 = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration_0008)
@@ -73,9 +71,7 @@ def verify_migration_security_and_schema_contracts(source: str) -> None:
         "fn_audit_events",
     )
     for term in forbidden_audit_terms:
-        assert (
-            term not in source
-        ), f"SC-2 violation: migration must not touch {term}"
+        assert term not in source, f"SC-2 violation: migration must not touch {term}"
 
     # SC-3: Schema qualification per Alembic DDL op (create_table, drop_table) and FK target
     create_table_calls = [
@@ -83,10 +79,7 @@ def verify_migration_security_and_schema_contracts(source: str) -> None:
         for node in ast.walk(upgrade_fn)
         if isinstance(node, ast.Call)
         and (
-            (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr == "create_table"
-            )
+            (isinstance(node.func, ast.Attribute) and node.func.attr == "create_table")
             or "create_table" in ast.unparse(node.func)
         )
     ]
@@ -106,10 +99,7 @@ def verify_migration_security_and_schema_contracts(source: str) -> None:
         for node in ast.walk(downgrade_fn)
         if isinstance(node, ast.Call)
         and (
-            (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr == "drop_table"
-            )
+            (isinstance(node.func, ast.Attribute) and node.func.attr == "drop_table")
             or "drop_table" in ast.unparse(node.func)
         )
     ]
@@ -147,12 +137,8 @@ def test_migration_0008_contract_definitions() -> None:
 
     assert migration_0008.revision == "20260902_0008"
     assert migration_0008.down_revision == "20260829_0007"
-    assert hasattr(migration_0008, "upgrade") and callable(
-        migration_0008.upgrade
-    )
-    assert hasattr(migration_0008, "downgrade") and callable(
-        migration_0008.downgrade
-    )
+    assert hasattr(migration_0008, "upgrade") and callable(migration_0008.upgrade)
+    assert hasattr(migration_0008, "downgrade") and callable(migration_0008.downgrade)
     assert migration_0008.branch_labels is None
     assert migration_0008.depends_on is None
 
@@ -235,18 +221,14 @@ def test_migration_0008_roundtrip_postgres() -> None:
 
     async def _get_public_tables(eng: AsyncEngine) -> set[str]:
         async with eng.connect() as conn:
-            res = await conn.execute(
-                text("""
+            res = await conn.execute(text("""
                     SELECT table_name
                     FROM information_schema.tables
                     WHERE table_schema = 'public'
-                """)
-            )
+                """))
             return {row.table_name for row in res.fetchall()}
 
-    async def _insert_sentinel_user(
-        eng: AsyncEngine, data: dict[str, Any]
-    ) -> None:
+    async def _insert_sentinel_user(eng: AsyncEngine, data: dict[str, Any]) -> None:
         async with eng.begin() as conn:
             await conn.execute(
                 text("""
@@ -274,22 +256,24 @@ def test_migration_0008_roundtrip_postgres() -> None:
     ) -> None:
         async with eng.connect() as conn:
             row = (
-                await conn.execute(
-                    text("""
+                (
+                    await conn.execute(
+                        text("""
                         SELECT id, email, display_name, password_hash, roles,
                                CAST(status AS text) AS status, revision
                         FROM public.users
                         WHERE id = :id
                     """),
-                    {"id": data["id"]},
+                        {"id": data["id"]},
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             assert row["status"] == data["status"]
             assert row["revision"] == data["revision"]
 
-    async def _cleanup_sentinel_user(
-        eng: AsyncEngine, user_id: uuid.UUID
-    ) -> None:
+    async def _cleanup_sentinel_user(eng: AsyncEngine, user_id: uuid.UUID) -> None:
         async with eng.begin() as conn:
             await conn.execute(
                 text("DELETE FROM public.users WHERE id = :id"),
@@ -299,32 +283,26 @@ def test_migration_0008_roundtrip_postgres() -> None:
     async def _verify_metadata_0008(eng: AsyncEngine) -> None:
         async with eng.connect() as conn:
             # 1. Table existence in information_schema.tables
-            table_exists = (
-                await conn.execute(
-                    text("""
+            table_exists = (await conn.execute(text("""
                         SELECT EXISTS (
                             SELECT 1
                             FROM information_schema.tables
                             WHERE table_schema = 'public'
                               AND table_name = 'document_irs'
                         )
-                    """)
-                )
-            ).scalar_one()
+                    """))).scalar_one()
             assert (
                 table_exists is True
             ), "public.document_irs table must exist after upgrade"
 
             # 2. Columns verification in information_schema.columns
-            columns_res = await conn.execute(
-                text("""
+            columns_res = await conn.execute(text("""
                     SELECT column_name, data_type, udt_name, is_nullable,
                            column_default, character_maximum_length
                     FROM information_schema.columns
                     WHERE table_schema = 'public'
                       AND table_name = 'document_irs'
-                """)
-            )
+                """))
             columns = {
                 row.column_name: {
                     "data_type": row.data_type,
@@ -383,8 +361,8 @@ def test_migration_0008_roundtrip_postgres() -> None:
                 text("""
                     SELECT
                         c.conname,
-                        c.contype,
-                        c.confdeltype,
+                        CAST(c.contype AS text) AS contype,
+                        CAST(c.confdeltype AS text) AS confdeltype,
                         pg_get_constraintdef(c.oid) AS constraint_def,
                         cl_rel.relname AS foreign_table,
                         nsp_rel.nspname AS foreign_schema,
@@ -441,29 +419,18 @@ def test_migration_0008_roundtrip_postgres() -> None:
             assert fk.confdeltype == "c"  # CASCADE
 
             # Check constraint: ck_document_irs_schema_version_positive
-            assert (
-                "ck_document_irs_schema_version_positive" in constraints_by_name
-            )
-            ck_ver = constraints_by_name[
-                "ck_document_irs_schema_version_positive"
-            ]
+            assert "ck_document_irs_schema_version_positive" in constraints_by_name
+            ck_ver = constraints_by_name["ck_document_irs_schema_version_positive"]
             assert ck_ver.contype == "c"
             clean_ck_ver_def = (
-                ck_ver.constraint_def.replace("(", "")
-                .replace(")", "")
-                .replace(" ", "")
+                ck_ver.constraint_def.replace("(", "").replace(")", "").replace(" ", "")
             )
             assert "schema_version>0" in clean_ck_ver_def
 
             # Check constraint: ck_document_irs_parser_version_not_blank
             # (must contain both length/btrim and !~ predicates in the same check constraint)
-            assert (
-                "ck_document_irs_parser_version_not_blank"
-                in constraints_by_name
-            )
-            ck_parser = constraints_by_name[
-                "ck_document_irs_parser_version_not_blank"
-            ]
+            assert "ck_document_irs_parser_version_not_blank" in constraints_by_name
+            ck_parser = constraints_by_name["ck_document_irs_parser_version_not_blank"]
             assert ck_parser.contype == "c"
             ck_parser_def = ck_parser.constraint_def
             assert (
@@ -484,9 +451,7 @@ def test_migration_0008_roundtrip_postgres() -> None:
         async with eng.connect() as conn:
             with pytest.raises(Exception, match="audit events are append-only"):
                 async with conn.begin_nested():
-                    await conn.execute(
-                        text("TRUNCATE TABLE public.audit_events")
-                    )
+                    await conn.execute(text("TRUNCATE TABLE public.audit_events"))
 
             # Ensure connection is clean and not poisoned
             canary = await conn.execute(text("SELECT 1"))
@@ -500,23 +465,19 @@ def test_migration_0008_roundtrip_postgres() -> None:
             assert (
                 "document_irs" not in downgraded_tables
             ), "public.document_irs table must be dropped after downgrade"
-            assert downgraded_tables == baseline_tables, (
-                "Exact public table set after downgrade must match baseline 0007 set"
-            )
+            assert (
+                downgraded_tables == baseline_tables
+            ), "Exact public table set after downgrade must match baseline 0007 set"
 
             # Prior invariants remain (e.g., dispatch trigger on analysis_jobs)
-            trigger_exists = (
-                await conn.execute(
-                    text("""
+            trigger_exists = (await conn.execute(text("""
                         SELECT EXISTS (
                             SELECT 1
                             FROM pg_trigger
                             WHERE tgname = 'trg_analysis_jobs_dispatch_outbox'
                               AND NOT tgisinternal
                         )
-                    """)
-                )
-            ).scalar_one()
+                    """))).scalar_one()
             assert (
                 trigger_exists is True
             ), "Dispatch outbox trigger must remain after downgrade"
@@ -556,9 +517,7 @@ def test_migration_0008_roundtrip_postgres() -> None:
         # Step 7: Clean sentinel safely and always upgrade to head in finally block, including after failures
         try:
             with contextlib.suppress(Exception):
-                asyncio.run(
-                    _cleanup_sentinel_user(engine, sentinel_data["id"])
-                )
+                asyncio.run(_cleanup_sentinel_user(engine, sentinel_data["id"]))
         finally:
             try:
                 alembic.command.upgrade(alembic_cfg, "head")
