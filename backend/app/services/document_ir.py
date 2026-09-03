@@ -23,6 +23,13 @@ from app.services.pdf_validation import (
 SCHEMA_VERSION: int = 1
 PARSER_VERSION: str = "pypdf-pdfplumber-v1"
 
+_TABLE_SOURCE_OBJECT_TYPES = ("line", "rect", "curve")
+_MAX_TABLE_SOURCE_OBJECTS = 256
+_MAX_TABLE_EDGES = 1024
+_MAX_TABLE_INTERSECTIONS = 8192
+_MAX_TABLE_CELLS = 4096
+_TABLE_WORK_RESERVE = 4
+
 
 # ponytail: this process-global hook is intentionally serialized for isolation.
 _LAYOUT_HOOK_LOCK = RLock()
@@ -196,13 +203,28 @@ def _union_words_bbox(words: Sequence[_Word]) -> _BBox:
     return bbox
 
 
+def _group_lines(words: Sequence[_Word]) -> list[_Line]:
+    ordered = sorted(words, key=lambda word: (word.bbox.top, word.bbox.x0))
+    grouped: list[list[_Word]] = []
+    for word in ordered:
+        if not grouped or abs(word.bbox.top - grouped[-1][0].bbox.top) > 3:
+            grouped.append([word])
+        else:
+            grouped[-1].append(word)
+    return [
+        _line_from_words(sorted(group, key=lambda word: word.bbox.x0))
+        for group in grouped
+    ]
+
+
 def _extract_lines(
     page: Any,
     *,
     page_width: float,
     page_height: float,
     budget: _NodeBudget,
-) -> list[_Line]:
+    excluded_bboxes: Sequence[_BBox] = (),
+) -> tuple[list[_Line], list[_Line]]:
     extracted = page.extract_words(extra_attrs=["fontname", "size"])
     budget.consume(len(extracted))
     words = [
@@ -213,19 +235,202 @@ def _extract_lines(
         )
         for word in extracted
     ]
-    words.sort(key=lambda word: (word.bbox.top, word.bbox.x0))
-    grouped: list[list[_Word]] = []
-    for word in words:
-        if not grouped or abs(word.bbox.top - grouped[-1][0].bbox.top) > 3:
-            grouped.append([word])
-        else:
-            grouped[-1].append(word)
-    lines = []
-    for group in grouped:
-        group.sort(key=lambda word: word.bbox.x0)
-        lines.append(_line_from_words(group))
-    budget.consume(len(lines))
-    return lines
+    all_lines = _group_lines(words)
+    budget.consume(len(all_lines))
+    if not excluded_bboxes:
+        return all_lines, all_lines
+    content_words = [
+        word
+        for word in words
+        if not any(
+            bbox.x0 <= (word.bbox.x0 + word.bbox.x1) / 2 <= bbox.x1
+            and bbox.top <= (word.bbox.top + word.bbox.bottom) / 2 <= bbox.bottom
+            for bbox in excluded_bboxes
+        )
+    ]
+    content_lines = _group_lines(content_words)
+    budget.consume(len(content_lines))
+    return all_lines, content_lines
+
+
+def _table_bbox(
+    values: Any,
+    *,
+    page_width: float,
+    page_height: float,
+) -> _BBox:
+    try:
+        coordinates = tuple(float(value) for value in values)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise PDFValidationError("PDF_IR_MALFORMED") from exc
+    if len(coordinates) != 4:
+        raise PDFValidationError("PDF_IR_MALFORMED")
+    return _safe_bbox(
+        dict(zip(("x0", "top", "x1", "bottom"), coordinates, strict=True)),
+        page_width=page_width,
+        page_height=page_height,
+    )
+
+
+def _normalized_cell_boundaries(
+    rows: Sequence[Sequence[Any]],
+    *,
+    page_width: float,
+    page_height: float,
+) -> list[tuple[float, float]]:
+    boundaries: set[tuple[float, float]] = set()
+    for row in rows:
+        row_cells = getattr(row, "cells", row)
+        for cell in row_cells:
+            if cell is None:
+                continue
+            cell_bbox = _table_bbox(
+                cell,
+                page_width=page_width,
+                page_height=page_height,
+            )
+            boundaries.add(
+                (
+                    round(cell_bbox.x0 / page_width, 3),
+                    round(cell_bbox.x1 / page_width, 3),
+                )
+            )
+    return sorted(boundaries)
+
+
+def _extract_tables(
+    page: Any,
+    *,
+    page_number: int,
+    page_width: float,
+    page_height: float,
+    budget: _NodeBudget,
+) -> list[
+    tuple[dict[str, Any], list[tuple[float, float]], int, list[_BBox]]
+]:
+    objects = page.objects
+    source_count = sum(
+        len(objects.get(object_type, ()))
+        for object_type in _TABLE_SOURCE_OBJECT_TYPES
+    )
+    estimated_edges = (
+        len(objects.get("line", ()))
+        + (4 * len(objects.get("rect", ())))
+        + sum(
+            max(0, len(curve.get("pts", ())) - 1)
+            for curve in objects.get("curve", ())
+        )
+    )
+    if (
+        source_count > _MAX_TABLE_SOURCE_OBJECTS
+        or estimated_edges > _MAX_TABLE_EDGES
+        or estimated_edges * estimated_edges > _MAX_TABLE_INTERSECTIONS
+        or estimated_edges * estimated_edges > _MAX_TABLE_CELLS
+        or budget.used + estimated_edges + _TABLE_WORK_RESERVE > budget.limit
+    ):
+        raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+    edges = page.edges
+    if len(edges) > _MAX_TABLE_EDGES:
+        raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+    budget.consume(len(edges))
+    if len(edges) * len(edges) > _MAX_TABLE_INTERSECTIONS:
+        raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+    found_tables = page.find_tables()
+    parsed_tables = []
+    for table in found_tables:
+        budget.consume(2)
+        table_bbox = _table_bbox(
+            table.bbox,
+            page_width=page_width,
+            page_height=page_height,
+        )
+        try:
+            extracted_rows = table.extract()
+            table_rows = table.rows
+        except (AttributeError, TypeError, ValueError, IndexError) as exc:
+            raise PDFValidationError("PDF_IR_MALFORMED") from exc
+        rows: list[dict[str, Any]] = []
+        try:
+            row_pairs = zip(extracted_rows, table_rows, strict=True)
+            for extracted_row, table_row in row_pairs:
+                budget.consume()
+                row_bbox = _table_bbox(
+                    table_row.bbox,
+                    page_width=page_width,
+                    page_height=page_height,
+                )
+                cell_values: list[dict[str, Any] | None] = []
+                for text, cell in zip(
+                    extracted_row,
+                    table_row.cells,
+                    strict=True,
+                ):
+                    budget.consume()
+                    if cell is None:
+                        cell_values.append(None)
+                        continue
+                    cell_bbox = _table_bbox(
+                        cell,
+                        page_width=page_width,
+                        page_height=page_height,
+                    )
+                    cell_text = "" if text is None else " ".join(str(text).split())
+                    cell_values.append(
+                        {
+                            "text": cell_text,
+                            "page_number": page_number,
+                            "bbox": {
+                                "x0": cell_bbox.x0,
+                                "top": cell_bbox.top,
+                                "x1": cell_bbox.x1,
+                                "bottom": cell_bbox.bottom,
+                            },
+                        }
+                    )
+                rows.append(
+                    {
+                        "page_number": page_number,
+                        "bbox": {
+                            "x0": row_bbox.x0,
+                            "top": row_bbox.top,
+                            "x1": row_bbox.x1,
+                            "bottom": row_bbox.bottom,
+                        },
+                        "cells": cell_values,
+                    }
+                )
+        except PDFValidationError:
+            raise
+        except (AttributeError, TypeError, ValueError, IndexError) as exc:
+            raise PDFValidationError("PDF_IR_MALFORMED") from exc
+        parsed_tables.append(
+            (
+                {
+                    "page_start": page_number,
+                    "page_end": page_number,
+                    "regions": [
+                        {
+                            "page_number": page_number,
+                            "bbox": {
+                                "x0": table_bbox.x0,
+                                "top": table_bbox.top,
+                                "x1": table_bbox.x1,
+                                "bottom": table_bbox.bottom,
+                            },
+                        }
+                    ],
+                    "rows": rows,
+                },
+                _normalized_cell_boundaries(
+                    table_rows,
+                    page_width=page_width,
+                    page_height=page_height,
+                ),
+                len(table_rows[0].cells) if table_rows else 0,
+                [table_bbox],
+            )
+        )
+    return parsed_tables
 
 
 def _is_heading(
@@ -268,12 +473,17 @@ def _parse_pages(
     budget: _NodeBudget,
     sections: list[dict[str, Any]] | None = None,
     paragraphs: list[dict[str, Any]] | None = None,
+    tables: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Extract bounded page geometry and structural containers."""
     all_sections = sections if sections is not None else []
     all_paragraphs = paragraphs if paragraphs is not None else []
+    all_tables = tables if tables is not None else []
     parsed_pages: list[dict[str, Any]] = []
     section_stack: list[tuple[int, str]] = []
+    previous_page_table: (
+        tuple[dict[str, Any], list[tuple[float, float]], int, float] | None
+    ) = None
     for page_number, page in enumerate(pages, start=1):
         try:
             page_width = float(page.width)
@@ -288,27 +498,111 @@ def _parse_pages(
         ):
             raise PDFValidationError("PDF_IR_MALFORMED")
 
-        lines = _extract_lines(
+        page_table_regions = _extract_tables(
             page,
+            page_number=page_number,
             page_width=page_width,
             page_height=page_height,
             budget=budget,
         )
+        page_table_ids: list[str] = []
+        current_page_table = None
+        for local_table, boundaries, slot_count, _table_bboxes in page_table_regions:
+            if previous_page_table is not None:
+                (
+                    prior_table,
+                    prior_boundaries,
+                    prior_slots,
+                    prior_height,
+                ) = previous_page_table
+                prior_region = prior_table["regions"][-1]["bbox"]
+                current_region = local_table["regions"][0]["bbox"]
+                can_merge = (
+                    prior_table["page_end"] == page_number - 1
+                    and prior_region["bottom"] >= 0.8 * prior_height
+                    and current_region["top"] <= 0.2 * page_height
+                    and prior_slots == slot_count
+                    and len(prior_boundaries) == len(boundaries)
+                    and boundaries
+                    and max(
+                        max(abs(left - prior_left), abs(right - prior_right))
+                        for (left, right), (prior_left, prior_right) in zip(
+                            boundaries,
+                            prior_boundaries,
+                            strict=True,
+                        )
+                    )
+                    <= 0.02
+                )
+            else:
+                can_merge = False
+            if can_merge:
+                (
+                    prior_table,
+                    _prior_boundaries,
+                    _prior_slots,
+                    _prior_height,
+                ) = previous_page_table
+                if prior_table["rows"] and local_table["rows"]:
+                    prior_header = [
+                        cell["text"] if cell is not None else None
+                        for cell in prior_table["rows"][0]["cells"]
+                    ]
+                    current_header = [
+                        cell["text"] if cell is not None else None
+                        for cell in local_table["rows"][0]["cells"]
+                    ]
+                    if current_header == prior_header:
+                        local_table["rows"] = local_table["rows"][1:]
+                prior_table["rows"].extend(local_table["rows"])
+                prior_table["regions"].extend(local_table["regions"])
+                prior_table["page_end"] = page_number
+                table_id = prior_table["id"]
+                current_page_table = (
+                    prior_table,
+                    boundaries,
+                    slot_count,
+                    page_height,
+                )
+            else:
+                table_id = f"table-{len(all_tables) + 1}"
+                local_table["id"] = table_id
+                all_tables.append(local_table)
+                current_page_table = (
+                    local_table,
+                    boundaries,
+                    slot_count,
+                    page_height,
+                )
+            page_table_ids.append(table_id)
+        previous_page_table = current_page_table
+        table_bboxes = [
+            bbox
+            for _local_table, _boundaries, _slot_count, bboxes in page_table_regions
+            for bbox in bboxes
+        ]
+        all_lines, content_lines = _extract_lines(
+            page,
+            page_width=page_width,
+            page_height=page_height,
+            budget=budget,
+            excluded_bboxes=table_bboxes,
+        )
         typography_ranks = {
             size: rank
             for rank, size in enumerate(
-                sorted({line.font_size for line in lines}, reverse=True),
+                sorted({line.font_size for line in content_lines}, reverse=True),
                 start=1,
             )
         }
         numbering_has_nested_level = any(
             match and match.group(1).count(".") + 1 >= 2
-            for line in lines
+            for line in content_lines
             for match in [_NUMBERED_HEADING.match(line.text)]
         )
         body_like_sizes = [
             line.font_size
-            for line in lines
+            for line in content_lines
             if (
                 line.text.rstrip().endswith((".", "!", "?"))
                 or len(line.text) >= 40
@@ -317,18 +611,17 @@ def _parse_pages(
         if body_like_sizes:
             median_body_size = median(body_like_sizes)
         else:
-            lower_sizes = sorted(line.font_size for line in lines)
+            lower_sizes = sorted(line.font_size for line in content_lines)
             lower_count = max(1, (len(lower_sizes) + 1) // 2)
             median_body_size = median(lower_sizes[:lower_count] or [0.0])
         heading_lines: set[int] = set()
         page_heading_ids: list[str] = []
-        page_lines: list[str] = []
+        page_lines = [line.text for line in all_lines]
         current_section_id: str | None = (
             section_stack[-1][1] if section_stack else None
         )
         line_section_ids: dict[int, str | None] = {}
-        for line_index, line in enumerate(lines):
-            page_lines.append(line.text)
+        for line_index, line in enumerate(content_lines):
             is_heading, level = _is_heading(
                 line,
                 median_body_size=median_body_size,
@@ -365,7 +658,7 @@ def _parse_pages(
 
         page_paragraph_ids: list[str] = []
         paragraph_lines: list[tuple[_Line, str | None]] = []
-        for line_index, line in enumerate(lines):
+        for line_index, line in enumerate(content_lines):
             if line_index in heading_lines or not line.text:
                 if paragraph_lines:
                     budget.consume()
@@ -412,7 +705,7 @@ def _parse_pages(
                 "text": "\n".join(page_lines),
                 "headings": page_heading_ids,
                 "paragraphs": page_paragraph_ids,
-                "tables": [],
+                "tables": page_table_ids,
             }
         )
     return parsed_pages
@@ -451,6 +744,7 @@ def _assemble_ir(
     pages: list[dict[str, Any]],
     sections: list[dict[str, Any]],
     paragraphs: list[dict[str, Any]],
+    tables: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Assemble versioned root Document IR payload."""
     return {
@@ -463,9 +757,8 @@ def _assemble_ir(
         "pages": pages,
         "sections": sections,
         "paragraphs": paragraphs,
-        "tables": [],
+        "tables": tables,
     }
-
 
 def parse_document_ir(
     data: bytes,
@@ -484,10 +777,17 @@ def parse_document_ir(
     budget.consume(validation.page_count)
     sections: list[dict[str, Any]] = []
     paragraphs: list[dict[str, Any]] = []
+    tables: list[dict[str, Any]] = []
     try:
         with pdfplumber.open(BytesIO(data)) as pdf:
             with _bounded_layout_hook(budget):
-                pages = _parse_pages(pdf.pages, budget, sections, paragraphs)
+                pages = _parse_pages(
+                    pdf.pages,
+                    budget,
+                    sections,
+                    paragraphs,
+                    tables,
+                )
     except PDFValidationError:
         raise
     except Exception as exc:
@@ -495,5 +795,5 @@ def parse_document_ir(
             if isinstance(nested, PDFValidationError):
                 raise nested
         raise DocumentIRExtractionError("Document IR extraction failed") from exc
-    content = _assemble_ir(validation, pages, sections, paragraphs)
+    content = _assemble_ir(validation, pages, sections, paragraphs, tables)
     return ParsedDocumentIR(validation=validation, content=content)
