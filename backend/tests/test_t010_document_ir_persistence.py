@@ -30,8 +30,24 @@ from app.models.identity import User
 from app.models.rubric import RubricVersion
 from app.models.submission import DocumentVersion, Submission
 from app.services import document_ir
-from app.services.document_ir import PARSER_VERSION, SCHEMA_VERSION, ParsedDocumentIR
+from app.services.document_ir import (
+    DocumentIRExtractionError,
+    PARSER_VERSION,
+    SCHEMA_VERSION,
+    ParsedDocumentIR,
+)
 from app.services.pdf_validation import PDFValidationError, PDFValidationResult
+
+
+@pytest.fixture
+def worker_tasks(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("POSTGRES_DB", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_USER", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "test-only")
+    get_settings.cache_clear()
+    from app.workers import tasks
+
+    return tasks
 
 
 def _result(value):
@@ -451,3 +467,253 @@ async def _run_postgresql_concurrency_test() -> None:
 )
 def test_postgresql_document_ir_concurrency() -> None:
     asyncio.run(_run_postgresql_concurrency_test())
+
+
+class _WorkerSessionContext:
+    def __init__(self, db: object) -> None:
+        self.db = db
+
+    async def __aenter__(self) -> object:
+        return self.db
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+
+def _worker_job() -> tuple[SimpleNamespace, SimpleNamespace]:
+    document = SimpleNamespace(
+        id=uuid.uuid4(),
+        storage_key="uploads/document.pdf",
+        declared_sha256=None,
+        submission_id=uuid.uuid4(),
+        status=DocumentStatus.PROCESSING,
+        sha256=None,
+        size_bytes=None,
+        page_count=None,
+        failure_code=None,
+        failure_detail=None,
+    )
+    job = SimpleNamespace(
+        id=uuid.uuid4(),
+        document_version_id=document.id,
+        attempt_count=2,
+        document_version=document,
+    )
+    return job, document
+
+
+def _patch_worker(
+    monkeypatch: pytest.MonkeyPatch,
+    db: object,
+    job: SimpleNamespace,
+    worker_tasks: object,
+) -> None:
+    monkeypatch.setattr(
+        worker_tasks,
+        "_session_factory",
+        lambda: lambda: _WorkerSessionContext(db),
+    )
+    monkeypatch.setattr(
+        worker_tasks, "claim_next_job", AsyncMock(return_value=job)
+    )
+    monkeypatch.setattr(
+        worker_tasks,
+        "get_settings",
+        lambda: SimpleNamespace(
+            analysis_job_heartbeat_seconds=60,
+            pdf_max_size_bytes=50,
+        ),
+    )
+    monkeypatch.setattr(
+        worker_tasks,
+        "S3Storage",
+        lambda: SimpleNamespace(
+            get_bounded=lambda _key, _limit: b"bounded-pdf"
+        ),
+    )
+    monkeypatch.setattr(
+        worker_tasks, "update_heartbeat", AsyncMock(return_value=True)
+    )
+
+
+def test_worker_builds_ir_and_copies_source_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+) -> None:
+    job, document = _worker_job()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    ir = SimpleNamespace(
+        content={
+            "source": {
+                "sha256": "a" * 64,
+                "size_bytes": 123,
+                "page_count": 4,
+            }
+        }
+    )
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    build_ir = AsyncMock(return_value=ir)
+    monkeypatch.setattr(
+        worker_tasks, "get_or_build_document_ir", build_ir, raising=False
+    )
+    validate = MagicMock(side_effect=AssertionError("validate_pdf called"))
+    monkeypatch.setattr(worker_tasks, "validate_pdf", validate, raising=False)
+    mark_done = AsyncMock(return_value=True)
+    monkeypatch.setattr(worker_tasks, "mark_done", mark_done)
+
+    result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result == str(job.id)
+    build_ir.assert_awaited_once_with(db, document.id, b"bounded-pdf")
+    validate.assert_not_called()
+    assert document.sha256 == "a" * 64
+    assert document.size_bytes == 123
+    mark_done.assert_awaited_once_with(db, job, attempt_count=2)
+    assert db.commit.await_count == 2
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "detail"),
+    [
+        (
+            PDFValidationError("PDF_STRUCTURE_LIMIT", "PDF structure exceeds limits"),
+            "PDF_STRUCTURE_LIMIT",
+            "PDF structure exceeds limits",
+        ),
+        (
+            PDFValidationError("PDF_SHA256_MISMATCH", "PDF checksum does not match"),
+            "PDF_SHA256_MISMATCH",
+            "PDF checksum does not match",
+        ),
+        (
+            PDFValidationError("PDF_DUPLICATE", "Duplicate document version"),
+            "PDF_DUPLICATE",
+            "Duplicate document version",
+        ),
+    ],
+)
+def test_worker_persists_pdf_validation_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+    error: PDFValidationError,
+    code: str,
+    detail: str,
+) -> None:
+    job, document = _worker_job()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    monkeypatch.setattr(
+        worker_tasks,
+        "get_or_build_document_ir",
+        AsyncMock(side_effect=error),
+        raising=False,
+    )
+    mark_error = AsyncMock(return_value=True)
+    monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
+
+    result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result == str(job.id)
+    assert document.status is DocumentStatus.INVALID
+    assert document.failure_code == code
+    assert document.failure_detail == detail
+    mark_error.assert_awaited_once_with(
+        db, job, code, detail, attempt_count=2
+    )
+    assert db.commit.await_count == 2
+
+
+def test_worker_sanitizes_ir_extraction_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+) -> None:
+    job, document = _worker_job()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    monkeypatch.setattr(
+        worker_tasks,
+        "get_or_build_document_ir",
+        AsyncMock(side_effect=DocumentIRExtractionError("secret parser detail")),
+        raising=False,
+    )
+    mark_error = AsyncMock(return_value=True)
+    monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
+
+    result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result == str(job.id)
+    assert document.status is DocumentStatus.PROCESSING_FAILED
+    assert document.failure_code == "PDF_IR_EXTRACTION_FAILED"
+    assert document.failure_detail == "Document structure extraction failed"
+    mark_error.assert_awaited_once_with(
+        db,
+        job,
+        "PDF_IR_EXTRACTION_FAILED",
+        "Document structure extraction failed",
+        attempt_count=2,
+    )
+    assert "secret" not in document.failure_detail
+
+
+def test_worker_marks_storage_failure_with_sanitized_detail(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+) -> None:
+    job, document = _worker_job()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    monkeypatch.setattr(
+        worker_tasks,
+        "get_or_build_document_ir",
+        AsyncMock(side_effect=RuntimeError("signed URL secret")),
+        raising=False,
+    )
+    mark_error = AsyncMock(return_value=True)
+    monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
+
+    result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result == str(job.id)
+    assert document.status is DocumentStatus.PROCESSING_FAILED
+    assert document.failure_code == "PDF_STORAGE_ERROR"
+    assert document.failure_detail == "Object storage read failed"
+    mark_error.assert_awaited_once_with(
+        db,
+        job,
+        "PDF_STORAGE_ERROR",
+        "Object storage read failed",
+        attempt_count=2,
+    )
+    assert "signed URL" not in document.failure_detail
+
+
+def test_worker_rolls_back_ir_when_done_is_fenced_out(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+) -> None:
+    job, document = _worker_job()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    ir = SimpleNamespace(
+        content={
+            "source": {
+                "sha256": "b" * 64,
+                "size_bytes": 9,
+                "page_count": 1,
+            }
+        }
+    )
+    monkeypatch.setattr(
+        worker_tasks,
+        "get_or_build_document_ir",
+        AsyncMock(return_value=ir),
+        raising=False,
+    )
+    mark_done = AsyncMock(return_value=False)
+    monkeypatch.setattr(worker_tasks, "mark_done", mark_done)
+
+    result = asyncio.run(worker_tasks._run_analysis_job(None))
+    assert result is None
+    mark_done.assert_awaited_once_with(db, job, attempt_count=2)
+    db.rollback.assert_awaited_once()
+    assert db.commit.await_count == 1

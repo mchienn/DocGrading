@@ -5,13 +5,11 @@ import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
-import sqlalchemy as sa
 from celery import Task
 
 from app.core.config import get_settings
 from app.db.session import _session_factory
 from app.models.enums import DocumentStatus
-from app.models.submission import DocumentVersion
 from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.analysis_job import (
     active_lease_retry_delay,
@@ -21,7 +19,11 @@ from app.services.analysis_job import (
     mark_error,
     update_heartbeat,
 )
-from app.services.pdf_validation import PDFValidationError, validate_pdf
+from app.services.document_ir import (
+    DocumentIRExtractionError,
+    get_or_build_document_ir,
+)
+from app.services.pdf_validation import PDFValidationError
 from app.services.storage import S3Storage
 from app.workers.celery_app import celery_app
 
@@ -93,34 +95,14 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                     job.document_version.storage_key,
                     get_settings().pdf_max_size_bytes,
                 )
-                result = await asyncio.to_thread(
-                    validate_pdf,
-                    data,
-                    max_size_bytes=get_settings().pdf_max_size_bytes,
-                    max_page_count=get_settings().pdf_max_page_count,
+                ir = await get_or_build_document_ir(
+                    db, job.document_version.id, data
                 )
-                if (
-                    job.document_version.declared_sha256
-                    and job.document_version.declared_sha256 != result.sha256
-                ):
-                    job_outcome = ("sha_mismatch", None)
-                else:
-                    duplicate = (
-                        await db.execute(
-                            sa.select(DocumentVersion.id).where(
-                                DocumentVersion.submission_id
-                                == job.document_version.submission_id,
-                                DocumentVersion.sha256 == result.sha256,
-                                DocumentVersion.id != job.document_version.id,
-                            )
-                        )
-                    ).scalar_one_or_none()
-                    if duplicate is not None:
-                        job_outcome = ("duplicate", None)
-                    else:
-                        job_outcome = ("success", result)
+                job_outcome = ("success", ir)
             except PDFValidationError as exc:
                 job_outcome = ("validation_error", exc)
+            except DocumentIRExtractionError:
+                job_outcome = ("ir_extraction_error", None)
             except Exception:
                 # Keep provider exceptions (which may include URLs/request metadata)
                 # out of logs and persisted student-visible detail.
@@ -130,35 +112,7 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
 
-        if job_outcome[0] == "sha_mismatch":
-            job.document_version.status = DocumentStatus.INVALID
-            job.document_version.failure_code = "PDF_SHA256_MISMATCH"
-            job.document_version.failure_detail = "PDF checksum does not match"
-            success = await mark_error(
-                db,
-                job,
-                "PDF_SHA256_MISMATCH",
-                "PDF checksum does not match",
-                attempt_count=claimed_attempt,
-            )
-            if not success:
-                await db.rollback()
-                return None
-        elif job_outcome[0] == "duplicate":
-            job.document_version.status = DocumentStatus.INVALID
-            job.document_version.failure_code = "PDF_DUPLICATE"
-            job.document_version.failure_detail = "Duplicate document version"
-            success = await mark_error(
-                db,
-                job,
-                "PDF_DUPLICATE",
-                "Duplicate document version",
-                attempt_count=claimed_attempt,
-            )
-            if not success:
-                await db.rollback()
-                return None
-        elif job_outcome[0] == "validation_error":
+        if job_outcome[0] == "validation_error":
             exc = job_outcome[1]
             job.document_version.status = DocumentStatus.INVALID
             job.document_version.failure_code = exc.code
@@ -168,6 +122,22 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                 job,
                 exc.code,
                 exc.detail,
+                attempt_count=claimed_attempt,
+            )
+            if not success:
+                await db.rollback()
+                return None
+        elif job_outcome[0] == "ir_extraction_error":
+            job.document_version.status = DocumentStatus.PROCESSING_FAILED
+            job.document_version.failure_code = "PDF_IR_EXTRACTION_FAILED"
+            job.document_version.failure_detail = (
+                "Document structure extraction failed"
+            )
+            success = await mark_error(
+                db,
+                job,
+                "PDF_IR_EXTRACTION_FAILED",
+                "Document structure extraction failed",
                 attempt_count=claimed_attempt,
             )
             if not success:
@@ -188,10 +158,11 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                 await db.rollback()
                 return None
         elif job_outcome[0] == "success":
-            result = job_outcome[1]
-            job.document_version.sha256 = result.sha256
-            job.document_version.size_bytes = result.size_bytes
-            job.document_version.page_count = result.page_count
+            ir = job_outcome[1]
+            source = ir.content["source"]
+            job.document_version.sha256 = source["sha256"]
+            job.document_version.size_bytes = source["size_bytes"]
+            job.document_version.page_count = source["page_count"]
             success = await mark_done(db, job, attempt_count=claimed_attempt)
             if not success:
                 await db.rollback()
