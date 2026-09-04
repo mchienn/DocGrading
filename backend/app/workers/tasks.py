@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from celery import Task
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.db.session import _session_factory
@@ -101,6 +102,9 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                 job_outcome = ("validation_error", exc)
             except DocumentIRExtractionError:
                 job_outcome = ("ir_extraction_error", None)
+            except SQLAlchemyError:
+                await db.rollback()
+                raise
             except Exception:
                 # Keep provider exceptions (which may include URLs/request metadata)
                 # out of logs and persisted student-visible detail.

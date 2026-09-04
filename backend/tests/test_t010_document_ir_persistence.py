@@ -1026,6 +1026,33 @@ def test_worker_sanitizes_ir_extraction_failure(
     assert "secret" not in document.failure_detail
 
 
+def test_worker_reraises_database_error_without_persisting_storage_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+) -> None:
+    job, document = _worker_job()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    error = sa.exc.SQLAlchemyError("database unavailable")
+    monkeypatch.setattr(
+        worker_tasks,
+        "get_or_build_document_ir",
+        AsyncMock(side_effect=error),
+        raising=False,
+    )
+    mark_error = AsyncMock()
+    monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
+
+    with pytest.raises(sa.exc.SQLAlchemyError, match="database unavailable"):
+        asyncio.run(worker_tasks._run_analysis_job(None))
+
+    db.rollback.assert_awaited_once_with()
+    mark_error.assert_not_awaited()
+    assert document.status is DocumentStatus.PROCESSING
+    assert document.failure_code is None
+    assert db.commit.await_count == 1
+
+
 def test_worker_marks_storage_failure_with_sanitized_detail(
     monkeypatch: pytest.MonkeyPatch,
     worker_tasks: object,
