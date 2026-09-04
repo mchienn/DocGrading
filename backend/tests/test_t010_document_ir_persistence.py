@@ -154,7 +154,17 @@ async def _test_existing_ir_replay_does_not_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = _target()
-    existing = SimpleNamespace(id=uuid.uuid4(), content={"old": True})
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        content={
+            "old": True,
+            "source": {
+                "sha256": "a" * 64,
+                "size_bytes": 3,
+                "page_count": 1,
+            },
+        },
+    )
     db = AsyncMock()
     db.add = MagicMock()
     db.execute.side_effect = [
@@ -418,7 +428,17 @@ async def _run_postgresql_concurrency_test() -> None:
             parser_calls += 1
         parser_entered.set()
         assert release_parser.wait(timeout=10)
-        return _parsed("1" * 64, {"pages": []})
+        return _parsed(
+            "1" * 64,
+            {
+                "pages": [],
+                "source": {
+                    "sha256": "1" * 64,
+                    "size_bytes": 3,
+                    "page_count": 1,
+                },
+            },
+        )
 
     original_parser = document_ir.parse_document_ir
     document_ir.parse_document_ir = gated_parser
@@ -991,6 +1011,43 @@ def test_worker_persists_pdf_validation_errors(
     assert document.failure_code == code
     assert document.failure_detail == detail
     mark_error.assert_awaited_once_with(db, job, code, detail, attempt_count=2)
+    assert db.commit.await_count == 2
+
+
+def test_worker_marks_invalid_persisted_ir_as_extraction_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+) -> None:
+    job, document = _worker_job()
+    existing = SimpleNamespace(content={})
+    db = SimpleNamespace(
+        commit=AsyncMock(),
+        rollback=AsyncMock(),
+        execute=AsyncMock(
+            side_effect=[
+                _result(SimpleNamespace(id=document.submission_id)),
+                _result(document),
+                _result(existing),
+            ]
+        ),
+    )
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    mark_error = AsyncMock(return_value=True)
+    monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
+
+    result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result == str(job.id)
+    assert document.status is DocumentStatus.PROCESSING_FAILED
+    assert document.failure_code == "PDF_IR_EXTRACTION_FAILED"
+    assert document.failure_detail == "Document structure extraction failed"
+    mark_error.assert_awaited_once_with(
+        db,
+        job,
+        "PDF_IR_EXTRACTION_FAILED",
+        "Document structure extraction failed",
+        attempt_count=2,
+    )
     assert db.commit.await_count == 2
 
 

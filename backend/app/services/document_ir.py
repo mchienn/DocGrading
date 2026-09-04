@@ -88,6 +88,26 @@ class ParsedDocumentIR:
     content: dict[str, Any]
 
 
+def _validate_persisted_document_ir(ir: DocumentIR) -> None:
+    content = ir.content
+    source = content.get("source") if isinstance(content, Mapping) else None
+    if not isinstance(source, Mapping):
+        raise DocumentIRExtractionError()
+
+    sha256 = source.get("sha256")
+    size_bytes = source.get("size_bytes")
+    page_count = source.get("page_count")
+    if (
+        not isinstance(sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", sha256) is None
+        or type(size_bytes) is not int
+        or size_bytes <= 0
+        or type(page_count) is not int
+        or page_count <= 0
+    ):
+        raise DocumentIRExtractionError()
+
+
 async def get_or_build_document_ir(
     db: AsyncSession,
     document_version_id: uuid.UUID,
@@ -118,6 +138,7 @@ async def get_or_build_document_ir(
         )
     ).scalar_one_or_none()
     if existing is not None and not rebuild:
+        _validate_persisted_document_ir(existing)
         return existing
 
     settings = get_settings()
