@@ -12,6 +12,7 @@ from app.models import (
     AuditEvent,
     Course,
     CriterionVersion,
+    DocumentIR,
     DocumentVersion,
     Membership,
     RubricVersion,
@@ -32,6 +33,7 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     TemplateVersion: "template_versions",
     Submission: "submissions",
     DocumentVersion: "document_versions",
+    DocumentIR: "document_irs",
     AnalysisJob: "analysis_jobs",
     AnalysisJobDispatch: "analysis_job_dispatches",
     AuditEvent: "audit_events",
@@ -71,6 +73,7 @@ def test_user_roles_and_json_snapshots_use_postgresql_types() -> None:
     assert isinstance(AnalysisJob.__table__.c.snapshot.type, JSONB)
     assert isinstance(AuditEvent.__table__.c.before.type, JSONB)
     assert isinstance(AuditEvent.__table__.c.after.type, JSONB)
+    assert isinstance(DocumentIR.__table__.c.content.type, JSONB)
 
 
 def test_ownership_and_version_foreign_keys_are_explicit() -> None:
@@ -90,6 +93,7 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
         AnalysisJob
     )
     assert "analysis_jobs.id" in foreign_key_targets(AnalysisJobDispatch)
+    assert "document_versions.id" in foreign_key_targets(DocumentIR)
 
 
 def test_critical_constraints_and_indexes_have_stable_names() -> None:
@@ -121,6 +125,24 @@ def test_critical_constraints_and_indexes_have_stable_names() -> None:
         if isinstance(constraint, sa.UniqueConstraint)
     }
     assert "uq_analysis_jobs_document_rubric" in analysis_jobs_constraints
+
+    document_irs_checks = {
+        c.name
+        for c in Base.metadata.tables["document_irs"].constraints
+        if isinstance(c, CheckConstraint)
+    }
+    assert {
+        "ck_document_irs_schema_version_positive",
+        "ck_document_irs_parser_version_not_blank",
+        "ck_document_irs_content_object",
+    } <= document_irs_checks
+
+    document_irs_unique = {
+        constraint.name
+        for constraint in Base.metadata.tables["document_irs"].constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    }
+    assert "uq_document_irs_document_version_id" in document_irs_unique
 
 
 def test_required_text_columns_have_stable_nonblank_constraints() -> None:
@@ -161,6 +183,9 @@ def test_required_text_columns_have_stable_nonblank_constraints() -> None:
             "ck_audit_events_resource_type_not_blank",
             "ck_audit_events_action_not_blank",
             "ck_audit_events_reason_not_blank",
+        },
+        "document_irs": {
+            "ck_document_irs_parser_version_not_blank",
         },
     }
     actual = {

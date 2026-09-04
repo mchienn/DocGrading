@@ -237,6 +237,7 @@ def test_worker_rejects_server_computed_sha_mismatch(
     worker_tasks: object,
 ) -> None:
     document = SimpleNamespace(
+        id=uuid.uuid4(),
         storage_key="private/object.pdf",
         declared_sha256="0" * 64,
         submission_id=uuid.uuid4(),
@@ -252,17 +253,17 @@ def test_worker_rejects_server_computed_sha_mismatch(
         "S3Storage",
         lambda: SimpleNamespace(get_bounded=lambda *_args: b"%PDF-1.7"),
     )
-    monkeypatch.setattr(
-        worker_tasks,
-        "validate_pdf",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            sha256="1" * 64, size_bytes=8, page_count=1
-        ),
+    build_ir = AsyncMock(
+        side_effect=PDFValidationError(
+            "PDF_SHA256_MISMATCH", "PDF checksum does not match"
+        )
     )
+    monkeypatch.setattr(worker_tasks, "get_or_build_document_ir", build_ir)
+    monkeypatch.setattr(worker_tasks, "update_heartbeat", AsyncMock(return_value=True))
     mark_error = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
-
     result = asyncio.run(worker_tasks._run_analysis_job(str(job.id)))
+    build_ir.assert_awaited_once()
 
     assert result == str(job.id)
     assert document.status is DocumentStatus.INVALID
