@@ -312,11 +312,7 @@ def _line_from_words(words: Sequence[_Word]) -> _Line:
     )
     return _Line(
         text=" ".join(word.text for word in words if word.text),
-        bbox=(
-            _union_bbox(words[0].bbox, words[-1].bbox)
-            if len(words) == 1
-            else _union_words_bbox(words)
-        ),
+        bbox=_union_words_bbox(words),
         font_size=max(word.font_size for word in words),
         font_name=font_name,
     )
@@ -806,7 +802,7 @@ def _parse_pages(
                 ) = previous_page_table
                 prior_region = prior_table["regions"][-1]["bbox"]
                 current_region = local_table["regions"][0]["bbox"]
-                can_merge = (
+                can_merge = bool(
                     prior_table["page_end"] == page_number - 1
                     and prior_region["bottom"] >= 0.8 * prior_height
                     and current_region["top"] <= 0.2 * page_height

@@ -804,7 +804,7 @@ async def _run_postgresql_duplicate_race_test() -> None:
                         ):
                             blocked = True
                             break
-                        await asyncio.sleep(0)
+                        await asyncio.sleep(0.05)
                     assert blocked, "second session never waited on Submission lock"
                     release_parser.set()
                     await first_task
@@ -984,6 +984,7 @@ def test_worker_builds_ir_and_copies_source_metadata(
     validate.assert_not_called()
     assert document.sha256 == "a" * 64
     assert document.size_bytes == 123
+    assert document.page_count == 4
     mark_done.assert_awaited_once_with(db, job, attempt_count=2)
     assert db.commit.await_count == 2
 

@@ -93,7 +93,7 @@ Each page stores:
 
 - `number`, `width`, `height`;
 - reading-order `text` reconstructed from accepted lines;
-- ordered IDs of headings, paragraphs, and table regions on that page.
+- ordered IDs of headings, paragraphs, and logical tables that have a region on that page.
 
 An accepted blank page remains present with empty text and block IDs.
 
