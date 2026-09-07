@@ -776,6 +776,13 @@ def test_active_values_and_structures_are_rejected(active: dict[str, object]) ->
     assert _contains_active_content(active)
 
 
+def test_active_content_scan_keeps_distinct_identity_collisions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pdf_validation, "id", lambda _: 1, raising=False)
+    assert _contains_active_content([{}, {"/Safe": {"/Type": "/Action", "/S": "/URI"}}])
+
+
 def test_null_active_keys_and_structural_s_are_benign() -> None:
     assert not _contains_active_content({"/S": "/Table"})
     assert not _contains_active_content(

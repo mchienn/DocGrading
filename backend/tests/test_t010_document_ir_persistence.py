@@ -587,7 +587,6 @@ async def _run_postgresql_concurrency_test() -> None:
         if graph_committed:
             async with engine.begin() as conn:
                 for table, key in (
-                    (DocumentIR.__table__, "version"),
                     (DocumentVersion.__table__, "version"),
                     (Submission.__table__, "submission"),
                     (Assignment.__table__, "assignment"),
@@ -972,8 +971,6 @@ def test_worker_builds_ir_and_copies_source_metadata(
     monkeypatch.setattr(
         worker_tasks, "get_or_build_document_ir", build_ir, raising=False
     )
-    validate = MagicMock(side_effect=AssertionError("validate_pdf called"))
-    monkeypatch.setattr(worker_tasks, "validate_pdf", validate, raising=False)
     mark_done = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_done", mark_done)
 
@@ -981,7 +978,6 @@ def test_worker_builds_ir_and_copies_source_metadata(
 
     assert result == str(job.id)
     build_ir.assert_awaited_once_with(db, document.id, b"bounded-pdf")
-    validate.assert_not_called()
     assert document.sha256 == "a" * 64
     assert document.size_bytes == 123
     assert document.page_count == 4

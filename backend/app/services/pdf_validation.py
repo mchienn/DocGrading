@@ -907,13 +907,13 @@ def _resolve_active_object(value: Any, nodes: list[int]) -> Any:
 
 def _contains_active_content(
     value: Any,
-    seen: set[tuple[int, bool]] | None = None,
+    seen: dict[tuple[int, bool], Any] | None = None,
     *,
     nodes: list[int] | None = None,
     _action_context: bool = False,
 ) -> bool:
     if seen is None:
-        seen = set()
+        seen = {}
     if nodes is None:
         nodes = [0]
     nodes[0] += 1
@@ -922,9 +922,9 @@ def _contains_active_content(
     if isinstance(value, IndirectObject):
         value = _resolve_active_object(value, nodes)
     marker = (id(value), _action_context)
-    if marker in seen:
+    if marker in seen and seen[marker] is value:
         return False
-    seen.add(marker)
+    seen[marker] = value
     if isinstance(value, dict):
         try:
             object_type = _resolve_active_object(value.get("/Type"), nodes)
