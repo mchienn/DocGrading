@@ -94,6 +94,12 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
     )
     assert "analysis_jobs.id" in foreign_key_targets(AnalysisJobDispatch)
     assert "document_versions.id" in foreign_key_targets(DocumentIR)
+    document_ir_fk = next(
+        constraint
+        for constraint in DocumentIR.__table__.constraints
+        if isinstance(constraint, ForeignKeyConstraint)
+    )
+    assert document_ir_fk.ondelete == "CASCADE"
 
 
 def test_critical_constraints_and_indexes_have_stable_names() -> None:

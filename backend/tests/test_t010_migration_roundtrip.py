@@ -127,8 +127,8 @@ def verify_migration_security_and_schema_contracts(source: str) -> None:
         )
     ]
     assert len(fk_calls) >= 1, "upgrade() must declare ForeignKeyConstraint"
-    assert "public.document_versions.id" in ast.unparse(
-        fk_calls[0]
+    assert all(
+        "public.document_versions.id" in ast.unparse(fk_call) for fk_call in fk_calls
     ), "SC-3 violation: ForeignKeyConstraint must reference public.document_versions.id"
 
 
@@ -272,6 +272,10 @@ def test_migration_0008_roundtrip_postgres() -> None:
             )
             assert row["status"] == data["status"]
             assert row["revision"] == data["revision"]
+            assert row["email"] == data["email"]
+            assert row["display_name"] == data["display_name"]
+            assert row["password_hash"] == data["password_hash"]
+            assert list(row["roles"]) == data["roles"]
 
     async def _cleanup_sentinel_user(eng: AsyncEngine, user_id: uuid.UUID) -> None:
         async with eng.begin() as conn:

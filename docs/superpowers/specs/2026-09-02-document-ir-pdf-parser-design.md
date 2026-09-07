@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-02
 
-**Status:** Approved design, pending implementation plan
+**Status:** Implemented (see `docs/superpowers/plans/2026-09-02-document-ir-pdf-parser.md`)
 
 **Baseline:** `main` at `59a3a7ab3e855caafc98b44e2ce3185c26400708`. Work remains backend-only and does not depend on an unmerged T-009 branch.
 
