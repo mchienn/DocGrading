@@ -352,6 +352,21 @@ def test_same_columns_with_different_row_counts_merge() -> None:
     assert parsed.content["tables"][0]["page_end"] == 2
 
 
+def test_large_ruled_table_within_cell_limit_is_accepted() -> None:
+    rows = [[f"Row {index}", str(index)] for index in range(63)]
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            _make_ruled_table_page(
+                rows,
+                y_lines=[20 + (12 * index) for index in range(64)],
+            )
+        )
+    )
+
+    assert len(parsed.content["tables"]) == 1
+    assert len(parsed.content["tables"][0]["rows"]) == len(rows)
+
+
 def test_parser_builds_layout_inside_bounded_hook(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -691,7 +706,7 @@ def test_page_tree_forged_low_count_and_indirect_chain_fail_closed() -> None:
     chain: object = IndirectObject(0, 0, store)
     for index in range(10_001):
         store.objects[index] = IndirectObject(index + 1, 0, store)
-    store.objects[10_002] = {
+    store.objects[10_001] = {
         "/Type": "/Pages",
         "/Count": 0,
         "/Kids": [],
@@ -790,6 +805,29 @@ def test_library_log_filter_suppresses_only_untrusted_records(
     with pytest.raises(RuntimeError), _suppress_untrusted_pdf_logs():
         raise RuntimeError("expected")
     assert root.filters == filters
+
+
+def test_log_filter_snapshots_logger_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MutatingRegistry(dict[str, object]):
+        def items(self):
+            iterator = iter(super().items())
+            for index, item in enumerate(iterator):
+                yield item
+                if index == 0:
+                    self["pypdf.late"] = logging.Logger("pypdf.late")
+
+    registry = MutatingRegistry(
+        {
+            "pypdf.first": logging.Logger("pypdf.first"),
+            "pypdf.second": logging.Logger("pypdf.second"),
+        }
+    )
+    monkeypatch.setattr(logging.Logger.manager, "loggerDict", registry)
+
+    with _suppress_untrusted_pdf_logs():
+        pass
 
 
 def test_concurrent_log_contexts_isolate_library_records_and_restore() -> None:

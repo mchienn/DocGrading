@@ -524,7 +524,6 @@ def _extract_tables(
         source_count > _MAX_TABLE_SOURCE_OBJECTS
         or estimated_edges > _MAX_TABLE_EDGES
         or estimated_edges * estimated_edges > _MAX_TABLE_INTERSECTIONS
-        or estimated_edges * estimated_edges > _MAX_TABLE_CELLS
         or budget.used + estimated_edges + _TABLE_WORK_RESERVE > budget.limit
     ):
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
@@ -572,7 +571,6 @@ def _extract_tables(
     if (
         text_edges > _MAX_TABLE_EDGES
         or text_edges * text_edges > _MAX_TABLE_INTERSECTIONS
-        or text_edges * text_edges > _MAX_TABLE_CELLS
         or budget.used + _TABLE_WORK_RESERVE > budget.limit
     ):
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
@@ -621,6 +619,7 @@ def _extract_tables(
         )
     )
     parsed_tables = []
+    cell_count = 0
     for _table_page, table, table_bbox, is_text in candidates:
         budget.consume(2)
         table_bbox = _table_bbox(
@@ -629,8 +628,13 @@ def _extract_tables(
             page_height=page_height,
         )
         try:
-            extracted_rows = table.extract()
             table_rows = table.rows
+            cell_count += sum(len(row.cells) for row in table_rows)
+            if cell_count > _MAX_TABLE_CELLS:
+                raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+            extracted_rows = table.extract()
+        except PDFValidationError:
+            raise
         except (AttributeError, TypeError, ValueError, IndexError) as exc:
             raise PDFValidationError("PDF_IR_MALFORMED") from exc
         rows: list[dict[str, Any]] = []

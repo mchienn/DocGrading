@@ -50,7 +50,8 @@ def worker_tasks(monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
     from app.workers import tasks
 
-    return tasks
+    yield tasks
+    get_settings.cache_clear()
 
 
 def _result(value):

@@ -198,12 +198,12 @@ Queue delivery, job claim, heartbeat, attempt fencing, status transitions, and d
 
 This checklist is a hard gate before creating migration `20260902_0008`.
 
-- [ ] **SC-1 — pin `search_path`:** `upgrade()` and `downgrade()` begin with `SET search_path TO public`; no unpinned function or trigger is introduced.
-- [ ] **SC-2 — preserve append-only TRUNCATE protection:** migration never disables, replaces, bypasses, truncates, or drops `public.audit_events`, `public.trg_audit_events_append_only`, or `public.trg_audit_events_append_only_truncate`; real-PostgreSQL upgrade/downgrade verification proves `TRUNCATE public.audit_events` remains rejected.
-- [ ] **SC-3 — schema-qualify DDL and FK references:** every Alembic table/index/constraint operation passes `schema="public"`; every FK target uses `public.<table>.<column>`; raw SQL qualifies every application table, index, function, cast, and type.
-- [ ] Upgrade creates only `public.document_irs` and its named constraints/indexes; it does not rewrite existing document/job rows.
-- [ ] Downgrade drops only Document IR objects and refuses no unrelated application state.
-- [ ] Upgrade, downgrade to revision `20260829_0007`, and re-upgrade run against PostgreSQL 17.
+- [x] **SC-1 — pin `search_path`:** `upgrade()` and `downgrade()` begin with `SET search_path TO public`; no unpinned function or trigger is introduced.
+- [x] **SC-2 — preserve append-only TRUNCATE protection:** migration never disables, replaces, bypasses, truncates, or drops `public.audit_events`, `public.trg_audit_events_append_only`, or `public.trg_audit_events_append_only_truncate`; real-PostgreSQL upgrade/downgrade verification proves `TRUNCATE public.audit_events` remains rejected.
+- [x] **SC-3 — schema-qualify DDL and FK references:** every Alembic table/index/constraint operation passes `schema="public"`; every FK target uses `public.<table>.<column>`; raw SQL qualifies every application table, index, function, cast, and type.
+- [x] Upgrade creates only `public.document_irs` and its named constraints/indexes; it does not rewrite existing document/job rows.
+- [x] Downgrade drops only Document IR objects and refuses no unrelated application state.
+- [x] Upgrade, downgrade to revision `20260829_0007`, and re-upgrade run against PostgreSQL 17.
 
 ## 10. Tests
 

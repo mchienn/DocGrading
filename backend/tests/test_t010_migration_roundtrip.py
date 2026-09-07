@@ -458,14 +458,15 @@ def test_migration_0008_roundtrip_postgres() -> None:
     async def _verify_downgrade_0007(
         eng: AsyncEngine, baseline_tables: set[str]
     ) -> None:
+        downgraded_tables = await _get_public_tables(eng)
+        assert (
+            "document_irs" not in downgraded_tables
+        ), "public.document_irs table must be dropped after downgrade"
+        assert (
+            downgraded_tables == baseline_tables
+        ), "Exact public table set after downgrade must match baseline 0007 set"
+
         async with eng.connect() as conn:
-            downgraded_tables = await _get_public_tables(eng)
-            assert (
-                "document_irs" not in downgraded_tables
-            ), "public.document_irs table must be dropped after downgrade"
-            assert (
-                downgraded_tables == baseline_tables
-            ), "Exact public table set after downgrade must match baseline 0007 set"
 
             # Prior invariants remain (e.g., dispatch trigger on analysis_jobs)
             trigger_exists = (await conn.execute(text("""
@@ -482,10 +483,8 @@ def test_migration_0008_roundtrip_postgres() -> None:
 
     try:
         # Step 1: Ensure downgrade to 20260829_0007 and capture baseline tables & insert sentinel
-        try:
-            alembic.command.downgrade(alembic_cfg, "20260829_0007")
-        except Exception:
-            alembic.command.upgrade(alembic_cfg, "20260829_0007")
+        alembic.command.upgrade(alembic_cfg, "head")
+        alembic.command.downgrade(alembic_cfg, "20260829_0007")
 
         baseline_tables = asyncio.run(_get_public_tables(engine))
         assert "document_irs" not in baseline_tables

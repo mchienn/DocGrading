@@ -61,8 +61,9 @@ def _suppress_untrusted_pdf_logs() -> Iterator[None]:
         with _PDF_LOG_LOCK:
             root_logger = logging.getLogger()
             add_target(root_logger)
+            existing_loggers = logging.Logger.manager.loggerDict.copy()
             for namespace in _PYPDF_LOG_NAMESPACES:
-                for name, logger in logging.Logger.manager.loggerDict.items():
+                for name, logger in existing_loggers.items():
                     if isinstance(logger, logging.Logger) and (
                         name == namespace or name.startswith(f"{namespace}.")
                     ):
