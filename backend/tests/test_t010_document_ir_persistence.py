@@ -968,9 +968,7 @@ def test_worker_builds_ir_and_copies_source_metadata(
     )
     _patch_worker(monkeypatch, db, job, worker_tasks)
     build_ir = AsyncMock(return_value=ir)
-    monkeypatch.setattr(
-        worker_tasks, "get_or_build_document_ir", build_ir, raising=False
-    )
+    monkeypatch.setattr(worker_tasks, "get_or_build_document_ir", build_ir)
     mark_done = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_done", mark_done)
 
@@ -1019,7 +1017,6 @@ def test_worker_persists_pdf_validation_errors(
         worker_tasks,
         "get_or_build_document_ir",
         AsyncMock(side_effect=error),
-        raising=False,
     )
     mark_error = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
@@ -1082,7 +1079,6 @@ def test_worker_sanitizes_ir_extraction_failure(
         worker_tasks,
         "get_or_build_document_ir",
         AsyncMock(side_effect=DocumentIRExtractionError("secret parser detail")),
-        raising=False,
     )
     mark_error = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
@@ -1115,7 +1111,6 @@ def test_worker_reraises_database_error_without_persisting_storage_failure(
         worker_tasks,
         "get_or_build_document_ir",
         AsyncMock(side_effect=error),
-        raising=False,
     )
     mark_error = AsyncMock()
     monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
@@ -1141,7 +1136,6 @@ def test_worker_marks_storage_failure_with_sanitized_detail(
         worker_tasks,
         "get_or_build_document_ir",
         AsyncMock(side_effect=RuntimeError("signed URL secret")),
-        raising=False,
     )
     mark_error = AsyncMock(return_value=True)
     monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
@@ -1182,7 +1176,6 @@ def test_worker_rolls_back_ir_when_done_is_fenced_out(
         worker_tasks,
         "get_or_build_document_ir",
         AsyncMock(return_value=ir),
-        raising=False,
     )
     mark_done = AsyncMock(return_value=False)
     monkeypatch.setattr(worker_tasks, "mark_done", mark_done)

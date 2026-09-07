@@ -425,7 +425,7 @@ def make_text_pdf(*page_operations: list[str]) -> bytes:
         page[NameObject("/Resources")] = resources
         content = DecodedStreamObject()
         content.set_data("\n".join(operations).encode("ascii"))
-        page[NameObject("/Contents")] = content
+        page[NameObject("/Contents")] = writer._add_object(content)
     output = BytesIO()
     writer.write(output)
     return output.getvalue()

@@ -892,7 +892,7 @@ def _resolve_active_object(value: Any, nodes: list[int]) -> Any:
     seen: set[int] = set()
     while isinstance(value, IndirectObject):
         nodes[0] += 1
-        if nodes[0] > 10_000:
+        if nodes[0] > _MAX_PAGE_TREE_NODES:
             raise _PDFScanLimit
         marker = id(value)
         if marker in seen:
@@ -917,7 +917,7 @@ def _contains_active_content(
     if nodes is None:
         nodes = [0]
     nodes[0] += 1
-    if nodes[0] > 10_000:
+    if nodes[0] > _MAX_PAGE_TREE_NODES:
         raise _PDFScanLimit
     if isinstance(value, IndirectObject):
         value = _resolve_active_object(value, nodes)

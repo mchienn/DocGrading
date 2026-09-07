@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import exc, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -451,7 +451,7 @@ def test_migration_0008_roundtrip_postgres() -> None:
 
     async def _assert_audit_truncate_rejected(eng: AsyncEngine) -> None:
         async with eng.connect() as conn:
-            with pytest.raises(Exception, match="audit events are append-only"):
+            with pytest.raises(exc.DBAPIError, match="audit events are append-only"):
                 async with conn.begin_nested():
                     await conn.execute(text("TRUNCATE TABLE public.audit_events"))
 
