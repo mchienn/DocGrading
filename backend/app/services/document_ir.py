@@ -691,6 +691,8 @@ def _extract_tables(
             raise
         except (AttributeError, TypeError, ValueError, IndexError) as exc:
             raise PDFValidationError("PDF_IR_MALFORMED") from exc
+        if not rows:
+            continue
         parsed_tables.append(
             (
                 {
