@@ -69,6 +69,21 @@ def _parsed(sha256: str, content: dict) -> ParsedDocumentIR:
     )
 
 
+def _valid_ir_content(sha256: str = "a" * 64) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "source": {
+            "sha256": sha256,
+            "size_bytes": 3,
+            "page_count": 1,
+        },
+        "pages": [],
+        "sections": [],
+        "paragraphs": [],
+        "tables": [],
+    }
+
+
 def _target(
     *,
     declared_sha256: str | None = None,
@@ -156,14 +171,8 @@ async def _test_existing_ir_replay_does_not_parse(
     target = _target()
     existing = SimpleNamespace(
         id=uuid.uuid4(),
-        content={
-            "old": True,
-            "source": {
-                "sha256": "a" * 64,
-                "size_bytes": 3,
-                "page_count": 1,
-            },
-        },
+        schema_version=SCHEMA_VERSION,
+        content=_valid_ir_content(),
     )
     db = AsyncMock()
     db.add = MagicMock()
@@ -183,6 +192,29 @@ async def _test_existing_ir_replay_does_not_parse(
 
 def test_existing_ir_replay_does_not_parse(monkeypatch: pytest.MonkeyPatch) -> None:
     asyncio.run(_test_existing_ir_replay_does_not_parse(monkeypatch))
+
+
+@pytest.mark.parametrize("field", ("pages", "sections", "paragraphs", "tables"))
+def test_existing_ir_replay_rejects_invalid_required_collection(
+    field: str,
+) -> None:
+    target = _target()
+    content = _valid_ir_content()
+    content[field] = {}
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        schema_version=SCHEMA_VERSION,
+        content=content,
+    )
+    db = AsyncMock()
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(existing),
+    ]
+
+    with pytest.raises(DocumentIRExtractionError):
+        asyncio.run(document_ir.get_or_build_document_ir(db, target.id, b"pdf"))
 
 
 async def _test_rebuild_replaces_payload_and_retains_ir_id(
@@ -428,17 +460,7 @@ async def _run_postgresql_concurrency_test() -> None:
             parser_calls += 1
         parser_entered.set()
         assert release_parser.wait(timeout=10)
-        return _parsed(
-            "1" * 64,
-            {
-                "pages": [],
-                "source": {
-                    "sha256": "1" * 64,
-                    "size_bytes": 3,
-                    "page_count": 1,
-                },
-            },
-        )
+        return _parsed("1" * 64, _valid_ir_content("1" * 64))
 
     original_parser = document_ir.parse_document_ir
     document_ir.parse_document_ir = gated_parser
@@ -1019,7 +1041,7 @@ def test_worker_marks_invalid_persisted_ir_as_extraction_failure(
     worker_tasks: object,
 ) -> None:
     job, document = _worker_job()
-    existing = SimpleNamespace(content={})
+    existing = SimpleNamespace(schema_version=SCHEMA_VERSION, content={})
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),

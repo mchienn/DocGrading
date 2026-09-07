@@ -90,10 +90,23 @@ class ParsedDocumentIR:
 
 def _validate_persisted_document_ir(ir: DocumentIR) -> None:
     content = ir.content
-    source = content.get("source") if isinstance(content, Mapping) else None
-    if not isinstance(source, Mapping):
+    if not isinstance(content, Mapping):
+        raise DocumentIRExtractionError()
+    schema_version = content.get("schema_version")
+    if (
+        type(schema_version) is not int
+        or schema_version <= 0
+        or schema_version != ir.schema_version
+        or any(
+            not isinstance(content.get(field), list)
+            for field in ("pages", "sections", "paragraphs", "tables")
+        )
+    ):
         raise DocumentIRExtractionError()
 
+    source = content.get("source")
+    if not isinstance(source, Mapping):
+        raise DocumentIRExtractionError()
     sha256 = source.get("sha256")
     size_bytes = source.get("size_bytes")
     page_count = source.get("page_count")
