@@ -163,3 +163,55 @@ class AnalysisJobDispatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="dispatch",
         foreign_keys=[analysis_job_id],
     )
+
+
+class DocumentIR(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "document_irs"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "document_version_id",
+            name="uq_document_irs_document_version_id",
+        ),
+        sa.CheckConstraint(
+            "schema_version > 0",
+            name="ck_document_irs_schema_version_positive",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(parser_version)) > 0 AND parser_version !~ '^[[:space:]]*$'",
+            name="ck_document_irs_parser_version_not_blank",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(content) = 'object'",
+            name="ck_document_irs_content_object",
+        ),
+    )
+
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "document_versions.id",
+            ondelete="CASCADE",
+            name="fk_document_irs_document_version_id_document_versions",
+        ),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(
+        sa.Integer,
+        default=1,
+        server_default=sa.text("1"),
+        nullable=False,
+    )
+    parser_version: Mapped[str] = mapped_column(
+        sa.String(64),
+        nullable=False,
+    )
+    content: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+    )
+
+    document_version: Mapped[DocumentVersion] = relationship(
+        "DocumentVersion",
+        back_populates="document_ir",
+        foreign_keys=[document_version_id],
+    )

@@ -1,4 +1,4 @@
-from app.models.analysis import AnalysisJob, AnalysisJobDispatch
+from app.models.analysis import AnalysisJob, AnalysisJobDispatch, DocumentIR
 from app.models.assignment import Assignment, AssignmentRequirement
 from app.models.audit import AuditEvent
 from app.models.course import Course, Membership
@@ -31,6 +31,7 @@ __all__ = [
     "Course",
     "CriterionVersion",
     "CourseStatus",
+    "DocumentIR",
     "DocumentStatus",
     "DocumentVersion",
     "Membership",

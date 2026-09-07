@@ -638,11 +638,15 @@ def test_worker_task_runs_heartbeat_and_stops_before_terminal_done(
         def get_bounded(self, key, limit):
             return b"%PDF-1.7"
 
-    def fake_validate_pdf(data, **kwargs):
+    async def fake_get_or_build_document_ir(db, document_version_id, data):
         return SimpleNamespace(
-            sha256="abcdef" * 10 + "1234",
-            size_bytes=100,
-            page_count=2,
+            content={
+                "source": {
+                    "sha256": "abcdef" * 10 + "1234",
+                    "size_bytes": 100,
+                    "page_count": 2,
+                }
+            }
         )
 
     with (
@@ -651,7 +655,11 @@ def test_worker_task_runs_heartbeat_and_stops_before_terminal_done(
         ),
         patch.object(worker_tasks, "claim_next_job", AsyncMock(return_value=job)),
         patch.object(worker_tasks, "S3Storage", FakeStorage),
-        patch.object(worker_tasks, "validate_pdf", fake_validate_pdf),
+        patch.object(
+            worker_tasks,
+            "get_or_build_document_ir",
+            fake_get_or_build_document_ir,
+        ),
         patch.object(
             worker_tasks,
             "update_heartbeat",
@@ -864,11 +872,15 @@ def test_worker_task_rolls_back_when_mark_done_fenced_out(
         def get_bounded(self, key, limit):
             return b"%PDF-1.7"
 
-    def fake_validate_pdf(data, **kwargs):
+    async def fake_get_or_build_document_ir(db, document_version_id, data):
         return SimpleNamespace(
-            sha256="abcdef" * 10 + "1234",
-            size_bytes=100,
-            page_count=2,
+            content={
+                "source": {
+                    "sha256": "abcdef" * 10 + "1234",
+                    "size_bytes": 100,
+                    "page_count": 2,
+                }
+            }
         )
 
     with (
@@ -877,7 +889,11 @@ def test_worker_task_rolls_back_when_mark_done_fenced_out(
         ),
         patch.object(worker_tasks, "claim_next_job", AsyncMock(return_value=job)),
         patch.object(worker_tasks, "S3Storage", FakeStorage),
-        patch.object(worker_tasks, "validate_pdf", fake_validate_pdf),
+        patch.object(
+            worker_tasks,
+            "get_or_build_document_ir",
+            fake_get_or_build_document_ir,
+        ),
         patch.object(worker_tasks, "update_heartbeat", AsyncMock(return_value=True)),
         patch.object(
             worker_tasks, "mark_done", AsyncMock(return_value=False)

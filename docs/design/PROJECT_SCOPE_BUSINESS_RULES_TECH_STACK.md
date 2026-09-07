@@ -395,7 +395,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 | ORM/migration | SQLAlchemy 2, Alembic | Transaction rõ, schema migration có version; không tạo SQL bằng LLM. |
 | Queue | Celery 5.6 + Redis 7 | Chỉ dùng task, retry, late acknowledgement và routing cơ bản; PostgreSQL dispatch outbox được drain sau commit và bởi poller lifespan FastAPI, không dùng chain/canvas/beat trong MVP. Task phải idempotent. |
 | Database | PostgreSQL 17, latest minor | Lưu nguồn sự thật, JSONB cho evaluator payload có schema và relational columns cho dữ liệu cần query. Không dùng MongoDB. |
-| PDF backend | pypdf + pdfplumber | pypdf cho kiểm tra/cấu trúc/text cơ bản; pdfplumber cho character/line/table coordinate. Chạy trong worker process. |
+| PDF backend | pypdf + pdfplumber | pypdf validate-first cho PDF untrusted (strict, page/decoded-size/active-content bounds); pdfplumber cho character/line/table coordinate, gồm bảng ruled và text-aligned. Chạy trong worker process. |
 | File storage | Storage adapter: local volume ở dev, S3-compatible ở staging/prod | Không buộc developer chạy MinIO hằng ngày; production không phụ thuộc local disk của container. |
 | Auth | Opaque server session cookie + Argon2id | Cookie `HttpOnly`, `Secure`, `SameSite=Lax`, CSRF token cho mutation. Không lưu JWT trong localStorage. |
 | AI integration | Provider adapter + JSON Schema | Criterion-scoped prompt, timeout, retry giới hạn, redaction và feature flag theo quality gate. |
@@ -407,7 +407,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 
 - Request web, upload, database và gọi LLM chủ yếu chờ I/O; FastAPI xử lý phần này bằng async I/O.
 - Parse PDF và rule nặng chạy ở Celery worker process, tách khỏi API và có thể tăng số worker theo CPU.
-- Pipeline giới hạn file 100 trang, cache Document IR và không parse lại PDF cho từng criterion.
+- Pipeline giới hạn file 100 trang, parse một lần thành một Document IR JSONB có version cho mỗi `DocumentVersion`, tọa độ dùng hệ top-left theo từng trang; worker tái sử dụng IR cho mọi evaluator và không parse lại PDF cho từng criterion.
 - Tốc độ thực tế phải được đo bằng bộ PDF của dự án. Không chọn thư viện chỉ dựa trên benchmark của nhà cung cấp.
 
 ### 10.2. Thư viện không chọn mặc định
