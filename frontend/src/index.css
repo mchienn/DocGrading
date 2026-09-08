@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+:root {
+  --background: #F7F8FA;
+  --surface: #FFFFFF;
+  --surface-subtle: #F3F5F7;
+
+  --text-primary: #172033;
+  --text-secondary: #596579;
+  --text-muted: #8893A5;
+
+  --border-default: #DDE2E8;
+  --border-subtle: #E9EDF2;
+
+  --brand-primary: #1F4B7A;
+  --brand-hover: #183C63;
+  --brand-subtle: #EAF1F8;
+
+  --success: #237A57;
+  --success-bg: #EAF6F0;
+
+  --warning: #A65F13;
+  --warning-bg: #FFF4E5;
+
+  --danger: #B53A3A;
+  --danger-bg: #FCEEEE;
+
+  --focus-ring: rgba(31, 75, 122, 0.18);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.dashboard-shell {
+  font-size: 1rem;
+}
+
+.dashboard-shell .text-\[10px\] {
+  font-size: 0.6875rem;
+  line-height: 0.9375rem;
+}
+
+.dashboard-shell .text-\[11px\] {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.dashboard-shell .text-xs,
+.dashboard-shell .text-\[12px\] {
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+
+.dashboard-shell .text-sm,
+.dashboard-shell .text-\[13px\],
+.dashboard-shell .text-\[14px\] {
+  font-size: 0.9375rem;
+  line-height: 1.375rem;
+}
+
+.dashboard-shell .text-base {
+  font-size: 1.0625rem;
+  line-height: 1.5rem;
+}
+
+.dashboard-shell .text-lg {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+
+.dashboard-shell .text-xl {
+  font-size: 1.375rem;
+  line-height: 1.875rem;
+}
+
+.dashboard-shell .text-2xl {
+  font-size: 1.625rem;
+  line-height: 2rem;
+}
+
+/* Crisp enterprise scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #DDE2E8;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #B8C4D1;
+}
