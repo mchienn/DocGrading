@@ -212,7 +212,13 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({
             <button
               type="button"
               onClick={() => onPublish(submission.id)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors shadow-2xs"
+              disabled={submission.status !== 'approved'}
+              title={
+                submission.status === 'approved'
+                  ? 'Công bố kết quả'
+                  : 'Duyệt kết quả trước khi công bố'
+              }
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
             >
               <Send className="w-3.5 h-3.5" />
               <span>Công bố kết quả (Publish)</span>

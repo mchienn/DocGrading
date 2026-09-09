@@ -49,7 +49,7 @@ export const VersionCompareView: React.FC<VersionCompareViewProps> = ({
             Phiên bản hiện tại (v{currentSubmission.version}.0)
           </span>
           <p className="text-2xl font-bold font-mono text-emerald-600">
-            {(currentSubmission.finalScore || currentSubmission.proposedScore).toFixed(1)} / 100
+            {(currentSubmission.finalScore ?? currentSubmission.proposedScore).toFixed(1)} / 100
           </p>
           <span className="text-[11px] text-slate-400">Nộp ngày 05/09/2026</span>
         </div>
