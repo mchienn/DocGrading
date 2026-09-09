@@ -266,11 +266,11 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({
                         ) : (
                           <div>
                             <span className="font-bold text-sm text-slate-900 font-mono">
-                              {sub.finalScore ? sub.finalScore.toFixed(1) : sub.proposedScore.toFixed(1)}
+                              {(sub.finalScore ?? sub.proposedScore).toFixed(1)}
                             </span>
                             <span className="text-[10px] text-slate-400">/100</span>
                             <div className="text-[10px] text-slate-400">
-                              (~{( (sub.finalScore || sub.proposedScore) / 10 ).toFixed(1)}/10)
+                              (~{((sub.finalScore ?? sub.proposedScore) / 10).toFixed(1)}/10)
                             </div>
                           </div>
                         )}

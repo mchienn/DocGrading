@@ -18,7 +18,6 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
         rightElement={
           <button
             type="button"
-            tabIndex={-1}
             onClick={() => setShowPassword(!showPassword)}
             className="text-[#667085] hover:text-[#172033] p-1 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-[#2C6EBA]/30"
             aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}

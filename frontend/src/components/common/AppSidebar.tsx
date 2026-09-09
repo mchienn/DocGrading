@@ -1,10 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   BookOpen,
   Inbox,
   GraduationCap,
-  ChevronDown,
-  Check,
   LogOut,
   FolderKanban,
   FileCheck2,
@@ -17,24 +15,21 @@ import { UserRole } from '../../types/docgrading';
 
 interface SidebarProps {
   activeRole: UserRole;
-  onRoleChange: (role: UserRole) => void;
+  onLogout: () => void;
   currentView: string;
   onSelectView: (view: string) => void;
   pendingReviewCount: number;
   appealCount: number;
-  onOpenAuth?: () => void;
 }
 
 export const AppSidebar: React.FC<SidebarProps> = ({
   activeRole,
-  onRoleChange,
+  onLogout,
   currentView,
   onSelectView,
   pendingReviewCount,
   appealCount,
-  onOpenAuth,
 }) => {
-  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
 
   const roleLabels: Record<UserRole, string> = {
     teacher: 'Teacher',
@@ -55,39 +50,9 @@ export const AppSidebar: React.FC<SidebarProps> = ({
           </span>
         </div>
 
-        {/* Role Selector Dropdown */}
-        <div className="relative mb-3.5">
-          <button
-            type="button"
-            onClick={() => setRoleMenuOpen(!roleMenuOpen)}
-            className="w-full h-9 px-3 bg-white hover:bg-[#F3F5F7] border border-[#DDE2E8] hover:border-[#CBD5E1] rounded-lg text-xs font-semibold text-[#172033] flex items-center justify-between transition-colors shadow-2xs cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-[rgba(31,75,122,0.18)]"
-          >
-            <span>{roleLabels[activeRole]}</span>
-            <ChevronDown className={`w-3.5 h-3.5 text-[#8893A5] transition-transform ${roleMenuOpen ? 'rotate-180' : ''}`} />
-          </button>
-
-          {roleMenuOpen && (
-            <div className="absolute top-10 left-0 right-0 z-50 bg-white rounded-xl border border-[#DDE2E8] shadow-[0_4px_16px_rgba(16,24,40,0.08)] py-1 text-xs">
-              {(['teacher', 'student', 'admin'] as UserRole[]).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => {
-                    onRoleChange(r);
-                    setRoleMenuOpen(false);
-                  }}
-                  className={`w-full px-3 py-2 text-left flex items-center justify-between transition-colors ${
-                    activeRole === r
-                      ? 'font-semibold text-[#1F4B7A] bg-[#EAF1F8]'
-                      : 'text-[#596579] hover:bg-[#F3F5F7] hover:text-[#172033]'
-                  }`}
-                >
-                  <span className="capitalize">{roleLabels[r]}</span>
-                  {activeRole === r && <Check className="w-3.5 h-3.5 text-[#1F4B7A]" />}
-                </button>
-              ))}
-            </div>
-          )}
+        {/* Active workspace role */}
+        <div className="mb-3.5 w-full h-9 px-3 bg-[#F3F5F7] border border-[#DDE2E8] rounded-lg text-xs font-semibold text-[#172033] flex items-center">
+          {roleLabels[activeRole]}
         </div>
 
         {/* Navigation Items */}
@@ -233,16 +198,14 @@ export const AppSidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {onOpenAuth && (
-          <button
-            type="button"
-            title="Đăng xuất / Chuyển tài khoản"
-            onClick={onOpenAuth}
-            className="p-1.5 text-[#8893A5] hover:text-[#B53A3A] hover:bg-[#FCEEEE] rounded-lg transition-colors cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-          </button>
-        )}
+        <button
+          type="button"
+          title="Đăng xuất"
+          onClick={onLogout}
+          className="p-1.5 text-[#8893A5] hover:text-[#B53A3A] hover:bg-[#FCEEEE] rounded-lg transition-colors cursor-pointer"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+        </button>
       </div>
     </aside>
   );

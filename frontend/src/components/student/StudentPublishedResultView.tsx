@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   ArrowLeft,
   Award,
@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   ChevronRight,
 } from 'lucide-react';
-import { Submission, Finding } from '../../types/docgrading';
+import { Submission } from '../../types/docgrading';
 
 interface StudentPublishedResultViewProps {
   submission: Submission;
@@ -27,9 +27,8 @@ export const StudentPublishedResultView: React.FC<StudentPublishedResultViewProp
   onOpenAppeal,
   onOpenCompare,
 }) => {
-  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
 
-  const finalScore100 = submission.finalScore || submission.proposedScore;
+  const finalScore100 = submission.finalScore ?? submission.proposedScore;
   const finalScore10 = (finalScore100 / 10).toFixed(1);
 
   return (
@@ -113,6 +112,7 @@ export const StudentPublishedResultView: React.FC<StudentPublishedResultViewProp
         <div className="space-y-3">
           {submission.criteriaResults.map((res) => {
             const scorePercent = ((res.confirmedLevel / 4) * res.weight).toFixed(1);
+            const publishedFindings = res.findings.filter((finding) => finding.status !== 'rejected');
             return (
               <div
                 key={res.criterionId}
@@ -143,9 +143,9 @@ export const StudentPublishedResultView: React.FC<StudentPublishedResultViewProp
                 )}
 
                 {/* Published findings & evidence */}
-                {res.findings.length > 0 && (
+                {publishedFindings.length > 0 && (
                   <div className="space-y-2 pt-1 border-t border-slate-100 text-xs">
-                    {res.findings.map((f) => (
+                    {publishedFindings.map((f) => (
                       <div
                         key={f.id}
                         className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1.5"

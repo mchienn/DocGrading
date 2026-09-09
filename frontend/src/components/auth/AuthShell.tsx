@@ -3,8 +3,6 @@ import { AuthFooter } from './AuthFooter';
 
 interface AuthShellProps {
   children: React.ReactNode;
-  activeScreen?: string;
-  onScreenChange?: (screen: string) => void;
 }
 
 export const AuthShell: React.FC<AuthShellProps> = ({ children }) => {

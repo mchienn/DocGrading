@@ -23,11 +23,6 @@ import { RubricTemplatesView } from '../components/admin/RubricTemplatesView';
 import { AuthShell } from '../components/auth/AuthShell';
 import { ToastProvider } from '../components/auth/Toast';
 import { LoginPage } from '../pages/LoginPage';
-import { RegisterPage } from '../pages/RegisterPage';
-import { ForgotPasswordPage } from '../pages/ForgotPasswordPage';
-import { VerifyEmailPage } from '../pages/VerifyEmailPage';
-import { ResetPasswordPage } from '../pages/ResetPasswordPage';
-import { WorkspaceSuccessPage } from '../pages/WorkspaceSuccessPage';
 import { UserSession } from '../types/auth';
 import { authService } from '../services/authService';
 
@@ -55,13 +50,18 @@ import {
 
 export default function App() {
   // Global State
-  const [activeRole, setActiveRole] = useState<UserRole>('teacher');
-  const [currentView, setCurrentView] = useState<string>('teacher_courses');
-  const [isAuthMode, setIsAuthMode] = useState<boolean>(false);
-  const [authScreen, setAuthScreen] = useState<string>('login');
   const [authenticatedUser, setAuthenticatedUser] = useState<UserSession | null>(() =>
     authService.getCurrentSession()
   );
+  const [currentView, setCurrentView] = useState<string>(() => {
+    const role = authService.getCurrentSession()?.role;
+    return role === 'student'
+      ? 'student_assignments'
+      : role === 'admin'
+        ? 'admin_dashboard'
+        : 'teacher_courses';
+  });
+  const activeRole = authenticatedUser?.role ?? 'teacher';
 
   // Domain Entities State
   const [courses, setCourses] = useState<Course[]>(INITIAL_COURSES);
@@ -107,20 +107,7 @@ export default function App() {
   const [showAppealModal, setShowAppealModal] = useState(false);
 
   // Current active user object
-  const currentUser = CURRENT_USERS[activeRole] || CURRENT_USERS.teacher;
-
-  // Sync role changes with default view
-  const handleRoleChange = (newRole: UserRole) => {
-    setActiveRole(newRole);
-    setIsAuthMode(false);
-    if (newRole === 'teacher') {
-      setCurrentView('teacher_courses');
-    } else if (newRole === 'student') {
-      setCurrentView('student_assignments');
-    } else {
-      setCurrentView('admin_dashboard');
-    }
-  };
+  const currentUser = authenticatedUser ?? CURRENT_USERS.teacher;
 
   // Toast / notification feedback
   const addAuditLog = (action: AuditLogItem['action'], details: string, targetType: string, targetId: string) => {
@@ -144,10 +131,16 @@ export default function App() {
       code: newCourse.code || 'SE302',
       name: newCourse.name || 'Môn học mới',
       semester: newCourse.semester || 'Học kỳ 1 - 2026/2027',
-      studentCount: 45,
-      assignmentCount: 0,
-      activeAssignments: 0,
-      pendingReviews: 0,
+      studentCount: newCourse.studentCount ?? 0,
+      assignmentCount: newCourse.assignmentCount ?? 0,
+      activeAssignments: newCourse.activeAssignments ?? 0,
+      pendingReviews: newCourse.pendingReviews ?? 0,
+      inviteCode: newCourse.inviteCode,
+      credits: newCourse.credits,
+      department: newCourse.department,
+      rubricStandard: newCourse.rubricStandard,
+      gradedCount: newCourse.gradedCount ?? 0,
+      status: newCourse.status ?? 'active',
     };
     setCourses((prev) => [...prev, courseObj]);
     setSelectedCourse(courseObj);
@@ -167,7 +160,11 @@ export default function App() {
       setCourses((prev) =>
         prev.map((c) =>
           c.id === newAsm.courseId
-            ? { ...c, assignmentCount: c.assignmentCount + 1, activeAssignments: c.activeAssignments + 1 }
+            ? {
+                ...c,
+                assignmentCount: c.assignmentCount + 1,
+                activeAssignments: c.activeAssignments + (newAsm.status === 'open' ? 1 : 0),
+              }
             : c
         )
       );
@@ -208,15 +205,19 @@ export default function App() {
   };
 
   const handlePublishSubmission = (submissionId: string) => {
+    const submission = submissions.find((item) => item.id === submissionId);
+    if (submission?.status !== 'approved') return;
+    if (!window.confirm('Công bố kết quả này cho sinh viên?')) return;
+
     setSubmissions((prev) =>
-      prev.map((s) =>
-        s.id === submissionId
+      prev.map((item) =>
+        item.id === submissionId && item.status === 'approved'
           ? {
-              ...s,
+              ...item,
               status: 'published',
               publishedAt: new Date().toLocaleString('vi-VN'),
             }
-          : s
+          : item
       )
     );
     addAuditLog(
@@ -332,64 +333,23 @@ export default function App() {
     addAuditLog('retry_job', `Admin kích hoạt thử lại tác vụ ${jobId}`, 'EvaluationJob', jobId);
   };
 
-  // If in Auth Suite mode
-  if (isAuthMode) {
+  // Authentication gate
+  if (!authenticatedUser) {
     return (
       <ToastProvider>
-        <AuthShell activeScreen={authScreen} onScreenChange={(s) => setAuthScreen(s)}>
-          {authScreen === 'login' && (
-            <LoginPage
-              onNavigate={(s) => setAuthScreen(s)}
-              onLoginSuccess={(user) => {
-                const session = user as UserSession;
-                setAuthenticatedUser(session);
-                if (session?.role) {
-                  setActiveRole(session.role);
-                }
-                setIsAuthMode(false);
-              }}
-            />
-          )}
-          {authScreen === 'register' && (
-            <RegisterPage onNavigate={(s) => setAuthScreen(s)} />
-          )}
-          {authScreen === 'forgot-password' && (
-            <ForgotPasswordPage onNavigate={(s) => setAuthScreen(s)} />
-          )}
-          {authScreen === 'verify-email' && (
-            <VerifyEmailPage onNavigate={(s) => setAuthScreen(s)} />
-          )}
-          {authScreen === 'reset-password' && (
-            <ResetPasswordPage onNavigate={(s) => setAuthScreen(s)} />
-          )}
-          {authScreen === 'workspace-success' && (
-            <WorkspaceSuccessPage
-              user={
-                authenticatedUser || {
-                  id: 'USR-DEFAULT',
-                  email: 'demo@docgrading.vn',
-                  fullName: 'Nguyễn Hoàng Minh',
-                  role: 'student',
-                  accountType: 'student',
-                  organization: 'Đại học Bách Khoa Hà Nội',
-                  isEmailVerified: true,
-                  createdAt: new Date().toISOString(),
-                }
-              }
-              onLogout={() => {
-                authService.logout();
-                setAuthenticatedUser(null);
-                setAuthScreen('login');
-              }}
-              onNavigate={(s) => setAuthScreen(s)}
-              onEnterWorkspace={() => {
-                if (authenticatedUser?.role) {
-                  setActiveRole(authenticatedUser.role);
-                }
-                setIsAuthMode(false);
-              }}
-            />
-          )}
+        <AuthShell>
+          <LoginPage
+            onLoginSuccess={(session) => {
+              setAuthenticatedUser(session);
+              setCurrentView(
+                session.role === 'student'
+                  ? 'student_assignments'
+                  : session.role === 'admin'
+                    ? 'admin_dashboard'
+                    : 'teacher_courses'
+              );
+            }}
+          />
         </AuthShell>
       </ToastProvider>
     );
@@ -406,12 +366,14 @@ export default function App() {
       {/* Sidebar */}
       <AppSidebar
         activeRole={activeRole}
-        onRoleChange={handleRoleChange}
         currentView={currentView}
         onSelectView={(v) => setCurrentView(v)}
         pendingReviewCount={pendingReviewCount}
         appealCount={pendingAppealCount}
-        onOpenAuth={() => setIsAuthMode(true)}
+        onLogout={() => {
+          authService.logout();
+          setAuthenticatedUser(null);
+        }}
       />
 
       {/* Right Column: Header + Main Content Area */}

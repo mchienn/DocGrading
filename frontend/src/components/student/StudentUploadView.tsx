@@ -94,7 +94,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
       return;
     }
 
-    // Step 2: Simulate native text layer validation (Worker Document IR)
+    // Step 2: Simulate text-layer validation.
     setIsValidating(true);
     setTimeout(() => {
       setIsValidating(false);
@@ -245,7 +245,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
           <div className="p-4 bg-sky-50 rounded-xl border border-sky-100 flex items-center gap-3 text-xs text-sky-800">
             <div className="w-4 h-4 border-2 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
             <div>
-              <p className="font-semibold">Đang phân tích cấu trúc Document IR & Text Layer...</p>
+              <p className="font-semibold">Đang kiểm tra cấu trúc và lớp văn bản...</p>
               <p className="text-sky-600 text-[11px]">
                 Kiểm tra mật độ vector chữ và xác nhận không có trang scan.
               </p>
@@ -279,7 +279,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
                 {validationResult.valid ? (
                   <p className="text-emerald-700 text-[11px] leading-relaxed">
                     Xác thực text-layer: <strong>Native ({validationResult.textDensity}%)</strong> • Số trang ước tính:{' '}
-                    <strong>{validationResult.pageCount} trang</strong>. Sẵn sàng gửi tới hàng đợi phân tích Celery.
+                    <strong>{validationResult.pageCount} trang</strong>. Sẵn sàng tải lên để xử lý.
                   </p>
                 ) : (
                   <p className="text-rose-700 text-[11px] leading-relaxed">
@@ -295,7 +295,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
         {isSubmitting && (
           <div className="space-y-2 text-xs">
             <div className="flex items-center justify-between text-slate-600 font-medium">
-              <span>Đang tải lên máy chủ và kích hoạt worker Celery...</span>
+              <span>Đang tải lên và khởi tạo quá trình đánh giá...</span>
               <span>{uploadProgress}%</span>
             </div>
             <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">

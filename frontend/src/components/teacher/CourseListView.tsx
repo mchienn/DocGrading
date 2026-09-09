@@ -88,7 +88,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({
       inviteCode: inviteCode.trim() || `${code.replace(/[^A-Z0-9]/gi, '')}-2026`,
       studentCount: 0,
       assignmentCount: 0,
-      activeAssignments: 1,
+      activeAssignments: 0,
       pendingReviews: 0,
       gradedCount: 0,
       status: 'active',

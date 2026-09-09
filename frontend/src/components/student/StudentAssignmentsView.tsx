@@ -93,7 +93,7 @@ export const StudentAssignmentsView: React.FC<StudentAssignmentsViewProps> = ({
                         <span>Đã có kết quả chính thức</span>
                       </span>
                       <p className="text-xs font-mono font-bold text-slate-900 mt-1">
-                        Điểm: {submission.finalScore?.toFixed(1) || submission.proposedScore.toFixed(1)}/100
+                        Điểm: {(submission.finalScore ?? submission.proposedScore).toFixed(1)}/100
                       </p>
                     </div>
                   ) : isError ? (
