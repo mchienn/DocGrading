@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.models.assignment import Assignment
 from app.models.course import Course, Membership
@@ -19,7 +20,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.identity import User
-from app.services.auth import get_valid_session
+from app.services.auth import auth_cookie_names, get_valid_session
 
 # ---------------------------------------------------------------------------
 # Pure-function checks (testable without FastAPI/DB)
@@ -36,13 +37,13 @@ def check_roles(user: User, required: set[UserRole]) -> None:
 
 
 def check_course_ownership(user: User, course: Course) -> None:
-    """Raise 403 unless *user* is Admin or owns *course*."""
+    """Raise 404 unless *user* is Admin or owns *course*."""
     if UserRole.ADMIN in user.roles:
         return
     if course.owner_teacher_id != user.id:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not the course owner",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Course not found",
         )
 
 
@@ -59,13 +60,15 @@ def visible_assignment_statuses(user: User) -> list[AssignmentStatus] | None:
 
 
 async def get_current_user(
-    session_id: str | None = Cookie(None),
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> User:
-    """Resolve the session cookie to an active ``User``.
+    """Resolve the host-bound session cookie to an active ``User``.
 
     Raises 401 when the cookie is missing, invalid, expired, or revoked.
     """
+    session_cookie_name, _ = auth_cookie_names(get_settings().session_cookie_secure)
+    session_id = request.cookies.get(session_cookie_name)
     if session_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -154,7 +157,8 @@ async def get_accessible_course(
     if UserRole.ADMIN in user.roles:
         return course
 
-    if UserRole.TEACHER in user.roles and course.owner_teacher_id == user.id:
+    if UserRole.TEACHER in user.roles:
+        check_course_ownership(user, course)
         return course
 
     if UserRole.STUDENT in user.roles:
@@ -173,7 +177,6 @@ async def get_accessible_course(
         return course
 
     check_roles(user, {UserRole.TEACHER})
-    check_course_ownership(user, course)
     return course
 
 

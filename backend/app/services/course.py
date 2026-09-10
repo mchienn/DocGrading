@@ -8,8 +8,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.course import Course
-from app.models.enums import CourseStatus
+from app.models.course import Course, Membership
+from app.models.enums import CourseStatus, MembershipRole, MembershipStatus
 from app.services.audit import record_audit
 
 
@@ -55,11 +55,18 @@ async def list_courses(
     db: AsyncSession,
     *,
     owner_teacher_id: uuid.UUID | None = None,
+    member_user_id: uuid.UUID | None = None,
 ) -> list[Course]:
-    """List courses, optionally filtered by owner."""
+    """List courses visible to an Admin, owning Teacher, or active Student member."""
     stmt = select(Course).order_by(Course.created_at.desc())
     if owner_teacher_id is not None:
         stmt = stmt.where(Course.owner_teacher_id == owner_teacher_id)
+    elif member_user_id is not None:
+        stmt = stmt.join(Membership, Membership.course_id == Course.id).where(
+            Membership.user_id == member_user_id,
+            Membership.role == MembershipRole.STUDENT,
+            Membership.status == MembershipStatus.ACTIVE,
+        )
     result = await db.execute(stmt)
     return list(result.scalars().all())
 

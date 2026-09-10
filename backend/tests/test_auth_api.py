@@ -113,7 +113,10 @@ class TestSessionCookieSecurity:
         monkeypatch.setattr(
             auth_router,
             "get_settings",
-            lambda: SimpleNamespace(session_cookie_secure=secure),
+            lambda: SimpleNamespace(
+                session_cookie_secure=secure,
+                session_lifetime_seconds=86_400,
+            ),
         )
 
         response = asyncio.run(
@@ -128,6 +131,14 @@ class TestSessionCookieSecurity:
             for directive in response.headers["set-cookie"].split(";")
         }
         assert ("secure" in directives) is secure
+        cookies = [
+            value.decode()
+            for key, value in response.raw_headers
+            if key == b"set-cookie"
+        ]
+        prefix = "__Host-" if secure else ""
+        assert any(cookie.startswith(f"{prefix}session_id=") for cookie in cookies)
+        assert any(cookie.startswith(f"{prefix}csrf_token=") for cookie in cookies)
 
 
 # ---------------------------------------------------------------------------

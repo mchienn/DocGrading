@@ -1,330 +1,194 @@
-import React, { useState, useRef } from 'react';
-import {
-  UploadCloud,
-  FileText,
-  CheckCircle2,
-  AlertTriangle,
-  ArrowLeft,
-  Clock,
-  Sparkles,
-  ShieldCheck,
-  X,
-} from 'lucide-react';
-import { Assignment, Submission } from '../../types/docgrading';
+import React, { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, FileText, UploadCloud } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { api, apiData, getErrorMessage } from '../../api/client';
 
-interface StudentUploadViewProps {
-  assignment: Assignment;
-  onBack: () => void;
-  onSubmitSuccess: (newSubmission: Submission) => void;
+const PDF_MAX_SIZE_BYTES = 50_000_000;
+
+function sha256Hex(file: File): Promise<string> {
+  return file.arrayBuffer()
+    .then((buffer) => crypto.subtle.digest('SHA-256', buffer))
+    .then((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(''));
 }
 
-export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
-  assignment,
-  onBack,
-  onSubmitSuccess,
-}) => {
-  const [dragActive, setDragActive] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [isValidating, setIsValidating] = useState(false);
-  const [validationResult, setValidationResult] = useState<{
-    valid: boolean;
-    pageCount: number;
-    textDensity: number;
-    hasScanWarning: boolean;
-    errorMsg?: string;
-  } | null>(null);
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
+function uploadObject(
+  url: string,
+  fields: Record<string, string>,
+  file: File,
+  onProgress: (percent: number) => void,
+): Promise<void> {
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const request = new XMLHttpRequest();
+  request.open('POST', url);
+  request.upload.onprogress = (event) => {
+    if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
   };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
-    }
+  request.onerror = () => reject(new Error('Object storage upload failed.'));
+  request.onload = () => {
+    if (request.status >= 200 && request.status < 300) resolve();
+    else reject(new Error(`Object storage upload failed (${request.status}).`));
   };
+  const form = new FormData();
+  Object.entries(fields).forEach(([key, value]) => form.append(key, value));
+  form.append('file', file);
+  request.send(form);
+  return promise;
+}
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    if (e.target.files && e.target.files[0]) {
-      processFile(e.target.files[0]);
-    }
-  };
+export const StudentUploadView: React.FC = () => {
+  const { courseId = '', assignmentId = '' } = useParams();
+  const navigate = useNavigate();
+  const [file, setFile] = useState<File>();
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState('Ready');
+  const [error, setError] = useState<string>();
+  const [uploading, setUploading] = useState(false);
 
-  const processFile = (uploadedFile: File) => {
-    setFile(uploadedFile);
-    setValidationResult(null);
+  const assignmentQuery = useQuery({
+    queryKey: ['assignment', courseId, assignmentId],
+    queryFn: () => apiData(api.GET('/api/v1/courses/{course_id}/assignments/{assignment_id}', {
+      params: { path: { course_id: courseId, assignment_id: assignmentId } },
+    })),
+    enabled: Boolean(courseId && assignmentId),
+  });
+  const [now, setNow] = useState(Date.now());
+  const deadline = assignmentQuery.data
+    ? new Date(assignmentQuery.data.due_at).getTime()
+    : Number.POSITIVE_INFINITY;
+  const acceptingSubmissions = assignmentQuery.data?.status === 'OPEN' && deadline > now;
+  useEffect(() => {
+    if (!Number.isFinite(deadline) || deadline <= now) return;
+    const timeout = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.min(deadline - now + 50, 2_147_483_647),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [deadline, now]);
 
-    // Step 1: Check format
-    if (!uploadedFile.name.toLowerCase().endsWith('.pdf')) {
-      setValidationResult({
-        valid: false,
-        pageCount: 0,
-        textDensity: 0,
-        hasScanWarning: false,
-        errorMsg: 'Định dạng không hợp lệ. Hệ thống DocGrading chỉ chấp nhận file định dạng .PDF.',
-      });
+  const chooseFile = (selected?: File) => {
+    setError(undefined);
+    setProgress(0);
+    setPhase('Ready');
+    if (!selected) {
+      setFile(undefined);
       return;
     }
-
-    // Step 1.2: Check size
-    const sizeMb = uploadedFile.size / (1024 * 1024);
-    if (sizeMb > assignment.requirements.maxFileSizeMb) {
-      setValidationResult({
-        valid: false,
-        pageCount: 0,
-        textDensity: 0,
-        hasScanWarning: false,
-        errorMsg: `Dung lượng file (${sizeMb.toFixed(1)}MB) vượt quá giới hạn cho phép (${assignment.requirements.maxFileSizeMb}MB).`,
-      });
+    if (!selected.name.toLowerCase().endsWith('.pdf')) {
+      setFile(undefined);
+      setError('Only PDF files are accepted.');
       return;
     }
-
-    // Step 2: Simulate text-layer validation.
-    setIsValidating(true);
-    setTimeout(() => {
-      setIsValidating(false);
-      // If filename contains "scan", simulate scan warning
-      const isScan = uploadedFile.name.toLowerCase().includes('scan');
-      if (isScan) {
-        setValidationResult({
-          valid: false,
-          pageCount: 24,
-          textDensity: 12,
-          hasScanWarning: true,
-          errorMsg:
-            'Phát hiện PDF scan: Các trang không có text layer native. Vui lòng xuất lại file PDF từ Microsoft Word hoặc LaTeX bằng chức năng "Save as PDF" / "Export", không nộp bản scan/chụp ảnh.',
-        });
-      } else {
-        setValidationResult({
-          valid: true,
-          pageCount: 38,
-          textDensity: 98,
-          hasScanWarning: false,
-        });
-      }
-    }, 1200);
+    if (selected.size > PDF_MAX_SIZE_BYTES) {
+      setFile(undefined);
+      setError('PDF exceeds 50,000,000 bytes.');
+      return;
+    }
+    setFile(selected);
+    setIdempotencyKey(crypto.randomUUID());
   };
 
-  const handleConfirmSubmit = () => {
-    if (!file || !validationResult?.valid) return;
+  const upload = async () => {
+    if (!file || !assignmentId) return;
+    setUploading(true);
+    setError(undefined);
+    try {
+      setPhase('Computing SHA-256');
+      const sha256 = await sha256Hex(file);
+      setPhase('Requesting upload URL');
+      const presign = await apiData(api.POST('/api/v1/assignments/{assignment_id}/uploads/presign', {
+        params: {
+          path: { assignment_id: assignmentId },
+          header: { 'Idempotency-Key': idempotencyKey },
+        },
+        body: {
+          filename: file.name,
+          content_type: 'application/pdf',
+          size_bytes: file.size,
+          sha256,
+        },
+      }));
 
-    setIsSubmitting(true);
-    let progress = 10;
-    const interval = setInterval(() => {
-      progress += 25;
-      if (progress >= 100) {
-        clearInterval(interval);
-        setUploadProgress(100);
-
-        setTimeout(() => {
-          const newSub: Submission = {
-            id: `SUB-${Date.now().toString().slice(-4)}`,
-            assignmentId: assignment.id,
-            assignmentTitle: assignment.title,
-            courseCode: assignment.courseCode,
-            studentId: 'USR-STUDENT-01',
-            studentName: 'Đỗ Minh Trí',
-            studentCode: '20214567',
-            version: 1,
-            fileName: file.name,
-            fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-            pageCount: validationResult.pageCount || 36,
-            submittedAt: 'Vừa xong',
-            status: 'evaluating',
-            proposedScore: 84.0,
-            confidence: 0.94,
-            criteriaResults: [],
-            pages: [
-              {
-                pageNumber: 1,
-                title: 'Trang bìa & Thông tin đề tài',
-                content: [
-                  'TRƯỜNG ĐẠI HỌC BÁCH KHOA HÀ NỘI',
-                  `BÁO CÁO ĐẶC TẢ YÊU CẦU PHẦN MỀM: ${assignment.title}`,
-                  'Sinh viên: Đỗ Minh Trí — MSSV: 20214567',
-                ],
-              },
-            ],
-          };
-
-          setIsSubmitting(false);
-          onSubmitSuccess(newSub);
-        }, 500);
-      } else {
-        setUploadProgress(progress);
+      if (presign.analysis_job_id) {
+        navigate(`/jobs/${presign.analysis_job_id}`);
+        return;
       }
-    }, 200);
+      if (presign.upload_url && presign.fields) {
+        setPhase('Uploading to object storage');
+        await uploadObject(presign.upload_url, presign.fields, file, setProgress);
+      }
+
+      setPhase('Confirming upload');
+      const completion = await apiData(api.POST('/api/v1/document-versions/{version_id}/complete', {
+        params: { path: { version_id: presign.document_version_id } },
+      }));
+      navigate(`/jobs/${completion.analysis_job_id}`);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+      setPhase('Failed');
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      {/* Back button */}
-      <button
-        type="button"
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        <span>Quay lại danh sách đợt nộp</span>
+    <div className="p-6 sm:p-8 max-w-3xl mx-auto space-y-6">
+      <button type="button" onClick={() => navigate('/student/assignments')} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
+        <ArrowLeft className="w-4 h-4" /> Back to assignments
       </button>
-
-      {/* Hero Header */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-        <div className="flex items-center gap-2">
-          <span className="px-2.5 py-0.5 rounded-md bg-sky-50 text-sky-700 font-mono text-xs font-bold border border-sky-200/80">
-            {assignment.courseCode}
-          </span>
-          <span className="text-xs text-slate-500">{assignment.courseName}</span>
-        </div>
-        <h1 className="text-lg font-bold text-slate-900 mt-1">{assignment.title}</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Hệ thống sẽ thực hiện kiểm tra 2 bước: Kiểm tra kích thước file và Quét lớp văn bản (text layer) native.
-        </p>
+      <div className="border-b border-slate-200 pb-5">
+        <h1 className="text-2xl font-bold text-slate-900">Upload submission</h1>
+        <p className="text-sm text-slate-500 mt-1">{assignmentQuery.data?.title ?? 'Loading assignment...'}</p>
       </div>
 
-      {/* Upload Box */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-5">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf"
-          onChange={handleChange}
-          className="hidden"
-        />
+      {(error || assignmentQuery.error) && (
+        <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
+          {error ?? getErrorMessage(assignmentQuery.error)}
+        </div>
+      )}
 
-        <div
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${
-            dragActive
-              ? 'border-sky-500 bg-sky-50/50'
-              : file
-              ? 'border-slate-300 bg-slate-50/60'
-              : 'border-slate-300 hover:border-slate-400 bg-slate-50/30'
-          }`}
-        >
-          <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 mx-auto mb-3">
-            <UploadCloud className="w-6 h-6 text-sky-600" />
+      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
+        <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-sky-400">
+          <UploadCloud className="w-10 h-10 mx-auto text-slate-400" />
+          <span className="block text-sm font-semibold text-slate-700 mt-3">Choose PDF</span>
+          <span className="block text-xs text-slate-500 mt-1">Maximum 50,000,000 bytes</span>
+          <input type="file" accept="application/pdf,.pdf" className="sr-only" disabled={uploading} onChange={(event) => chooseFile(event.target.files?.[0])} />
+        </label>
+
+        {file && (
+          <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <FileText className="w-5 h-5 text-sky-700" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800 truncate">{file.name}</p>
+              <p className="text-xs text-slate-500">{file.size.toLocaleString()} bytes</p>
+            </div>
           </div>
+        )}
 
-          <h3 className="text-sm font-bold text-slate-900">
-            {file ? file.name : 'Kéo thả file PDF vào đây hoặc bấm để chọn'}
-          </h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Chỉ nhận file PDF có text layer • Tối đa {assignment.requirements.maxFileSizeMb}MB
+        <div>
+          <div className="flex justify-between text-xs text-slate-600 mb-1">
+            <span>{phase}</span><span>{progress}%</span>
+          </div>
+          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full bg-sky-600 transition-all" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+
+        {assignmentQuery.data && !acceptingSubmissions && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            Assignment is no longer accepting submissions.
           </p>
-
-          <button
-            type="button"
-            className="mt-4 px-4 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Chọn file từ máy tính
-          </button>
-        </div>
-
-        {/* Validation Loading state */}
-        {isValidating && (
-          <div className="p-4 bg-sky-50 rounded-xl border border-sky-100 flex items-center gap-3 text-xs text-sky-800">
-            <div className="w-4 h-4 border-2 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
-            <div>
-              <p className="font-semibold">Đang kiểm tra cấu trúc và lớp văn bản...</p>
-              <p className="text-sky-600 text-[11px]">
-                Kiểm tra mật độ vector chữ và xác nhận không có trang scan.
-              </p>
-            </div>
-          </div>
         )}
 
-        {/* Validation Result */}
-        {validationResult && (
-          <div
-            className={`p-4 rounded-xl border text-xs ${
-              validationResult.valid
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                : 'bg-rose-50 border-rose-200 text-rose-900'
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              {validationResult.valid ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-              ) : (
-                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-              )}
-
-              <div className="space-y-1">
-                <p className="font-bold">
-                  {validationResult.valid
-                    ? 'Tài liệu PDF hợp lệ và đạt tiêu chuẩn nộp bài'
-                    : 'Tài liệu không đạt chuẩn kiểm tra tự động'}
-                </p>
-
-                {validationResult.valid ? (
-                  <p className="text-emerald-700 text-[11px] leading-relaxed">
-                    Xác thực text-layer: <strong>Native ({validationResult.textDensity}%)</strong> • Số trang ước tính:{' '}
-                    <strong>{validationResult.pageCount} trang</strong>. Sẵn sàng tải lên để xử lý.
-                  </p>
-                ) : (
-                  <p className="text-rose-700 text-[11px] leading-relaxed">
-                    {validationResult.errorMsg}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Upload progress */}
-        {isSubmitting && (
-          <div className="space-y-2 text-xs">
-            <div className="flex items-center justify-between text-slate-600 font-medium">
-              <span>Đang tải lên và khởi tạo quá trình đánh giá...</span>
-              <span>{uploadProgress}%</span>
-            </div>
-            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-sky-600 transition-all duration-200"
-                style={{ width: `${uploadProgress}%` }}
-              ></div>
-            </div>
-          </div>
-        )}
-
-        {/* Action button */}
-        <div className="pt-2 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="px-4 py-2 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50"
-          >
-            Hủy
-          </button>
-          <button
-            type="button"
-            disabled={!validationResult?.valid || isSubmitting}
-            onClick={handleConfirmSubmit}
-            className="px-5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors shadow-2xs"
-          >
-            Xác nhận nộp bài
-          </button>
-        </div>
+        <button
+          type="button"
+          disabled={!file || uploading || !acceptingSubmissions}
+          onClick={upload}
+          className="w-full px-4 py-2.5 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+        >
+          {uploading ? phase : 'Upload PDF'}
+        </button>
       </div>
     </div>
   );

@@ -30,6 +30,8 @@ from app.models.assignment import Assignment
 from app.models.course import Course, Membership
 from app.models.enums import (
     AssignmentStatus,
+    MembershipRole,
+    MembershipStatus,
     RubricStatus,
     UserRole,
     UserStatus,
@@ -307,14 +309,14 @@ class TestRubricImmutability:
 class TestOwnershipDeny:
     """Teacher B cannot manage Teacher A's course."""
 
-    def test_other_teacher_denied_course_access(self) -> None:
+    def test_other_teacher_course_is_masked_as_not_found(self) -> None:
         teacher_a = _make_user(UserRole.TEACHER)
         teacher_b = _make_user(UserRole.TEACHER)
         course = _make_course(teacher_a.id)
 
         with pytest.raises(HTTPException) as exc_info:
             check_course_ownership(teacher_b, course)
-        assert exc_info.value.status_code == 403
+        assert exc_info.value.status_code == 404
 
     def test_admin_can_access_any_course(self) -> None:
         admin = _make_user(UserRole.ADMIN)
@@ -423,6 +425,28 @@ class TestAssignmentLifecycle:
             with pytest.raises(HTTPException) as exc_info:
                 await publish_assignment(db, assignment, actor_user_id=teacher.id)
             assert exc_info.value.status_code == 422
+
+        asyncio.run(_run())
+
+    def test_edit_draft_assignment_can_clear_description(self) -> None:
+        async def _run() -> None:
+            from app.services.assignment import update_assignment
+
+            teacher = _make_user(UserRole.TEACHER)
+            assignment = _make_assignment(uuid.uuid4(), uuid.uuid4(), teacher.id)
+            assignment.description = "Remove me"
+            db = _mock_db()
+
+            result = await update_assignment(
+                db,
+                assignment,
+                actor_user_id=teacher.id,
+                description=None,
+                description_set=True,
+            )
+
+            assert result.description is None
+            assert result.revision == 2
 
         asyncio.run(_run())
 
@@ -955,8 +979,8 @@ class TestStudentAssignmentScope:
 
         asyncio.run(_run())
 
-    def test_non_owner_teacher_is_denied_assignment_read_scope(self) -> None:
-        """Teacher ownership remains enforced for assignment reads."""
+    def test_non_owner_teacher_is_masked_from_assignment_read_scope(self) -> None:
+        """Teacher ownership remains enforced without disclosing the Course."""
 
         async def _run() -> None:
             from app.api import deps
@@ -973,12 +997,12 @@ class TestStudentAssignmentScope:
 
             with pytest.raises(HTTPException) as exc_info:
                 await get_accessible_course(course.id, other_teacher, db)
-            assert exc_info.value.status_code == 403
+            assert exc_info.value.status_code == 404
 
         asyncio.run(_run())
 
-    def test_dual_role_student_member_can_read_course(self) -> None:
-        """A Teacher+Student user may use the active Student membership scope."""
+    def test_dual_role_non_owner_cannot_fall_back_to_student_scope(self) -> None:
+        """Strongest-role precedence prevents Teacher-to-Student fallback."""
 
         async def _run() -> None:
             from app.api.deps import get_accessible_course
@@ -987,21 +1011,16 @@ class TestStudentAssignmentScope:
             dual_role_user = _make_user(UserRole.TEACHER)
             dual_role_user.roles.append(UserRole.STUDENT)
             course = _make_course(owner.id)
-            membership = Membership(
-                id=uuid.uuid4(),
-                course_id=course.id,
-                user_id=dual_role_user.id,
-                role="STUDENT",
-                status="ACTIVE",
-            )
-            result = MagicMock()
-            result.scalar_one_or_none.return_value = membership
+            execute = AsyncMock()
             db = _mock_db(
                 get=AsyncMock(return_value=course),
-                execute=AsyncMock(return_value=result),
+                execute=execute,
             )
 
-            assert await get_accessible_course(course.id, dual_role_user, db) is course
+            with pytest.raises(HTTPException) as exc_info:
+                await get_accessible_course(course.id, dual_role_user, db)
+            assert exc_info.value.status_code == 404
+            execute.assert_not_awaited()
 
         asyncio.run(_run())
 
@@ -1022,6 +1041,29 @@ class TestStudentAssignmentScope:
 
             assert await get_accessible_course(course.id, owner, db) is course
             execute.assert_not_awaited()
+
+        asyncio.run(_run())
+
+
+class TestStudentCourseDiscovery:
+    def test_student_course_list_is_membership_scoped(self) -> None:
+        async def _run() -> None:
+            from app.services.course import list_courses
+
+            student = _make_user(UserRole.STUDENT)
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = []
+            db = _mock_db(execute=AsyncMock(return_value=result))
+
+            assert await list_courses(db, member_user_id=student.id) == []
+
+            statement = db.execute.await_args.args[0]
+            sql = str(statement)
+            params = statement.compile().params.values()
+            assert "JOIN memberships" in sql
+            assert student.id in params
+            assert MembershipRole.STUDENT in params
+            assert MembershipStatus.ACTIVE in params
 
         asyncio.run(_run())
 
