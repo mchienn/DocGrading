@@ -122,6 +122,7 @@ async def logout(
         secure=settings.session_cookie_secure,
         samesite="lax",
     )
+    response.status_code = status.HTTP_204_NO_CONTENT
     return response
 
 

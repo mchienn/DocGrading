@@ -9,7 +9,7 @@ from celery import Task
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
-from app.db.session import _session_factory
+from app.db.session import _engine, _session_factory
 from app.models.enums import DocumentStatus
 from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.analysis_job import (
@@ -172,6 +172,14 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
         return str(job.id)
 
 
+async def _run_analysis_job_once(job_id: str | None) -> str | None:
+    try:
+        return await _run_analysis_job(job_id)
+    finally:
+        # asyncio.run creates a loop per Celery task. Drain asyncpg pool on that loop.
+        await _engine().dispose()
+
+
 @celery_app.task(
     bind=True,
     max_retries=None,
@@ -179,6 +187,6 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
 )
 def process_analysis_job(task: Task, job_id: str | None = None) -> str | None:
     try:
-        return asyncio.run(_run_analysis_job(job_id))
+        return asyncio.run(_run_analysis_job_once(job_id))
     except _ActiveLease as exc:
         raise task.retry(countdown=exc.retry_after) from exc
