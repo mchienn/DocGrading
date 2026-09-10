@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from fastapi import Request, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -113,7 +114,10 @@ class TestSessionCookieSecurity:
         monkeypatch.setattr(
             auth_router,
             "get_settings",
-            lambda: SimpleNamespace(session_cookie_secure=secure),
+            lambda: SimpleNamespace(
+                session_cookie_secure=secure,
+                session_lifetime_seconds=86_400,
+            ),
         )
 
         response = asyncio.run(
@@ -128,6 +132,35 @@ class TestSessionCookieSecurity:
             for directive in response.headers["set-cookie"].split(";")
         }
         assert ("secure" in directives) is secure
+        cookies = [
+            value.decode()
+            for key, value in response.raw_headers
+            if key == b"set-cookie"
+        ]
+        prefix = "__Host-" if secure else ""
+        assert any(cookie.startswith(f"{prefix}session_id=") for cookie in cookies)
+        assert any(cookie.startswith(f"{prefix}csrf_token=") for cookie in cookies)
+
+    def test_logout_returns_no_content_response(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            auth_router,
+            "get_settings",
+            lambda: SimpleNamespace(session_cookie_secure=False),
+        )
+
+        response = asyncio.run(
+            auth_router.logout(
+                Request({"type": "http", "headers": []}),
+                Response(),
+                SimpleNamespace(id=uuid.uuid4()),
+                object(),
+            )
+        )
+
+        assert response.status_code == 204
 
 
 # ---------------------------------------------------------------------------

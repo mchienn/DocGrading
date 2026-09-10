@@ -40,13 +40,19 @@ async def create_course(
 
 @router.get("", response_model=list[CourseResponse])
 async def list_courses(
-    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    user: User = Depends(
+        require_roles(UserRole.ADMIN, UserRole.TEACHER, UserRole.STUDENT)
+    ),
     db: AsyncSession = Depends(get_db_session),
 ) -> list[CourseResponse]:
-    """List courses. Admin sees all; Teacher sees own."""
-    owner_id = None if UserRole.ADMIN in user.roles else user.id
-    courses = await course_svc.list_courses(db, owner_teacher_id=owner_id)
-    return [CourseResponse.model_validate(c) for c in courses]
+    """List courses visible to the current role scope."""
+    if UserRole.ADMIN in user.roles:
+        courses = await course_svc.list_courses(db)
+    elif UserRole.TEACHER in user.roles:
+        courses = await course_svc.list_courses(db, owner_teacher_id=user.id)
+    else:
+        courses = await course_svc.list_courses(db, member_user_id=user.id)
+    return [CourseResponse.model_validate(course) for course in courses]
 
 
 @router.get("/{course_id}", response_model=CourseResponse)

@@ -1,9 +1,12 @@
 import asyncio
 import contextlib
+import secrets
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
 
 from app.api.routers.assignments import router as assignments_router
 from app.api.routers.auth import router as auth_router
@@ -16,6 +19,7 @@ from app.services.analysis_dispatch import (
     run_analysis_dispatch_poller,
     wait_for_analysis_dispatch_publications,
 )
+from app.services.auth import auth_cookie_names, csrf_token_for_session
 
 
 @asynccontextmanager
@@ -38,6 +42,35 @@ def create_app() -> FastAPI:
         openapi_url="/api/v1/openapi.json",
         lifespan=lifespan,
     )
+
+    @application.middleware("http")
+    async def require_csrf_token(request: Request, call_next):  # noqa: ANN001, ANN202
+        unsafe = request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        if unsafe and request.url.path != "/api/v1/auth/login":
+            session_cookie_name, csrf_cookie_name = auth_cookie_names(
+                get_settings().session_cookie_secure
+            )
+            cookie_token = request.cookies.get(csrf_cookie_name)
+            header_token = request.headers.get("X-CSRF-Token")
+            try:
+                expected_token = csrf_token_for_session(
+                    uuid.UUID(request.cookies.get(session_cookie_name, ""))
+                )
+            except ValueError:
+                expected_token = None
+            if (
+                not cookie_token
+                or not header_token
+                or not expected_token
+                or not secrets.compare_digest(cookie_token, expected_token)
+                or not secrets.compare_digest(header_token, expected_token)
+            ):
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={"detail": "CSRF validation failed"},
+                )
+        return await call_next(request)
+
     application.include_router(system_router, prefix="/api/v1")
     application.include_router(auth_router, prefix="/api/v1")
     application.include_router(courses_router, prefix="/api/v1")

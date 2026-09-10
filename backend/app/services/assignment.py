@@ -97,6 +97,7 @@ async def update_assignment(
     actor_roles: list[str] | None = None,
     title: str | None = None,
     description: str | None = None,
+    description_set: bool = False,
     due_at: datetime | None = None,
     max_submissions: int | None = None,
     rubric_version_id: uuid.UUID | None = None,
@@ -116,7 +117,7 @@ async def update_assignment(
         assignment.title = title
         after["title"] = title
 
-    if description is not None and description != assignment.description:
+    if description_set and description != assignment.description:
         before["description"] = assignment.description
         assignment.description = description
         after["description"] = description

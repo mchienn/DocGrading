@@ -119,6 +119,7 @@ async def update_assignment(
         actor_roles=[r.value for r in user.roles],
         title=body.title,
         description=body.description,
+        description_set="description" in body.model_fields_set,
         due_at=body.due_at,
         max_submissions=body.max_submissions,
         rubric_version_id=body.rubric_version_id,

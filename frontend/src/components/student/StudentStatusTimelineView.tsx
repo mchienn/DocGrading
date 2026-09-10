@@ -1,150 +1,142 @@
-import React from 'react';
-import {
-  ArrowLeft,
-  CheckCircle2,
-  Clock,
-  FileText,
-  Sparkles,
-  ShieldCheck,
-  AlertTriangle,
-} from 'lucide-react';
-import { Submission } from '../../types/docgrading';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, LoaderCircle, RotateCcw } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { api, apiData, getErrorMessage } from '../../api/client';
+import type { WorkspaceRole } from '../../types/api';
 
 interface StudentStatusTimelineViewProps {
-  submission: Submission;
-  onBack: () => void;
-  onViewResult?: () => void;
+  activeRole: WorkspaceRole;
 }
 
-export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps> = ({
-  submission,
-  onBack,
-  onViewResult,
-}) => {
-  const steps = [
-    {
-      id: 'received',
-      label: 'Đã tiếp nhận file PDF',
-      desc: 'Hệ thống đã lưu trữ file và tạo checksum phiên bản.',
-      done: true,
-      time: '10:15:30',
+const friendlyErrors: Record<string, string> = {
+  NOT_A_PDF: 'Uploaded file is not a PDF.',
+  PDF_ENCRYPTED: 'Encrypted PDFs are not supported.',
+  PDF_TOO_LARGE: 'PDF exceeds file-size limits.',
+  PDF_DECODED_TOO_LARGE: 'Decoded PDF content exceeds processing limits.',
+  PDF_PAGE_LIMIT: 'PDF exceeds page-count limits.',
+  PDF_ACTIVE_CONTENT: 'PDF contains unsupported active content or attachments.',
+  PDF_SCAN_ONLY: 'PDF needs a usable text layer; scanned documents are not supported.',
+  PDF_MALFORMED: 'PDF structure is invalid or unsupported.',
+  PDF_STORAGE_ERROR: 'Storage is temporarily unavailable.',
+};
+
+export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps> = ({ activeRole }) => {
+  const { jobId = '' } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [retryError, setRetryError] = useState<string>();
+  const [retrying, setRetrying] = useState(false);
+
+  const jobQuery = useQuery({
+    queryKey: ['analysis-job', jobId],
+    queryFn: () => apiData(api.GET('/api/v1/analysis-jobs/{job_id}', {
+      params: { path: { job_id: jobId } },
+    })),
+    enabled: Boolean(jobId),
+    refetchInterval: (query) => {
+      if (query.state.error) return false;
+      const job = query.state.data;
+      if (job && (job.status === 'DONE' || job.status === 'ERROR')) return false;
+      return Math.min(2_000 * 2 ** query.state.dataUpdateCount, 10_000);
     },
-    {
-      id: 'checking_pdf',
-      label: 'Kiểm tra Text Layer & Cấu trúc',
-      desc: 'Xác thực file text-native, không chứa ảnh scan.',
-      done: true,
-      time: '10:15:35',
-    },
-    {
-      id: 'evaluating',
-      label: 'Phân tích tự động theo 12 tiêu chí SRS',
-      desc: 'Trích xuất bảng biểu, Use Case, Actor và ma trận truy vết.',
-      done: ['needs_review', 'pending_approval', 'approved', 'published'].includes(
-        submission.status
-      ),
-      time: '10:16:12',
-    },
-    {
-      id: 'needs_review',
-      label: 'Chuyển giao Giảng viên xem xét & duyệt',
-      desc: 'Kết quả tự động đóng vai trò đề xuất để giảng viên đánh giá và cho điểm chính thức.',
-      done: ['approved', 'published'].includes(submission.status),
-      current: ['needs_review', 'pending_approval'].includes(submission.status),
-      time: '10:16:20',
-    },
-    {
-      id: 'published',
-      label: 'Công bố kết quả chính thức',
-      desc: 'Giảng viên đã phê duyệt và công bố bảng điểm cùng nhận xét chi tiết.',
-      done: submission.status === 'published',
-      time: submission.publishedAt || 'Chờ giảng viên công bố',
-    },
-  ];
+  });
+  const job = jobQuery.data;
+
+  const retry = async () => {
+    if (!job) return;
+    setRetrying(true);
+    setRetryError(undefined);
+    try {
+      await apiData(api.POST('/api/v1/analysis-jobs/{job_id}/retry', {
+        params: { path: { job_id: job.id } },
+      }));
+      await queryClient.invalidateQueries({ queryKey: ['analysis-job', job.id] });
+    } catch (requestError) {
+      setRetryError(getErrorMessage(requestError));
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const statusContent = () => {
+    if (!job) return null;
+    if (job.status === 'DONE') {
+      return {
+        icon: <CheckCircle2 className="w-10 h-10 text-emerald-600" />,
+        title: 'PDF processing completed',
+        detail: 'Ingestion and validation finished. Evaluation results are not available in current scope.',
+      };
+    }
+    if (job.status === 'ERROR') {
+      const detail = job.error_code
+        ? friendlyErrors[job.error_code] ?? 'PDF processing failed. Contact support with job ID.'
+        : 'PDF processing failed. Contact support with job ID.';
+      return {
+        icon: <AlertCircle className="w-10 h-10 text-rose-600" />,
+        title: 'Processing failed',
+        detail,
+      };
+    }
+    if (job.status === 'RUNNING') {
+      return {
+        icon: <LoaderCircle className="w-10 h-10 text-sky-600 animate-spin" />,
+        title: 'Processing PDF',
+        detail: 'DocGrading is validating and extracting the uploaded document.',
+      };
+    }
+    return {
+      icon: <Clock3 className="w-10 h-10 text-amber-600" />,
+      title: 'Queued',
+      detail: 'Upload completed. Processing will start shortly.',
+    };
+  };
+  const content = statusContent();
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="p-6 sm:p-8 max-w-3xl mx-auto space-y-6">
       <button
         type="button"
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900"
+        onClick={() => navigate(activeRole === 'student' ? '/student/assignments' : `/${activeRole}/courses`)}
+        className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600"
       >
-        <ArrowLeft className="w-4 h-4" />
-        <span>Quay lại danh sách bài nộp</span>
+        <ArrowLeft className="w-4 h-4" /> Back
       </button>
-
-      {/* Header card */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-md bg-sky-50 text-sky-700 font-mono text-xs font-bold border border-sky-200/80">
-              {submission.courseCode}
-            </span>
-            <span className="text-xs text-slate-500 font-mono">{submission.fileName}</span>
-          </div>
-          <span className="text-xs font-medium text-slate-400">Phiên bản: v{submission.version}</span>
-        </div>
-
-        <h1 className="text-base font-bold text-slate-900 mt-2">{submission.assignmentTitle}</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Nộp lúc: {submission.submittedAt} • Dung lượng: {submission.fileSize} • Số trang: {submission.pageCount}
-        </p>
+      <div className="border-b border-slate-200 pb-5">
+        <h1 className="text-2xl font-bold text-slate-900">Processing status</h1>
+        <p className="text-sm text-slate-500 mt-1 font-mono break-all">Job {jobId}</p>
       </div>
 
-      {/* Timeline Card */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-6">
-        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-          Tiến trình xử lý & Đánh giá bài nộp
-        </h2>
+      {(jobQuery.error || retryError) && (
+        <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
+          {retryError ?? getErrorMessage(jobQuery.error)}
+        </div>
+      )}
 
-        <div className="relative pl-6 space-y-8 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
-          {steps.map((step, idx) => (
-            <div key={step.id} className="relative flex items-start gap-4">
-              <div
-                className={`absolute -left-6 top-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ring-4 ring-white ${
-                  step.done
-                    ? 'bg-emerald-500 text-white'
-                    : step.current
-                    ? 'bg-sky-500 text-white animate-pulse'
-                    : 'bg-slate-200 text-slate-400'
-                }`}
-              >
-                {step.done ? <CheckCircle2 className="w-3.5 h-3.5" /> : idx + 1}
-              </div>
-
-              <div className="flex-1 text-xs">
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`font-semibold text-sm ${
-                      step.done
-                        ? 'text-slate-900'
-                        : step.current
-                        ? 'text-sky-600'
-                        : 'text-slate-400'
-                    }`}
-                  >
-                    {step.label}
-                  </span>
-                  <span className="text-[11px] font-mono text-slate-400">{step.time}</span>
-                </div>
-                <p className="text-slate-500 mt-1 leading-relaxed">{step.desc}</p>
-              </div>
+      {!content ? (
+        jobQuery.error ? null : <p className="text-sm text-slate-500">Loading job...</p>
+      ) : (
+        <section className="bg-white border border-slate-200 rounded-xl p-8 text-center">
+          <div className="flex justify-center">{content.icon}</div>
+          <h2 className="text-xl font-bold text-slate-900 mt-4">{content.title}</h2>
+          <p className="text-sm text-slate-600 mt-2">{content.detail}</p>
+          <dl className="grid grid-cols-2 gap-3 mt-6 text-left max-w-md mx-auto">
+            <div className="p-3 bg-slate-50 rounded-lg">
+              <dt className="text-xs text-slate-500">Attempt</dt>
+              <dd className="text-sm font-semibold text-slate-900">{job.attempt_count} / {job.max_attempts}</dd>
             </div>
-          ))}
-        </div>
-
-        {submission.status === 'published' && onViewResult && (
-          <div className="pt-4 border-t border-slate-100 flex justify-end">
-            <button
-              type="button"
-              onClick={onViewResult}
-              className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700"
-            >
-              Mở trang kết quả chính thức
+            <div className="p-3 bg-slate-50 rounded-lg">
+              <dt className="text-xs text-slate-500">Status</dt>
+              <dd className="text-sm font-semibold text-slate-900">{job.status}</dd>
+            </div>
+          </dl>
+          {job.status === 'ERROR' && job.attempt_count < job.max_attempts && activeRole !== 'student' && (
+            <button type="button" disabled={retrying} onClick={retry} className="inline-flex items-center gap-2 mt-6 px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+              <RotateCcw className="w-4 h-4" /> {retrying ? 'Retrying...' : 'Retry job'}
             </button>
-          </div>
-        )}
-      </div>
+          )}
+        </section>
+      )}
     </div>
   );
 };
