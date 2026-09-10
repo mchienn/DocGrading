@@ -31,7 +31,11 @@ export const AssignmentWizardModal: React.FC<AssignmentWizardModalProps> = ({
   const [description, setDescription] = useState(assignment?.description ?? '');
   const [dueAt, setDueAt] = useState(toLocalDateTime(assignment?.due_at));
   const [maxSubmissions, setMaxSubmissions] = useState(assignment?.max_submissions ?? 3);
-  const [rubricVersionId, setRubricVersionId] = useState(assignment?.rubric_version_id ?? rubrics[0]?.id ?? '');
+  const [rubricVersionId, setRubricVersionId] = useState(() => {
+    const current = assignment?.rubric_version_id;
+    if (current && rubrics.some((rubric) => rubric.id === current)) return current;
+    return rubrics[0]?.id ?? '';
+  });
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
 

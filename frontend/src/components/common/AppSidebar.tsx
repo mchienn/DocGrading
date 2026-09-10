@@ -68,8 +68,8 @@ export const AppSidebar: React.FC<SidebarProps> = ({
         <span className="text-xs text-[#596579] truncate">{displayName}</span>
         <button
           type="button"
-          aria-label="Đăng xuất"
-          title="Đăng xuất"
+          aria-label="Log out"
+          title="Log out"
           onClick={onLogout}
           className="p-2 text-[#8893A5] hover:text-[#B53A3A] hover:bg-[#FCEEEE] rounded-lg"
         >

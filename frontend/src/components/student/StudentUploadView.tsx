@@ -18,22 +18,25 @@ function uploadObject(
   file: File,
   onProgress: (percent: number) => void,
 ): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
-  const request = new XMLHttpRequest();
-  request.open('POST', url);
-  request.upload.onprogress = (event) => {
-    if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
-  };
-  request.onerror = () => reject(new Error('Object storage upload failed.'));
-  request.onload = () => {
-    if (request.status >= 200 && request.status < 300) resolve();
-    else reject(new Error(`Object storage upload failed (${request.status}).`));
-  };
-  const form = new FormData();
-  Object.entries(fields).forEach(([key, value]) => form.append(key, value));
-  form.append('file', file);
-  request.send(form);
-  return promise;
+  return new Promise<void>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', url);
+    request.timeout = 10 * 60 * 1000;
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    request.onerror = () => reject(new Error('Object storage upload failed.'));
+    request.ontimeout = () => reject(new Error('Object storage upload timed out.'));
+    request.onabort = () => reject(new Error('Object storage upload was cancelled.'));
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300) resolve();
+      else reject(new Error(`Object storage upload failed (${request.status}).`));
+    };
+    const form = new FormData();
+    Object.entries(fields).forEach(([key, value]) => form.append(key, value));
+    form.append('file', file);
+    request.send(form);
+  });
 }
 
 export const StudentUploadView: React.FC = () => {

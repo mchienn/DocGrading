@@ -71,13 +71,15 @@ function errorMessage(error: unknown, status: number): string {
   }
   return `Request failed (${status})`;
 }
-export function broadcastAuthChange(): void {
-  authChannel.postMessage(null);
+export type AuthChangeKind = 'signed-in' | 'signed-out';
+
+export function broadcastAuthChange(kind: AuthChangeKind): void {
+  authChannel.postMessage(kind);
 }
 
 function notifyAuthExpired(): void {
   window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
-  broadcastAuthChange();
+  broadcastAuthChange('signed-out');
 }
 
 export async function apiData<T>(request: Promise<ApiResult<T>>): Promise<T> {
@@ -94,7 +96,10 @@ export async function apiData<T>(request: Promise<ApiResult<T>>): Promise<T> {
 export async function apiVoid(request: Promise<ApiResult<unknown>>): Promise<void> {
   const { error, response } = await request;
   if (!response.ok) {
-    if (response.status === 401) notifyAuthExpired();
+    if (response.status === 401) {
+      if (response.url.endsWith('/auth/logout')) return;
+      notifyAuthExpired();
+    }
     throw new ApiError(errorMessage(error, response.status), response.status, error);
   }
 }

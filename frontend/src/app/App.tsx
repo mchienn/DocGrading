@@ -10,6 +10,7 @@ import {
   apiData,
   broadcastAuthChange,
   getErrorMessage,
+  type AuthChangeKind,
 } from '../api/client';
 import { AppHeader } from '../components/common/AppHeader';
 import { AppSidebar } from '../components/common/AppSidebar';
@@ -172,13 +173,22 @@ export const App: React.FC = () => {
       clearUserData(queryClient);
       setAuthExpired(true);
     };
+    const onAuthChange = (event: MessageEvent<AuthChangeKind>) => {
+      clearUserData(queryClient);
+      if (event.data === 'signed-in') {
+        setAuthExpired(false);
+        void sessionQuery.refetch();
+        return;
+      }
+      setAuthExpired(true);
+    };
     window.addEventListener(AUTH_EXPIRED_EVENT, expire);
-    authChannel.addEventListener('message', expire);
+    authChannel.addEventListener('message', onAuthChange);
     return () => {
       window.removeEventListener(AUTH_EXPIRED_EVENT, expire);
-      authChannel.removeEventListener('message', expire);
+      authChannel.removeEventListener('message', onAuthChange);
     };
-  }, [queryClient]);
+  }, [queryClient, sessionQuery]);
 
   if (sessionQuery.isLoading && !authExpired) {
     return <div className="min-h-screen grid place-items-center text-sm text-slate-500">Loading session...</div>;
@@ -202,7 +212,7 @@ export const App: React.FC = () => {
         <LoginPage onLoginSuccess={(user) => {
           clearUserData(queryClient);
           queryClient.setQueryData(['session'], user);
-          broadcastAuthChange();
+          broadcastAuthChange('signed-in');
           setAuthExpired(false);
           navigate('/');
         }} />
@@ -229,7 +239,7 @@ export const App: React.FC = () => {
     try {
       await authService.logout();
       setLogoutError(undefined);
-      broadcastAuthChange();
+      broadcastAuthChange('signed-out');
       setAuthExpired(true);
       clearUserData(queryClient);
       navigate('/');
