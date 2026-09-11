@@ -53,12 +53,16 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - >-
-        awslocal --endpoint-url http://storage:4566 s3api head-bucket
+        (awslocal --endpoint-url http://storage:4566 s3api head-bucket
         --bucket "$${STORAGE_BUCKET}" ||
         awslocal --endpoint-url http://storage:4566 s3api create-bucket
+        --bucket "$${STORAGE_BUCKET}") &&
+        awslocal --endpoint-url http://storage:4566 s3api put-bucket-cors
         --bucket "$${STORAGE_BUCKET}"
+        --cors-configuration "{\"CORSRules\":[{\"AllowedHeaders\":[\"*\"],\"AllowedMethods\":[\"POST\"],\"AllowedOrigins\":[\"$${FRONTEND_ORIGIN}\"],\"ExposeHeaders\":[\"ETag\"],\"MaxAgeSeconds\":300}]}"
     environment:
       STORAGE_BUCKET: ${STORAGE_BUCKET:-docgrading}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
       AWS_DEFAULT_REGION: ${STORAGE_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}

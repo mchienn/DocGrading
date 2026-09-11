@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +17,17 @@ from app.models.identity import User
 from app.models.session import Session
 
 _ph = PasswordHasher(type=Type.ID)
+
+
+def csrf_token_for_session(session_id: uuid.UUID) -> str:
+    """Derive a readable CSRF token from an opaque 122-bit session secret."""
+    return hashlib.sha256(session_id.bytes).hexdigest()
+
+
+def auth_cookie_names(secure: bool) -> tuple[str, str]:
+    """Use browser-enforced host-only cookie names whenever HTTPS is active."""
+    prefix = "__Host-" if secure else ""
+    return f"{prefix}session_id", f"{prefix}csrf_token"
 
 
 def hash_password(password: str) -> str:

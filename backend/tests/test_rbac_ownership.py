@@ -100,24 +100,24 @@ class TestCheckCourseOwnership:
         course = _make_course(owner_id=teacher_id)
         check_course_ownership(user, course)  # no exception
 
-    def test_non_owner_teacher_is_denied(self) -> None:
+    def test_non_owner_teacher_is_masked_as_not_found(self) -> None:
         user = _make_user(UserRole.TEACHER)
         course = _make_course(owner_id=uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
             check_course_ownership(user, course)
-        assert exc_info.value.status_code == 403
+        assert exc_info.value.status_code == 404
 
     def test_admin_bypasses_ownership(self) -> None:
         user = _make_user(UserRole.ADMIN)
         course = _make_course(owner_id=uuid.uuid4())
         check_course_ownership(user, course)  # no exception
 
-    def test_student_is_denied(self) -> None:
+    def test_student_is_masked_as_not_found(self) -> None:
         user = _make_user(UserRole.STUDENT)
         course = _make_course(owner_id=uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
             check_course_ownership(user, course)
-        assert exc_info.value.status_code == 403
+        assert exc_info.value.status_code == 404
 
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ Kiến trúc được chọn là **modular monolith có worker riêng**:
 - PDF: PDF.js ở trình duyệt; pypdf và pdfplumber ở worker.
 - Triển khai MVP: Docker Compose trên một máy chủ, không dùng Kubernetes hoặc microservice.
 
-Repository hiện có prototype React/Vite và nền tảng backend T-005 gồm FastAPI health endpoint, SQLAlchemy/Alembic base, Celery healthcheck, Docker Compose và CI. Domain schema, API nghiệp vụ, persistence nghiệp vụ, authorization và pipeline PDF/AI vẫn chưa được triển khai hoặc kiểm chứng bằng benchmark nội bộ.
+Repository hiện có frontend React/Vite nối trực tiếp session auth, Course, Assignment, Rubric, upload PDF và trạng thái job; backend đã triển khai domain, authorization và API nghiệp vụ đến T-009. Product UI chỉ hiển thị các luồng có API tương ứng; kết quả đánh giá, review, audit và quản trị người dùng vẫn ẩn cho đến khi backend của các backlog đó hoàn tất.
 
 ## 2. Mục tiêu sản phẩm
 
@@ -52,7 +52,7 @@ Repository hiện có prototype React/Vite và nền tảng backend T-005 gồm 
 ### 3.1. Trong phạm vi
 
 1. Đăng nhập bằng tài khoản được Admin tạo; không có đăng ký công khai.
-2. RBAC cho Admin, Giảng viên và Sinh viên; một tài khoản có thể có nhiều vai trò nhưng phải chuyển workspace rõ ràng.
+2. RBAC cho Admin, Giảng viên và Sinh viên; tài khoản nhiều vai trò dùng workspace theo quyền mạnh nhất theo thứ tự `ADMIN`, `TEACHER`, `STUDENT` để khớp authorization backend và tránh rơi xuống nhánh quyền yếu hơn.
 3. Tạo Course, tạo Assignment trong Course, chọn rubric, cấu hình tiêu chí/trọng số, lưu nháp, mở và đóng nhận bài.
 4. Rubric mặc định gồm 12 tiêu chí SRS; hỗ trợ template có phiên bản, nhân bản rubric, dry-run trên một PDF mẫu và tạo phiên bản mới.
 5. Sinh viên upload PDF, xem điều kiện file trước khi nộp, nhận lỗi theo trang và theo dõi trạng thái xử lý.
@@ -328,6 +328,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 - FastAPI là server duy nhất sở hữu authentication, authorization, domain transaction và OpenAPI. Không tạo thêm Route Handler, Server Action hoặc BFF bằng Next.js.
 - Prototype hiện tại đã kiểm chứng cấu trúc màn hình và flow trên React/Vite. Nó là nguồn tham khảo UI với mock data, không phải bằng chứng rằng API, persistence hoặc authorization đã được triển khai.
 - Production build là static assets do Vite tạo và Caddy phục vụ. Khi phát triển, Vite proxy `/api` sang FastAPI; production giữ cùng origin qua reverse proxy để đơn giản hóa cookie và CSRF.
+- Đăng nhập, đăng xuất và hết hạn session được đồng bộ giữa các tab; mỗi tab phải xóa server-state cache của người dùng cũ trước khi hiển thị session mới.
 - React Router quản lý URL theo Course/Assignment/Submission; TanStack Query quản lý server state. Không tiếp tục dùng `View` state trong `App.tsx` làm router sản phẩm.
 - Việc nâng prototype từ React 18/Vite 6 lên baseline target phải là thay đổi dependency có kiểm thử riêng; không trộn vào công việc nối API.
 

@@ -1,4 +1,7 @@
 Context thiết kế prototype — DocGrading
+
+> **Trạng thái:** Tài liệu này là design reference. Product flow hiện chỉ bật session auth, Course, Assignment, Rubric, upload PDF và trạng thái job T-009; các màn hình kết quả, review, audit và quản trị người dùng chưa có API nên không xuất hiện và không chạy bằng mock.
+
 1. Mô tả dự án
 DocGrading là hệ thống web hỗ trợ đánh giá chất lượng báo cáo học thuật được nộp dưới dạng PDF.
 Hệ thống phân tích cấu trúc, nội dung, bảng biểu, requirement, Use Case, thuật ngữ và tính nhất quán của tài liệu. Kết quả được trình bày theo từng tiêu chí, kèm vị trí và bằng chứng tương ứng trong PDF.

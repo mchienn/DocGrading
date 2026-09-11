@@ -584,6 +584,22 @@ def test_celery_task_turns_active_lease_into_unbounded_delayed_retry(
     assert worker_tasks.process_analysis_job.max_retries is None
 
 
+def test_celery_task_drains_async_pool_before_each_event_loop_closes(
+    worker_tasks: object,
+) -> None:
+    engine = SimpleNamespace(dispose=AsyncMock())
+    job_id = str(uuid.uuid4())
+
+    with (
+        patch.object(worker_tasks, "_engine", return_value=engine),
+        patch.object(worker_tasks, "_run_analysis_job", AsyncMock(return_value=job_id)),
+    ):
+        assert worker_tasks.process_analysis_job.run(job_id) == job_id
+        assert worker_tasks.process_analysis_job.run(job_id) == job_id
+
+    assert engine.dispose.await_count == 2
+
+
 def test_worker_task_runs_heartbeat_and_stops_before_terminal_done(
     worker_tasks: object,
 ) -> None:
