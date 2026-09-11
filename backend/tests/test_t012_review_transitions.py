@@ -313,6 +313,28 @@ async def _transition_scenario() -> None:
             reason="Publish approved set",
         )
         assert len(bulk.results) == 2
+        replayed_bulk = await bulk_publish_document_versions(
+            session,
+            assignment_id=ids["assignment"],
+            version_ids=[ids["document_1"], ids["document_2"]],
+            user=owner,
+            idempotency_key="bulk-one",
+            reason="Publish approved set",
+        )
+        assert replayed_bulk.model_dump() == bulk.model_dump()
+        stored_bulk_response = await connection.scalar(
+            text(
+                "SELECT response FROM public.review_commands "
+                "WHERE actor_user_id = :actor AND action = 'BULK_PUBLISH' "
+                "AND idempotency_key = 'bulk-one'"
+            ),
+            {"actor": ids["teacher"]},
+        )
+        assert stored_bulk_response == {
+            "published_result_ids": [
+                str(result.published_result_id) for result in bulk.results
+            ]
+        }
         before_failed_bulk = (
             await connection.scalar(
                 text(

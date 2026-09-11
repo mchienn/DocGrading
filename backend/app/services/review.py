@@ -1027,6 +1027,39 @@ def _published_response(
     }
 
 
+async def _bulk_published_response(
+    db: AsyncSession, result_ids: list[uuid.UUID]
+) -> BulkPublishResponse:
+    rows = (
+        await db.execute(
+            sa.select(PublishedResultVersion, DocumentVersion.submission_id)
+            .join(
+                DocumentVersion,
+                DocumentVersion.id == PublishedResultVersion.document_version_id,
+            )
+            .where(PublishedResultVersion.id.in_(result_ids))
+        )
+    ).all()
+    result_by_id = {
+        result.id: (result, submission_id) for result, submission_id in rows
+    }
+    if len(result_by_id) != len(result_ids):
+        raise HTTPException(
+            status_code=500, detail="Persisted bulk publish response is invalid"
+        )
+    return BulkPublishResponse(
+        results=[
+            PublishedResultResponse.model_validate(
+                _published_response(
+                    result_by_id[result_id][0],
+                    result_by_id[result_id][1],
+                )
+            )
+            for result_id in result_ids
+        ]
+    )
+
+
 async def approve_document_version(
     db: AsyncSession,
     *,
@@ -1201,7 +1234,20 @@ async def bulk_publish_document_versions(
         payload=payload,
     )
     if replay is not None:
-        return BulkPublishResponse.model_validate(replay)
+        raw_result_ids = replay.get("published_result_ids")
+        if not isinstance(raw_result_ids, list) or not all(
+            isinstance(value, str) for value in raw_result_ids
+        ):
+            raise HTTPException(
+                status_code=500, detail="Persisted bulk publish response is invalid"
+            )
+        try:
+            result_ids = [uuid.UUID(value) for value in raw_result_ids]
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=500, detail="Persisted bulk publish response is invalid"
+            ) from exc
+        return await _bulk_published_response(db, result_ids)
     if not reason.strip():
         raise HTTPException(status_code=422, detail="Reason must not be blank")
     assignment = (
@@ -1219,11 +1265,22 @@ async def bulk_publish_document_versions(
     _authorize_course(user, course)
     if course.status is CourseStatus.ARCHIVED:
         raise HTTPException(status_code=409, detail="Archived courses are read-only")
+    version_references = (
+        await db.execute(
+            sa.select(DocumentVersion.id, DocumentVersion.submission_id).where(
+                DocumentVersion.id.in_(version_ids)
+            )
+        )
+    ).all()
+    submission_ids = {reference.submission_id for reference in version_references}
     submissions = list(
         (
             await db.execute(
                 sa.select(Submission)
-                .where(Submission.assignment_id == assignment_id)
+                .where(
+                    Submission.assignment_id == assignment_id,
+                    Submission.id.in_(submission_ids),
+                )
                 .order_by(Submission.id)
                 .with_for_update()
             )
@@ -1267,7 +1324,9 @@ async def bulk_publish_document_versions(
                 _published_response(result, version.submission_id)
             )
         )
-    response = {"results": [result.model_dump(mode="json") for result in results]}
+    response = {
+        "published_result_ids": [str(result.published_result_id) for result in results]
+    }
     await _command_finish(
         db,
         actor_user_id=user.id,
@@ -1276,7 +1335,7 @@ async def bulk_publish_document_versions(
         fingerprint=fingerprint,
         response=response,
     )
-    return BulkPublishResponse.model_validate(response)
+    return BulkPublishResponse(results=results)
 
 
 async def unpublish_result(

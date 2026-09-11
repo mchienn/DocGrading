@@ -15,7 +15,7 @@
 
 ## Persistence
 
-Migration `20260911_0010` adds approval provenance/snapshot columns to `public.document_versions`, `public.published_result_versions`, and durable review-command idempotency rows. It refuses upgrade when legacy `APPROVED`/`PUBLISHED` rows lack an approval snapshot, requiring explicit backfill or re-review instead of marooning terminal state. Published snapshots contain normalized JSON only; Decimal scores are stored exactly as strings. No new scoring entity or calculation path is introduced.
+Migration `20260911_0010` adds approval provenance/snapshot columns to `public.document_versions`, `public.published_result_versions`, and durable review-command idempotency rows. It refuses upgrade when legacy `APPROVED`/`PUBLISHED` rows lack an approval snapshot, requiring explicit backfill or re-review instead of marooning terminal state. Bulk idempotency rows store only ordered published-result IDs; replay rebuilds public payloads from immutable published snapshots. Published snapshots contain normalized JSON only; Decimal scores are stored exactly as strings. No new scoring entity or calculation path is introduced.
 
 ## Migration security checklist
 
@@ -25,7 +25,7 @@ Hard gate before migration code:
 - [x] **SC-2 — guard append-only data:** migration never alters, disables, replaces, truncates, or drops `public.audit_events` or its row/TRUNCATE guards. Published-result append-only protection covers `UPDATE`, `DELETE`, and `TRUNCATE`. Real PostgreSQL roundtrip re-proves audit and published-result TRUNCATE rejection.
 - [x] **SC-3 — schema-qualify DDL/FKs:** every Alembic table/index/constraint operation passes `schema="public"`; every FK target is `public.<table>.<column>`; every raw SQL table, type, function, trigger, cast, and sequence reference uses `public.` where applicable.
 - [x] Downgrade locks affected objects and refuses any loss of published snapshots, idempotency history, or non-null approval provenance.
-- [x] Upgrade fails closed before DDL when legacy `APPROVED`/`PUBLISHED` rows need approval-snapshot backfill.
+- [x] Upgrade takes `ACCESS EXCLUSIVE` on `public.document_versions` before checking legacy state, keeping check and schema change atomic.
 
 ## Implementation sequence
 

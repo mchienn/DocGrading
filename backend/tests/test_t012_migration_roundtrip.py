@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import os
 from pathlib import Path
 
@@ -145,6 +144,7 @@ def test_t012_migration_real_postgresql_roundtrip_and_guards() -> None:
         tables = asyncio.run(_tables(engine))
         assert {"published_result_versions", "review_commands"} <= tables
     finally:
-        with contextlib.suppress(Exception):
+        try:
             command.upgrade(config, "head")
-        asyncio.run(engine.dispose())
+        finally:
+            asyncio.run(engine.dispose())

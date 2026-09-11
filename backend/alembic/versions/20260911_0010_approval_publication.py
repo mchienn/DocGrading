@@ -15,6 +15,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.execute(sa.text("SET search_path TO public"))
+    op.execute(sa.text("LOCK TABLE public.document_versions IN ACCESS EXCLUSIVE MODE"))
     if op.get_bind().scalar(
         sa.text(
             "SELECT EXISTS ("

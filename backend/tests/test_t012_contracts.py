@@ -15,6 +15,7 @@ from app.api.schemas_submission import (
     PublishRequest,
 )
 from app.db.base import Base
+from app.main import app
 
 MIGRATION = (
     Path(__file__).parents[1]
@@ -62,12 +63,33 @@ def test_t012_requests_reject_blank_reason_and_duplicate_bulk_ids() -> None:
         BulkPublishRequest(version_ids=[value, value], reason="publish")
 
 
+def test_t012_command_routes_require_idempotency_header() -> None:
+    schema = app.openapi()
+    for path in (
+        "/api/v1/document-versions/{version_id}/approve",
+        "/api/v1/document-versions/{version_id}/publish",
+        "/api/v1/assignments/{assignment_id}/document-versions/bulk-publish",
+        "/api/v1/published-results/{published_result_id}/unpublish",
+    ):
+        parameters = schema["paths"][path]["post"]["parameters"]
+        header = next(
+            parameter
+            for parameter in parameters
+            if parameter["in"] == "header" and parameter["name"] == "Idempotency-Key"
+        )
+        assert header["required"] is True
+
+
 def test_t012_migration_security_and_append_only_contract() -> None:
     source = MIGRATION.read_text(encoding="utf-8")
     tree = ast.parse(source)
     upgrade = _function(tree, "upgrade")
     downgrade = _function(tree, "downgrade")
     assert "SET search_path TO public" in ast.unparse(upgrade.body[0])
+    assert (
+        "LOCK TABLE public.document_versions IN ACCESS EXCLUSIVE MODE"
+        in ast.unparse(upgrade.body[1])
+    )
     assert "SET search_path TO public" in ast.unparse(downgrade.body[0])
     assert "audit_events" not in source
     assert "BEFORE UPDATE ON public.published_result_versions" in source

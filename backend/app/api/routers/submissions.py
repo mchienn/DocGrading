@@ -226,7 +226,7 @@ async def put_submission_review_draft(
 )
 async def approve_document_version(
     version_id: uuid.UUID,
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ApprovalResponse:
@@ -234,7 +234,7 @@ async def approve_document_version(
         db,
         version_id=version_id,
         user=user,
-        idempotency_key=idempotency_key or "",
+        idempotency_key=idempotency_key,
     )
     await db.commit()
     return response
@@ -247,7 +247,7 @@ async def approve_document_version(
 async def publish_document_version(
     version_id: uuid.UUID,
     body: PublishRequest,
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> PublishedResultResponse:
@@ -255,7 +255,7 @@ async def publish_document_version(
         db,
         version_id=version_id,
         user=user,
-        idempotency_key=idempotency_key or "",
+        idempotency_key=idempotency_key,
         reason=body.reason,
     )
     await db.commit()
@@ -269,7 +269,7 @@ async def publish_document_version(
 async def bulk_publish_document_versions(
     assignment_id: uuid.UUID,
     body: BulkPublishRequest,
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> BulkPublishResponse:
@@ -278,7 +278,7 @@ async def bulk_publish_document_versions(
         assignment_id=assignment_id,
         version_ids=body.version_ids,
         user=user,
-        idempotency_key=idempotency_key or "",
+        idempotency_key=idempotency_key,
         reason=body.reason,
     )
     await db.commit()
@@ -292,7 +292,7 @@ async def bulk_publish_document_versions(
 async def unpublish_published_result(
     published_result_id: uuid.UUID,
     body: UnpublishRequest,
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ApprovalResponse:
@@ -300,7 +300,7 @@ async def unpublish_published_result(
         db,
         published_result_id=published_result_id,
         user=user,
-        idempotency_key=idempotency_key or "",
+        idempotency_key=idempotency_key,
         reason=body.reason,
     )
     await db.commit()

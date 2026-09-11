@@ -12,7 +12,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.models.enums import UserRole
-from app.services.review import approve_document_version, publish_document_version
+from app.services import review as review_service
 from tests.test_t011_review_workspace import _actor, _cleanup_graph, _ids, _seed_graph
 
 pytestmark = pytest.mark.skipif(
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-async def _race_scenario() -> None:
+async def _race_scenario(monkeypatch: pytest.MonkeyPatch) -> None:
     ids = _ids()
     engine = create_async_engine(get_settings().database_url, poolclass=NullPool)
     try:
@@ -59,11 +59,23 @@ async def _race_scenario() -> None:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
         admin = _actor(ids["admin"], "Admin", UserRole.ADMIN, UserRole.TEACHER)
+        lock_barrier = asyncio.Barrier(2)
+        original_locked_document_context = review_service._locked_document_context
+
+        async def synchronized_document_lock(db, version_id, user):
+            await lock_barrier.wait()
+            return await original_locked_document_context(db, version_id, user)
+
+        monkeypatch.setattr(
+            review_service,
+            "_locked_document_context",
+            synchronized_document_lock,
+        )
 
         async def approve_race(actor, key: str) -> tuple[str, int | None]:
             async with factory() as session:
                 try:
-                    await approve_document_version(
+                    await review_service.approve_document_version(
                         session,
                         version_id=ids["document_1"],
                         user=actor,
@@ -105,7 +117,7 @@ async def _race_scenario() -> None:
         async def publish_race(actor, key: str) -> tuple[str, int | None]:
             async with factory() as session:
                 try:
-                    await publish_document_version(
+                    await review_service.publish_document_version(
                         session,
                         version_id=ids["document_1"],
                         user=actor,
@@ -144,6 +156,41 @@ async def _race_scenario() -> None:
                 )
                 == 1
             )
+
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE public.document_versions SET approved_at = now(), "
+                    "approved_by_user_id = :teacher, approved_snapshot = '{}'::jsonb "
+                    "WHERE id = :document"
+                ),
+                {"teacher": ids["teacher"], "document": ids["document_2"]},
+            )
+        blocker = await engine.connect()
+        blocker_transaction = await blocker.begin()
+        try:
+            await blocker.execute(
+                text(
+                    "SELECT id FROM public.submissions WHERE id = :submission "
+                    "FOR UPDATE"
+                ),
+                {"submission": ids["submission_3"]},
+            )
+            async with factory() as session:
+                await session.execute(text("SET LOCAL lock_timeout = '250ms'"))
+                bulk = await review_service.bulk_publish_document_versions(
+                    session,
+                    assignment_id=ids["assignment"],
+                    version_ids=[ids["document_2"]],
+                    user=teacher,
+                    idempotency_key="bulk-lock-scope",
+                    reason="Publish requested submission",
+                )
+                await session.commit()
+            assert len(bulk.results) == 1
+        finally:
+            await blocker_transaction.rollback()
+            await blocker.close()
     finally:
         async with engine.begin() as connection:
             await connection.execute(
@@ -152,9 +199,9 @@ async def _race_scenario() -> None:
             await connection.execute(
                 text(
                     "DELETE FROM public.published_result_versions "
-                    "WHERE document_version_id = :document"
+                    "WHERE document_version_id IN (:one, :two)"
                 ),
-                {"document": ids["document_1"]},
+                {"one": ids["document_1"], "two": ids["document_2"]},
             )
             await connection.execute(
                 text(
@@ -166,13 +213,19 @@ async def _race_scenario() -> None:
             await connection.execute(
                 text(
                     "DELETE FROM public.audit_events "
-                    "WHERE resource_id IN (:document, :finding)"
+                    "WHERE resource_id IN (:one, :two, :finding)"
                 ),
-                {"document": ids["document_1"], "finding": ids["finding"]},
+                {
+                    "one": ids["document_1"],
+                    "two": ids["document_2"],
+                    "finding": ids["finding"],
+                },
             )
             await _cleanup_graph(connection, ids)
         await engine.dispose()
 
 
-def test_t012_concurrent_approve_and_publish_have_one_winner() -> None:
-    asyncio.run(_race_scenario())
+def test_t012_concurrent_transitions_and_bulk_lock_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncio.run(_race_scenario(monkeypatch))
