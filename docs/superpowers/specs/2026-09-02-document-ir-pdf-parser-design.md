@@ -134,14 +134,18 @@ Two table regions on consecutive pages form one logical table only when:
 
 The logical table stores ordered regions rather than fabricating one cross-page bounding box. Uncertain regions remain separate tables; false merging is worse than under-merging.
 
+### 4.6 Element-level review flag
+
+Sections and paragraphs extracted from a vector-heavy page with no detected table may include `"needs_review": true`. The flag means diagram semantics were not interpreted; text, heading classification, page number, and bounding box remain valid. Its absence means the parser found no unsupported vector-diagram semantics for that element. Existing consumers must ignore unknown optional fields.
+
 ## 5. Parse flow
 
 `parse_document_ir(data, limits)` is pure and synchronous:
 
 1. call `validate_pdf(data, max_size_bytes, max_page_count)`;
 2. only after validation succeeds, open the same bytes with pdfplumber;
-3. traverse pages and layout nodes under one shared node budget;
-4. extract words, lines, headings, paragraphs, and tables;
+3. traverse pages and layout nodes under one shared structure budget plus separate bounded vector and table work limits;
+4. extract words, lines, headings, paragraphs, and real table candidates; vector-heavy non-table pages keep their text and coordinates with element-level `needs_review`;
 5. validate the in-memory IR contract;
 6. return validation metadata plus the JSON-compatible payload.
 
@@ -149,18 +153,18 @@ The worker runs CPU-bound parsing in `asyncio.to_thread`. It does not log PDF by
 
 ## 6. Bounded untrusted-data handling
 
-Add a positive `pdf_ir_max_nodes` setting. One shared budget counts every visited or emitted page, layout object, word, line, heading, paragraph, table, region, row, and cell. Exceeding the budget raises `PDF_STRUCTURE_LIMIT` before further traversal.
+Add a positive `pdf_ir_max_nodes` setting. One shared budget counts every visited or emitted page, layout object, word, line, heading, paragraph, table, region, row, and cell. Table source objects and edges count as table work only when they overlap a detected ruled-table region. Vector graphics have separate hard source-object and edge caps. Ruled and text-aligned table preflights also cap estimated quadratic finder work before calling pdfplumber. Exceeding any applicable bound raises `PDF_STRUCTURE_LIMIT` before further unbounded traversal.
 
 `validate_pdf` performs an iterative `/Pages` preflight before touching `reader.pages`. It bounds page leaves, intermediate nodes, depth, cycles, and indirect-object dereferences, so forged page counts cannot force unbounded pypdf flattening.
 
 Additional invariants:
 
 - no unbounded traversal is added: page-tree preflight and active-content scanning use explicit node, depth, and cycle bounds;
-- active-content checks inspect action values in context; JavaScript, launch actions, remote/embedded actions, forms, attachments, URLs, and embedded files are rejected without opening or executing them;
-- section-stack depth is bounded by the same node budget;
+- active-content checks inspect action values in context; JavaScript, launch actions, remote/embedded actions, forms, attachments, and embedded files are rejected without opening or executing them;
+- `/URI` link actions are accepted as inert annotations: validation never fetches, executes, persists, or logs their URL, and dangerous `/Next` actions still fail closed;
+- section-stack depth is bounded by the shared node budget;
 - non-finite or out-of-page coordinates are rejected;
-- ruled and text-aligned table discovery is bounded before pdfplumber's edge/intersection work;
-- only text/layout/table extraction APIs are used;
+- ruled and text-aligned table discovery is bounded; vector-heavy pages below the vector cap do not spend table-edge budget when no table is detected;
 - pypdf/pdfminer/pdfplumber records are filtered only during untrusted validation/extraction; application records and filter state remain intact.
 
 `PDFValidationError` and `PDF_STRUCTURE_LIMIT` mark the document invalid with stable, non-sensitive details. Unexpected extractor/storage failures mark processing failed with sanitized details and no PDF content.
@@ -214,6 +218,10 @@ This checklist is a hard gate before creating migration `20260902_0008`.
 - table fragments spanning consecutive pages become one logical table with page-specific regions and stable cell coordinates;
 - ordinary prose is not misclassified as headings;
 - malformed/out-of-page coordinates fail closed.
+- safe `/URI` link annotations pass validation and parsing;
+- JavaScript, Launch, embedded files, forms, and remote actions remain rejected as `PDF_ACTIVE_CONTENT`;
+- vector-heavy pages with no table keep text and coordinates and mark extracted elements `needs_review`;
+- real dense tables and global node bombs still raise `PDF_STRUCTURE_LIMIT`;
 
 ### Data Integrity & Integration
 
@@ -229,8 +237,8 @@ This checklist is a hard gate before creating migration `20260902_0008`.
 
 - parser entrypoint proves `validate_pdf` runs before pdfplumber opens bytes;
 - node-budget exhaustion raises `PDF_STRUCTURE_LIMIT` without continuing traversal;
-- JavaScript/embedded-file PDFs are rejected by existing validation and never reach layout extraction;
-- parser errors and logs contain no extracted text, bytes, signed fields, credentials, or storage URLs;
+- JavaScript/Launch/embedded-file PDFs are rejected by existing validation and never reach layout extraction; safe `/URI` annotations reach extraction but are never fetched or logged;
+- parser errors and logs contain no extracted text, PDF bytes, annotation URLs, signed fields, credentials, or storage URLs;
 - migration preserves append-only audit UPDATE/DELETE/TRUNCATE guards.
 
 ## 11. Verification

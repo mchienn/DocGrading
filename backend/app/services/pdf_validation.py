@@ -877,7 +877,6 @@ _ACTIVE_ACTION_TYPES = {
     "/SubmitForm",
     "/ImportData",
     "/ResetForm",
-    "/URI",
     "/RichMediaExecute",
     "/Rendition",
     "/Movie",
