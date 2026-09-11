@@ -67,6 +67,12 @@ class AuditActorType(StrEnum):
     SYSTEM = "SYSTEM"
 
 
+class ReviewDecisionType(StrEnum):
+    ACCEPT = "ACCEPT"
+    EDIT = "EDIT"
+    REJECT = "REJECT"
+
+
 def pg_enum(
     enum_cls: type[StrEnum],
     name: str,
