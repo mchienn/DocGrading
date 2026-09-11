@@ -38,6 +38,7 @@ _MAX_TABLE_SOURCE_OBJECTS = 256
 _MAX_TABLE_EDGES = 1024
 _MAX_TABLE_INTERSECTIONS = 8192
 _MAX_TABLE_FINDER_WORK = 1_000_000
+_MAX_TEXT_TABLE_FINDER_WORK = 2_000_000
 _MIN_RULED_TABLE_INTERSECTIONS = 4
 _MAX_TABLE_CELLS = 4096
 _MAX_TABLE_TEXT_CHARS = 100_000
@@ -649,7 +650,7 @@ def _extract_tables(
         text_edges > _MAX_TABLE_EDGES
         or text_edges * text_edges > _MAX_TABLE_INTERSECTIONS
         or estimated_text_intersections * estimated_text_intersections
-        > _MAX_TABLE_FINDER_WORK
+        > _MAX_TEXT_TABLE_FINDER_WORK
         or budget.used + _TABLE_WORK_RESERVE > budget.limit
     ):
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")

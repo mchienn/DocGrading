@@ -509,20 +509,37 @@ def test_spatial_table_order_preserves_cross_page_continuation() -> None:
     assert parsed.content["tables"][1]["page_end"] == 2
 
 
+def test_text_table_finder_accepts_eight_by_twenty() -> None:
+    rows = [[str(column) for column in range(8)] for _ in range(20)]
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            _make_borderless_table_page(
+                rows,
+                x_positions=[20 + (70 * index) for index in range(8)],
+                y_positions=[750 - (30 * index) for index in range(20)],
+            )
+        )
+    )
+
+    assert len(parsed.content["tables"]) == 1
+    assert len(parsed.content["tables"][0]["rows"]) == len(rows)
+
+
 def test_dense_text_fails_before_text_strategy_find_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    operations = _make_borderless_table_page(
-        [[str(column) for column in range(20)] for _ in range(55)],
-        x_positions=[20 + (28 * index) for index in range(20)],
-        y_positions=[750 - (13 * index) for index in range(55)],
-    )
     calls: list[Any] = []
     original_find_tables = document_ir.pdfplumber.page.Page.find_tables
 
     def track_find_tables(page: Any, settings: Any = None) -> list[Any]:
         calls.append(settings)
         return original_find_tables(page, settings)
+
+    monkeypatch.setattr(
+        document_ir.pdfplumber.page.Page,
+        "find_tables",
+        track_find_tables,
+    )
 
     operations = _make_borderless_table_page(
         [[str(column) for column in range(15)] for _ in range(22)],
