@@ -19,6 +19,8 @@ from app.models.identity import User
 from app.models.review import (
     EvidenceAnchor,
     Finding,
+    PublishedResultVersion,
+    ReviewCommand,
     ReviewDecision,
     ReviewDraft,
     ReviewLock,
@@ -47,6 +49,8 @@ __all__ = [
     "Membership",
     "MembershipRole",
     "MembershipStatus",
+    "PublishedResultVersion",
+    "ReviewCommand",
     "ReviewDecision",
     "ReviewDecisionType",
     "ReviewDraft",

@@ -8,16 +8,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.api.schemas_submission import (
     AnalysisJobResponse,
+    ApprovalResponse,
+    BulkPublishRequest,
+    BulkPublishResponse,
     CompletionResponse,
     EvidenceWorkspaceResponse,
     PresignRequest,
     PresignResponse,
+    PublishedResultResponse,
+    PublishRequest,
     QueueSort,
     QueueStatus,
     ReviewDraftRequest,
     ReviewDraftResponse,
     ReviewLockResponse,
     SubmissionQueueResponse,
+    UnpublishRequest,
 )
 from app.db.session import get_db_session
 from app.models.enums import AnalysisJobStatus
@@ -212,3 +218,104 @@ async def put_submission_review_draft(
     )
     await db.commit()
     return response
+
+
+@router.post(
+    "/document-versions/{version_id}/approve",
+    response_model=ApprovalResponse,
+)
+async def approve_document_version(
+    version_id: uuid.UUID,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ApprovalResponse:
+    response = await review_svc.approve_document_version(
+        db,
+        version_id=version_id,
+        user=user,
+        idempotency_key=idempotency_key,
+    )
+    await db.commit()
+    return response
+
+
+@router.post(
+    "/document-versions/{version_id}/publish",
+    response_model=PublishedResultResponse,
+)
+async def publish_document_version(
+    version_id: uuid.UUID,
+    body: PublishRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PublishedResultResponse:
+    response = await review_svc.publish_document_version(
+        db,
+        version_id=version_id,
+        user=user,
+        idempotency_key=idempotency_key,
+        reason=body.reason,
+    )
+    await db.commit()
+    return response
+
+
+@router.post(
+    "/assignments/{assignment_id}/document-versions/bulk-publish",
+    response_model=BulkPublishResponse,
+)
+async def bulk_publish_document_versions(
+    assignment_id: uuid.UUID,
+    body: BulkPublishRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> BulkPublishResponse:
+    response = await review_svc.bulk_publish_document_versions(
+        db,
+        assignment_id=assignment_id,
+        version_ids=body.version_ids,
+        user=user,
+        idempotency_key=idempotency_key,
+        reason=body.reason,
+    )
+    await db.commit()
+    return response
+
+
+@router.post(
+    "/published-results/{published_result_id}/unpublish",
+    response_model=ApprovalResponse,
+)
+async def unpublish_published_result(
+    published_result_id: uuid.UUID,
+    body: UnpublishRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ApprovalResponse:
+    response = await review_svc.unpublish_result(
+        db,
+        published_result_id=published_result_id,
+        user=user,
+        idempotency_key=idempotency_key,
+        reason=body.reason,
+    )
+    await db.commit()
+    return response
+
+
+@router.get(
+    "/submissions/{submission_id}/published-result",
+    response_model=PublishedResultResponse,
+)
+async def get_submission_published_result(
+    submission_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PublishedResultResponse:
+    return await review_svc.get_student_published_result(
+        db, submission_id=submission_id, user=user
+    )

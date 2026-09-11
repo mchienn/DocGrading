@@ -217,3 +217,65 @@ class ReviewDraftResponse(BaseModel):
     revision: int
     comment: str
     decisions: list[ReviewDecisionResponse]
+
+
+class ApprovalResponse(BaseModel):
+    document_version_id: uuid.UUID
+    status: str
+    approved_at: datetime
+
+
+class BulkPublishRequest(BaseModel):
+    version_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=2_000)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Reason must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def unique_versions(self) -> BulkPublishRequest:
+        if len(self.version_ids) != len(set(self.version_ids)):
+            raise ValueError("version_ids must be unique")
+        return self
+
+
+class PublishRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2_000)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Reason must not be blank")
+        return value
+
+
+class UnpublishRequest(PublishRequest):
+    pass
+
+
+class PublishedFindingResponse(BaseModel):
+    criterion_version_id: uuid.UUID
+    finding_id: uuid.UUID
+    score: Decimal | None
+    description: str
+    suggestion: str | None
+    evidence: list[EvidenceResponse]
+
+
+class PublishedResultResponse(BaseModel):
+    published_result_id: uuid.UUID
+    submission_id: uuid.UUID
+    document_version_id: uuid.UUID
+    version_number: int
+    published_at: datetime
+    comment: str
+    findings: list[PublishedFindingResponse]
+
+
+class BulkPublishResponse(BaseModel):
+    results: list[PublishedResultResponse]

@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -278,3 +278,107 @@ class ReviewDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         "ReviewDraft", back_populates="decisions", foreign_keys=[review_draft_id]
     )
     finding: Mapped[Finding] = relationship("Finding", foreign_keys=[finding_id])
+
+
+class PublishedResultVersion(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "published_result_versions"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "document_version_id",
+            "version_number",
+            name="uq_published_result_versions_document_version_number",
+        ),
+        sa.CheckConstraint(
+            "version_number > 0",
+            name="ck_published_result_versions_version_number_positive",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(snapshot) = 'object'",
+            name="ck_published_result_versions_snapshot_object",
+        ),
+        sa.ForeignKeyConstraint(
+            ["document_version_id"],
+            ["document_versions.id"],
+            name="fk_published_results_document_version",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["approved_by_user_id"],
+            ["users.id"],
+            name="fk_published_result_versions_approved_by_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["published_by_user_id"],
+            ["users.id"],
+            name="fk_published_result_versions_published_by_user_id_users",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    version_number: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    approved_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    published_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    approved_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False
+    )
+    published_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False
+    )
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+    document_version: Mapped[DocumentVersion] = relationship(
+        "DocumentVersion", foreign_keys=[document_version_id]
+    )
+    approved_by: Mapped[User] = relationship("User", foreign_keys=[approved_by_user_id])
+    published_by: Mapped[User] = relationship(
+        "User", foreign_keys=[published_by_user_id]
+    )
+
+
+class ReviewCommand(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "review_commands"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "actor_user_id",
+            "action",
+            "idempotency_key",
+            name="uq_review_commands_actor_action_key",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(response) = 'object'",
+            name="ck_review_commands_response_object",
+        ),
+        sa.CheckConstraint(
+            "length(idempotency_key) BETWEEN 1 AND 128",
+            name="ck_review_commands_idempotency_key_length",
+        ),
+        sa.CheckConstraint(
+            "length(request_fingerprint) = 64",
+            name="ck_review_commands_request_fingerprint_length",
+        ),
+        sa.ForeignKeyConstraint(
+            ["actor_user_id"],
+            ["users.id"],
+            name="fk_review_commands_actor_user_id_users",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    action: Mapped[str] = mapped_column(sa.String(32), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    response: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+    )
+
+    actor: Mapped[User] = relationship("User", foreign_keys=[actor_user_id])
