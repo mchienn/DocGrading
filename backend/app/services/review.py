@@ -79,7 +79,7 @@ async def _submission_for_review(
         .where(Submission.id == submission_id)
     )
     if lock:
-        statement = statement.with_for_update(of=[Course, Submission])
+        statement = statement.with_for_update(read=True, of=Course)
     row = (await db.execute(statement)).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Submission not found")
@@ -87,6 +87,14 @@ async def _submission_for_review(
     _authorize_course(user, course)
     if writable and course.status is CourseStatus.ARCHIVED:
         raise HTTPException(status_code=409, detail="Archived courses are read-only")
+    if lock:
+        submission = (
+            await db.execute(
+                sa.select(Submission)
+                .where(Submission.id == submission_id)
+                .with_for_update()
+            )
+        ).scalar_one()
     return submission
 
 
@@ -118,6 +126,9 @@ async def list_submission_queue(
             DocumentVersion.submission_id,
             sa.func.max(DocumentVersion.version_number).label("version_number"),
         )
+        .join(Submission, Submission.id == DocumentVersion.submission_id)
+        .join(Assignment, Assignment.id == Submission.assignment_id)
+        .where(Assignment.course_id == course_id)
         .group_by(DocumentVersion.submission_id)
         .subquery()
     )
@@ -200,6 +211,10 @@ async def list_submission_queue(
 
 def _evidence_error() -> HTTPException:
     return HTTPException(status_code=500, detail="Persisted evidence anchor is invalid")
+
+
+def _lock_holder_error() -> HTTPException:
+    return HTTPException(status_code=500, detail="Review lock holder is missing")
 
 
 def _anchor_index(content: Mapping[str, Any]) -> dict[tuple[str, int], BBox]:
@@ -351,7 +366,7 @@ async def acquire_review_lock(
     ):
         holder = await db.get(User, review_lock.reviewer_user_id)
         if holder is None:
-            raise _evidence_error()
+            raise _lock_holder_error()
         return _lock_response(review_lock, holder, acquired=False)
 
     if review_lock is None:
@@ -404,9 +419,12 @@ async def release_review_lock(
     if review_lock is None:
         raise HTTPException(status_code=409, detail="Review lock is not held")
 
-    is_admin = UserRole.ADMIN in user.roles
-    if not is_admin:
-        if review_lock.expires_at <= _now():
+    now = _now()
+    is_force_release = UserRole.ADMIN in user.roles and (
+        review_lock.reviewer_user_id != user.id or review_lock.expires_at <= now
+    )
+    if not is_force_release:
+        if review_lock.expires_at <= now:
             raise HTTPException(status_code=409, detail="Review lock is not held")
         if review_lock.reviewer_user_id != user.id:
             raise HTTPException(

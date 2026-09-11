@@ -27,6 +27,13 @@ def _not_blank(column: str, name: str) -> sa.CheckConstraint:
     )
 
 
+def _not_blank_optional(column: str, name: str) -> sa.CheckConstraint:
+    return sa.CheckConstraint(
+        f"{column} IS NULL OR {column} !~ '^[[:space:]]*$'",
+        name=name,
+    )
+
+
 class Finding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "findings"
     __table_args__ = (
@@ -233,8 +240,11 @@ class ReviewDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND edited_description IS NULL AND final_score IS NULL)",
             name="ck_review_decisions_payload",
         ),
-        _not_blank("edited_description", "ck_review_decisions_description_not_blank"),
-        _not_blank("reason", "ck_review_decisions_reason_not_blank"),
+        _not_blank_optional(
+            "edited_description",
+            "ck_review_decisions_description_not_blank",
+        ),
+        _not_blank_optional("reason", "ck_review_decisions_reason_not_blank"),
         sa.CheckConstraint(
             "final_score IS NULL OR (final_score >= 0 AND final_score <= 100)",
             name="ck_review_decisions_final_score_range",

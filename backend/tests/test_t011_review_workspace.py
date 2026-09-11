@@ -613,8 +613,13 @@ async def _lock_contention_scenario() -> None:
                 {"course": ids["course"]},
             )
 
+            waiter_pid = asyncio.get_running_loop().create_future()
+
             async def acquire_after_archive() -> HTTPException:
                 async with sessions() as review_session:
+                    pid = await review_session.scalar(text("SELECT pg_backend_pid()"))
+                    assert pid is not None
+                    waiter_pid.set_result(pid)
                     with pytest.raises(HTTPException) as archived_error:
                         await acquire_review_lock(
                             review_session,
@@ -625,7 +630,26 @@ async def _lock_contention_scenario() -> None:
                     return archived_error.value
 
             blocked = asyncio.create_task(acquire_after_archive())
-            await asyncio.sleep(0.05)
+            pid = await waiter_pid
+            waiting = False
+            for _ in range(500):
+                waiting = bool(
+                    await archive_session.scalar(
+                        text("""
+                            SELECT EXISTS (
+                                SELECT 1
+                                FROM pg_locks
+                                WHERE pid = :pid
+                                  AND NOT granted
+                            )
+                        """),
+                        {"pid": pid},
+                    )
+                )
+                if waiting:
+                    break
+                await asyncio.sleep(0.01)
+            assert waiting
             assert not blocked.done()
             await archive_session.commit()
             archived_error = await asyncio.wait_for(blocked, timeout=1)
@@ -833,6 +857,28 @@ async def _autosave_override_scenario() -> None:
         assert release_audit.before["reviewer_user_id"] == str(ids["teacher"])
         assert release_audit.after == {"released": True}
         assert release_audit.reason == "Admin released review lock"
+        admin_lock = await acquire_review_lock(
+            session,
+            submission_id=ids["submission_1"],
+            user=admin,
+        )
+        assert admin_lock.acquired is True
+        await release_review_lock(
+            session,
+            submission_id=ids["submission_1"],
+            user=admin,
+        )
+        force_release_count = await session.scalar(
+            text("""
+                SELECT count(*)
+                FROM public.audit_events
+                WHERE resource_type = 'ReviewLock'
+                  AND action = 'ADMIN_RELEASE'
+                  AND actor_user_id = :admin
+            """),
+            {"admin": ids["admin"]},
+        )
+        assert force_release_count == 1
     finally:
         await session.close()
         await transaction.rollback()

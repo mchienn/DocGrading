@@ -6,10 +6,12 @@ import os
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
 from sqlalchemy import exc, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from alembic import command
 from app.core.config import get_settings
 
 pytestmark = pytest.mark.skipif(
@@ -76,11 +78,8 @@ async def _assert_audit_truncate_rejected(engine: AsyncEngine) -> None:
 
 
 def test_migration_0009_real_postgresql_roundtrip() -> None:
-    import alembic.command
-    import alembic.config
-
     backend_dir = Path(__file__).resolve().parents[1]
-    config = alembic.config.Config(str(backend_dir / "alembic.ini"))
+    config = Config(str(backend_dir / "alembic.ini"))
     config.set_main_option("script_location", str(backend_dir / "alembic"))
     engine = create_async_engine(
         get_settings().database_url,
@@ -88,23 +87,63 @@ def test_migration_0009_real_postgresql_roundtrip() -> None:
     )
 
     try:
-        alembic.command.upgrade(config, "head")
+        command.upgrade(config, "head")
         assert asyncio.run(_public_tables(engine)) >= T011_TABLES
         assert asyncio.run(_enum_exists(engine)) is True
         assert asyncio.run(_draft_version_column_exists(engine)) is True
         asyncio.run(_assert_audit_truncate_rejected(engine))
 
-        alembic.command.downgrade(config, "20260902_0008")
+        command.downgrade(config, "20260902_0008")
         assert T011_TABLES.isdisjoint(asyncio.run(_public_tables(engine)))
         assert asyncio.run(_enum_exists(engine)) is False
         asyncio.run(_assert_audit_truncate_rejected(engine))
 
-        alembic.command.upgrade(config, "head")
+        command.upgrade(config, "head")
         assert asyncio.run(_public_tables(engine)) >= T011_TABLES
         assert asyncio.run(_enum_exists(engine)) is True
         assert asyncio.run(_draft_version_column_exists(engine)) is True
         asyncio.run(_assert_audit_truncate_rejected(engine))
     finally:
         with contextlib.suppress(Exception):
-            alembic.command.upgrade(config, "head")
+            command.upgrade(config, "head")
+        asyncio.run(engine.dispose())
+
+
+def test_migration_0009_refuses_nonempty_finding_downgrade() -> None:
+    from tests.test_t011_review_workspace import _cleanup_graph, _ids, _seed_graph
+
+    backend_dir = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_dir / "alembic"))
+    engine = create_async_engine(
+        get_settings().database_url,
+        poolclass=NullPool,
+    )
+    ids = _ids()
+
+    async def exercise_guard() -> None:
+        async with engine.begin() as connection:
+            await _seed_graph(connection, ids)
+            await connection.execute(
+                text("DELETE FROM public.evidence_anchors WHERE id = :anchor"),
+                {"anchor": ids["anchor"]},
+            )
+        try:
+            with pytest.raises(RuntimeError, match="public.findings is not empty"):
+                await asyncio.to_thread(
+                    command.downgrade,
+                    config,
+                    "20260902_0008",
+                )
+            assert "findings" in await _public_tables(engine)
+        finally:
+            async with engine.begin() as connection:
+                await _cleanup_graph(connection, ids)
+
+    try:
+        command.upgrade(config, "head")
+        asyncio.run(exercise_guard())
+    finally:
+        with contextlib.suppress(Exception):
+            command.upgrade(config, "head")
         asyncio.run(engine.dispose())
