@@ -217,29 +217,62 @@ def _lock_holder_error() -> HTTPException:
     return HTTPException(status_code=500, detail="Review lock holder is missing")
 
 
-def _anchor_index(content: Mapping[str, Any]) -> dict[tuple[str, int], BBox]:
+def _anchor_index(
+    content: Mapping[str, Any],
+    required: set[tuple[str, int]],
+) -> dict[tuple[str, int], BBox]:
+    if not required:
+        return {}
+
+    page_numbers = {page_number for _, page_number in required}
     try:
-        pages = {
-            int(page["number"]): (float(page["width"]), float(page["height"]))
-            for page in content["pages"]
-        }
-        candidates: list[tuple[str, int, object]] = []
+        pages: dict[int, tuple[float, float]] = {}
+        for page in content.get("pages", ()):
+            if not isinstance(page, Mapping):
+                continue
+            try:
+                page_number = int(page["number"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+            if page_number in page_numbers:
+                pages[page_number] = (
+                    float(page["width"]),
+                    float(page["height"]),
+                )
+
+        candidates: list[tuple[tuple[str, int], object]] = []
         for collection_name in ("sections", "paragraphs"):
-            for element in content[collection_name]:
-                candidates.append(
-                    (str(element["id"]), int(element["page_number"]), element["bbox"])
-                )
-        for table in content["tables"]:
-            for region in table["regions"]:
-                candidates.append(
-                    (str(table["id"]), int(region["page_number"]), region["bbox"])
-                )
+            for element in content.get(collection_name, ()):
+                if not isinstance(element, Mapping):
+                    continue
+                try:
+                    key = (str(element["id"]), int(element["page_number"]))
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    continue
+                if key in required:
+                    candidates.append((key, element["bbox"]))
+        for table in content.get("tables", ()):
+            if not isinstance(table, Mapping):
+                continue
+            try:
+                table_id = str(table["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            for region in table.get("regions", ()):
+                if not isinstance(region, Mapping):
+                    continue
+                try:
+                    key = (table_id, int(region["page_number"]))
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    continue
+                if key in required:
+                    candidates.append((key, region["bbox"]))
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise _evidence_error() from exc
 
     index: dict[tuple[str, int], BBox] = {}
-    for element_id, page_number, raw_bbox in candidates:
-        dimensions = pages.get(page_number)
+    for key, raw_bbox in candidates:
+        dimensions = pages.get(key[1])
         if dimensions is None:
             raise _evidence_error()
         try:
@@ -247,12 +280,11 @@ def _anchor_index(content: Mapping[str, Any]) -> dict[tuple[str, int], BBox]:
         except ValidationError as exc:
             raise _evidence_error() from exc
         page_width, page_height = dimensions
-        if bbox.x1 > page_width or bbox.bottom > page_height:
-            raise _evidence_error()
-        key = (element_id, page_number)
-        if key in index:
+        if bbox.x1 > page_width or bbox.bottom > page_height or key in index:
             raise _evidence_error()
         index[key] = bbox
+    if index.keys() != required:
+        raise _evidence_error()
     return index
 
 
@@ -278,7 +310,6 @@ async def get_evidence(
     if document_ir is None:
         raise HTTPException(status_code=409, detail="Document IR is not available")
 
-    anchors = _anchor_index(document_ir.content)
     statement = (
         sa.select(Finding, EvidenceAnchor)
         .join(AnalysisJob, AnalysisJob.id == Finding.analysis_job_id)
@@ -294,8 +325,13 @@ async def get_evidence(
             EvidenceAnchor.element_id,
         )
     )
+    rows = (await db.execute(statement)).all()
+    anchors = _anchor_index(
+        document_ir.content,
+        {(anchor.element_id, anchor.page_number) for _, anchor in rows},
+    )
     grouped: dict[uuid.UUID, FindingResponse] = {}
-    for finding, anchor in (await db.execute(statement)).all():
+    for finding, anchor in rows:
         bbox = anchors.get((anchor.element_id, anchor.page_number))
         if bbox is None:
             raise _evidence_error()

@@ -324,11 +324,14 @@ async def _seed_graph(connection: AsyncConnection, ids: dict[str, uuid.UUID]) ->
             "headings": [], "paragraphs": ["paragraph-1"], "tables": []
         }],
         "sections": [],
-        "paragraphs": [{
-            "id": "paragraph-1", "text": "SENSITIVE PDF TEXT",
-            "section_id": null, "page_number": 1,
-            "bbox": {"x0": 10, "top": 20, "x1": 100, "bottom": 40}
-        }],
+        "paragraphs": [
+            {
+                "id": "paragraph-1", "text": "SENSITIVE PDF TEXT",
+                "section_id": null, "page_number": 1,
+                "bbox": {"x0": 10, "top": 20, "x1": 100, "bottom": 40}
+            },
+            {"id": "unreferenced-malformed", "page_number": 1}
+        ],
         "tables": []
     }"""
     await connection.execute(
@@ -508,6 +511,23 @@ async def _queue_evidence_scenario() -> None:
             session, submission_id=ids["submission_1"], user=admin
         )
         assert evidence == admin_evidence
+        payload = evidence.model_dump()
+        assert set(payload) == {"submission_id", "document_version_id", "findings"}
+        assert set(payload["findings"][0]) == {
+            "id",
+            "criterion_version_id",
+            "severity",
+            "description",
+            "suggestion",
+            "proposed_score",
+            "evidence",
+        }
+        assert set(payload["findings"][0]["evidence"][0]) == {
+            "document_ir_id",
+            "element_id",
+            "page_number",
+            "bbox",
+        }
         assert evidence.findings[0].evidence[0].model_dump() == {
             "document_ir_id": ids["document_ir"],
             "element_id": "paragraph-1",
