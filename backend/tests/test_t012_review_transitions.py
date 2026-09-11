@@ -121,6 +121,18 @@ async def _transition_scenario() -> None:
                 "reason": "Internal rejection reason",
             },
         )
+        await connection.execute(
+            text(
+                "INSERT INTO public.evidence_anchors "
+                "(id, finding_id, document_ir_id, element_id, page_number) "
+                "VALUES (:id, :finding, :document_ir, 'missing-rejected-element', 1)"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "finding": rejected_finding_id,
+                "document_ir": ids["document_ir"],
+            },
+        )
 
         approved = await approve_document_version(
             session,
@@ -129,6 +141,27 @@ async def _transition_scenario() -> None:
             idempotency_key="approve-one",
         )
         assert approved.status == "APPROVED"
+        approved_snapshot = (
+            await connection.execute(
+                text(
+                    "SELECT approved_snapshot FROM public.document_versions "
+                    "WHERE id = :document"
+                ),
+                {"document": ids["document_1"]},
+            )
+        ).scalar_one()
+        assert approved_snapshot["rejected_findings"] == [
+            {
+                "criterion_version_id": str(ids["criterion"]),
+                "finding_id": str(rejected_finding_id),
+                "score": None,
+                "description": "Internal rejected finding",
+                "suggestion": "Do not expose",
+                "evidence": [],
+                "decision": "REJECT",
+                "evidence_count": 1,
+            }
+        ]
         approve_audit = (
             await connection.execute(
                 text(
