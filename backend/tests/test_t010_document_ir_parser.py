@@ -14,6 +14,8 @@ from pypdf.generic import (
     IndirectObject,
     NameObject,
     NullObject,
+    RectangleObject,
+    TextStringObject,
 )
 
 from app.core.config import Settings
@@ -33,6 +35,7 @@ from app.services.pdf_validation import (
     _preflight_page_tree,
     _suppress_untrusted_pdf_logs,
 )
+from app.services.review import _anchor_index
 
 
 def _make_text_pdf(*page_texts: str) -> bytes:
@@ -228,66 +231,91 @@ def test_table_words_filtered_before_line_grouping() -> None:
     )
 
 
-def test_table_budget_fails_before_find_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_table_node_budget_remains_effective() -> None:
     pdf_bytes = _make_operations_pdf(
         _make_ruled_table_page(
             [["Name", "Value"], ["Alice", "1"]],
             y_lines=[92, 142, 192],
         )
     )
-    called = False
 
-    def must_not_extract(_page: Any) -> list[Any]:
-        nonlocal called
-        called = True
-        raise AssertionError("find_tables called after edge budget exhausted")
-
-    monkeypatch.setattr(
-        document_ir.pdfplumber.page.Page,
-        "find_tables",
-        must_not_extract,
-    )
     with pytest.raises(PDFValidationError) as exc_info:
         parse_document_ir(pdf_bytes, max_nodes=10)
+
     assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
-    assert called is False
 
 
-def test_dense_table_source_objects_fail_before_edge_materialization(
+def test_dense_ruled_table_hits_limit_before_table_discovery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    edge_accessed = False
-    original_edges = document_ir.pdfplumber.page.Page.edges
-
-    def track_edges(page: Any) -> list[Any]:
-        nonlocal edge_accessed
-        edge_accessed = True
-        return original_edges.fget(page)
-
-    monkeypatch.setattr(
-        document_ir.pdfplumber.page.Page,
-        "edges",
-        property(track_edges),
-    )
-    operations = [f"72 {y} m 500 {y} l S" for y in range(20, 780, 2)]
-    operations.append("BT /F1 12 Tf 72 10 Td (Dense source text.) Tj ET")
     called = False
 
-    def must_not_find_tables(_page: Any) -> list[Any]:
+    def must_not_find_tables(_page: Any, _settings: Any = None) -> list[Any]:
         nonlocal called
         called = True
-        raise AssertionError("find_tables called after dense preflight")
+        raise AssertionError("find_tables called after intersection limit")
 
     monkeypatch.setattr(
         document_ir.pdfplumber.page.Page,
         "find_tables",
         must_not_find_tables,
     )
+    coordinates = [50 + (14 * index) for index in range(33)]
+    operations = [
+        *(f"50 {value} m 498 {value} l S" for value in coordinates),
+        *(f"{value} 50 m {value} 498 l S" for value in coordinates),
+        "BT /F1 12 Tf 72 700 Td (Dense table limit text.) Tj ET",
+    ]
+
     with pytest.raises(PDFValidationError) as exc_info:
         parse_document_ir(_make_operations_pdf(operations))
+
     assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
     assert called is False
-    assert edge_accessed is False
+
+
+def test_vector_heavy_non_table_page_keeps_text_coordinates_and_review_flag() -> None:
+    vectors = [
+        f"{40 + (index % 10) * 50} {100 + (index // 10) * 50} m "
+        f"{60 + (index % 10) * 50} {110 + (index // 10) * 50} l S"
+        for index in range(100)
+    ]
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            [
+                "BT /F1 18 Tf 72 740 Td (1. Use Case Diagram) Tj ET",
+                "BT /F1 11 Tf 150 400 Td (Student) Tj ET",
+                "BT /F1 11 Tf 390 250 Td (Submit report) Tj ET",
+                *vectors,
+            ]
+        )
+    )
+
+    page = parsed.content["pages"][0]
+    assert page["tables"] == []
+    assert "1. Use Case Diagram" in page["text"]
+    assert "Student" in page["text"]
+    assert "Submit report" in page["text"]
+
+    elements = [*parsed.content["sections"], *parsed.content["paragraphs"]]
+    diagram_elements = [
+        element
+        for element in elements
+        if any(
+            label in element["text"]
+            for label in ("1. Use Case Diagram", "Student", "Submit report")
+        )
+    ]
+    assert diagram_elements
+    assert all(element["needs_review"] is True for element in diagram_elements)
+    for element in diagram_elements:
+        bbox = element["bbox"]
+        assert element["page_number"] == 1
+        assert 0 <= bbox["x0"] <= bbox["x1"] <= page["width"]
+        assert 0 <= bbox["top"] <= bbox["bottom"] <= page["height"]
+
+    required = {(element["id"], 1) for element in diagram_elements}
+    assert _anchor_index(parsed.content, required).keys() == required
 
 
 def test_later_row_geometry_prevents_table_merge() -> None:
@@ -481,14 +509,25 @@ def test_spatial_table_order_preserves_cross_page_continuation() -> None:
     assert parsed.content["tables"][1]["page_end"] == 2
 
 
+def test_text_table_finder_accepts_eight_by_twenty() -> None:
+    rows = [[str(column) for column in range(8)] for _ in range(20)]
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            _make_borderless_table_page(
+                rows,
+                x_positions=[20 + (70 * index) for index in range(8)],
+                y_positions=[750 - (30 * index) for index in range(20)],
+            )
+        )
+    )
+
+    assert len(parsed.content["tables"]) == 1
+    assert len(parsed.content["tables"][0]["rows"]) == len(rows)
+
+
 def test_dense_text_fails_before_text_strategy_find_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    operations = _make_borderless_table_page(
-        [[str(column) for column in range(20)] for _ in range(55)],
-        x_positions=[20 + (28 * index) for index in range(20)],
-        y_positions=[750 - (13 * index) for index in range(55)],
-    )
     calls: list[Any] = []
     original_find_tables = document_ir.pdfplumber.page.Page.find_tables
 
@@ -501,10 +540,16 @@ def test_dense_text_fails_before_text_strategy_find_tables(
         "find_tables",
         track_find_tables,
     )
+
+    operations = _make_borderless_table_page(
+        [[str(column) for column in range(15)] for _ in range(22)],
+        x_positions=[20 + (28 * index) for index in range(15)],
+        y_positions=[750 - (13 * index) for index in range(22)],
+    )
     with pytest.raises(PDFValidationError) as exc_info:
         parse_document_ir(_make_operations_pdf(operations))
     assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
-    assert calls == [None]
+    assert calls == []
 
 
 def test_many_characters_in_few_text_clusters_are_allowed() -> None:
@@ -561,7 +606,13 @@ def test_malformed_table_row_or_cell_bbox_rejected(
     assert exc_info.value.code == "PDF_IR_MALFORMED"
 
 
-def _make_active_pdf(*, js: bool = False, attachment: bool = False) -> bytes:
+def _make_active_pdf(
+    *,
+    js: bool = False,
+    launch: bool = False,
+    attachment: bool = False,
+    uri: bool = False,
+) -> bytes:
     writer = PdfWriter()
     font = DictionaryObject(
         {
@@ -580,8 +631,31 @@ def _make_active_pdf(*, js: bool = False, attachment: bool = False) -> bytes:
     page[NameObject("/Contents")] = writer._add_object(content)
     if js:
         writer.add_js("app.alert('malicious')")
+    if launch:
+        writer.add_annotation(
+            0,
+            DictionaryObject(
+                {
+                    NameObject("/Type"): NameObject("/Annot"),
+                    NameObject("/Subtype"): NameObject("/Link"),
+                    NameObject("/Rect"): RectangleObject((72, 680, 240, 710)),
+                    NameObject("/A"): DictionaryObject(
+                        {
+                            NameObject("/S"): NameObject("/Launch"),
+                            NameObject("/F"): TextStringObject("external-document.pdf"),
+                        }
+                    ),
+                }
+            ),
+        )
     if attachment:
         writer.add_attachment("malicious.txt", b"malicious content")
+    if uri:
+        writer.add_uri(
+            0,
+            "https://example.test/requirements",
+            RectangleObject((72, 680, 240, 710)),
+        )
     output = BytesIO()
     writer.write(output)
     return output.getvalue()
@@ -606,6 +680,13 @@ def test_parser_validates_before_opening_pdf(monkeypatch: pytest.MonkeyPatch) ->
     assert calls == ["validate"]
 
 
+def test_real_safe_uri_pdf_parses_normally() -> None:
+    parsed = parse_document_ir(_make_active_pdf(uri=True))
+
+    assert parsed.validation.page_count == 1
+    assert parsed.content["pages"][0]["text"] == "Valid text body for active test"
+
+
 def test_real_javascript_pdf_rejected_before_pdfplumber_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -620,6 +701,24 @@ def test_real_javascript_pdf_rejected_before_pdfplumber_open(
     js_pdf = _make_active_pdf(js=True)
     with pytest.raises(PDFValidationError) as exc_info:
         parse_document_ir(js_pdf)
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+    assert calls == []
+
+
+def test_real_launch_pdf_rejected_before_pdfplumber_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def must_not_open(_stream: Any) -> Any:
+        calls.append("open")
+        raise AssertionError("pdfplumber.open must not be called for Launch PDF")
+
+    monkeypatch.setattr(document_ir.pdfplumber, "open", must_not_open)
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        parse_document_ir(_make_active_pdf(launch=True))
 
     assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
     assert calls == []
@@ -757,12 +856,18 @@ def test_page_tree_cycles_depth_and_structural_node_limits_fail_closed() -> None
 
 def test_safe_action_and_structural_s_values_are_not_rejected() -> None:
     assert not _contains_active_content({"/Type": "/Action", "/S": "/GoTo"})
+    assert not _contains_active_content(
+        {
+            "/Type": "/Action",
+            "/S": "/URI",
+            "/URI": "https://example.test/requirements",
+        }
+    )
 
 
 @pytest.mark.parametrize(
     "active",
     [
-        {"/Type": "/Action", "/S": "/URI"},
         {"/A": {"/S": "/Launch"}},
         {"/Filespec": {}},
         {"/EF": {}},
@@ -780,7 +885,9 @@ def test_active_content_scan_keeps_distinct_identity_collisions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(pdf_validation, "id", lambda _: 1, raising=False)
-    assert _contains_active_content([{}, {"/Safe": {"/Type": "/Action", "/S": "/URI"}}])
+    assert _contains_active_content(
+        [{}, {"/Safe": {"/Type": "/Action", "/S": "/Launch"}}]
+    )
 
 
 def test_null_active_keys_and_structural_s_are_benign() -> None:
@@ -1334,7 +1441,7 @@ def test_minimal_valid_text_pdf_returns_ir_payload() -> None:
     content = parsed.content
     assert content["schema_version"] == SCHEMA_VERSION
     assert SCHEMA_VERSION == 1
-    assert PARSER_VERSION == "pypdf-pdfplumber-v1"
+    assert PARSER_VERSION == "pypdf-pdfplumber-v2"
 
     assert content["source"] == {
         "sha256": parsed.validation.sha256,

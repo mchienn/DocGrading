@@ -31,14 +31,19 @@ from app.services.pdf_validation import (
 )
 
 SCHEMA_VERSION: int = 1
-PARSER_VERSION: str = "pypdf-pdfplumber-v1"
+PARSER_VERSION: str = "pypdf-pdfplumber-v2"
 
 _TABLE_SOURCE_OBJECT_TYPES = ("line", "rect", "curve")
 _MAX_TABLE_SOURCE_OBJECTS = 256
 _MAX_TABLE_EDGES = 1024
 _MAX_TABLE_INTERSECTIONS = 8192
+_MAX_TABLE_FINDER_WORK = 1_000_000
+_MAX_TEXT_TABLE_FINDER_WORK = 2_000_000
+_MIN_RULED_TABLE_INTERSECTIONS = 4
 _MAX_TABLE_CELLS = 4096
 _MAX_TABLE_TEXT_CHARS = 100_000
+_MAX_VECTOR_SOURCE_OBJECTS = 512
+_MAX_VECTOR_EDGES = 1024
 _MAX_TABLE_TEXT_WORDS = 10_000
 _TEXT_TABLE_MIN_WORDS_VERTICAL = 2
 _TEXT_TABLE_MIN_WORDS_HORIZONTAL = 1
@@ -434,6 +439,55 @@ def _table_bboxes_overlap(first: _BBox, second: _BBox) -> bool:
     return intersection / min(first_area, second_area) >= 0.8
 
 
+def _object_overlaps_table(
+    value: Mapping[str, Any],
+    table_bboxes: Sequence[_BBox],
+) -> bool:
+    try:
+        x0 = float(value["x0"])
+        x1 = float(value["x1"])
+        top = float(value["top"])
+        bottom = float(value["bottom"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return True
+    if not all(math.isfinite(coordinate) for coordinate in (x0, x1, top, bottom)):
+        return True
+    left, right = sorted((x0, x1))
+    upper, lower = sorted((top, bottom))
+    return any(
+        left <= table_bbox.x1
+        and right >= table_bbox.x0
+        and upper <= table_bbox.bottom
+        and lower >= table_bbox.top
+        for table_bbox in table_bboxes
+    )
+
+
+def _count_ruled_table_intersections(
+    edges: Sequence[Mapping[str, Any]],
+) -> int:
+    vertical = [edge for edge in edges if edge.get("orientation") == "v"]
+    horizontal = [edge for edge in edges if edge.get("orientation") == "h"]
+    count = 0
+    try:
+        for vertical_edge in vertical:
+            for horizontal_edge in horizontal:
+                if (
+                    vertical_edge["top"] <= horizontal_edge["top"] + 3
+                    and vertical_edge["bottom"] >= horizontal_edge["top"] - 3
+                    and vertical_edge["x0"] >= horizontal_edge["x0"] - 3
+                    and vertical_edge["x0"] <= horizontal_edge["x1"] + 3
+                ):
+                    count += 1
+                    if count > _MAX_TABLE_INTERSECTIONS:
+                        raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+    except PDFValidationError:
+        raise
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise PDFValidationError("PDF_IR_MALFORMED") from exc
+    return count
+
+
 def _cluster_count(
     values: Sequence[float],
     *,
@@ -504,7 +558,10 @@ def _extract_tables(
     page_width: float,
     page_height: float,
     budget: _NodeBudget,
-) -> list[tuple[dict[str, Any], list[tuple[float, float]], int, list[_BBox]]]:
+) -> tuple[
+    list[tuple[dict[str, Any], list[tuple[float, float]], int, list[_BBox]]],
+    bool,
+]:
     objects = page.objects
     source_count = sum(
         len(objects.get(object_type, ())) for object_type in _TABLE_SOURCE_OBJECT_TYPES
@@ -516,21 +573,27 @@ def _extract_tables(
             max(0, len(curve.get("pts", ())) - 1) for curve in objects.get("curve", ())
         )
     )
-    if (
+    vector_needs_review = (
         source_count > _MAX_TABLE_SOURCE_OBJECTS
         or estimated_edges > _MAX_TABLE_EDGES
         or estimated_edges * estimated_edges > _MAX_TABLE_INTERSECTIONS
-        or budget.used + estimated_edges + _TABLE_WORK_RESERVE > budget.limit
+    )
+    if (
+        source_count > _MAX_VECTOR_SOURCE_OBJECTS
+        or estimated_edges > _MAX_VECTOR_EDGES
+        or budget.used + _TABLE_WORK_RESERVE > budget.limit
     ):
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+
     edges = page.edges
-    if len(edges) > _MAX_TABLE_EDGES:
+    if len(edges) > _MAX_VECTOR_EDGES:
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
-    budget.consume(len(edges))
-    if len(edges) * len(edges) > _MAX_TABLE_INTERSECTIONS:
+    intersection_count = _count_ruled_table_intersections(edges)
+    has_ruled_table_candidate = intersection_count >= _MIN_RULED_TABLE_INTERSECTIONS
+    if intersection_count * intersection_count > _MAX_TABLE_FINDER_WORK:
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
 
-    ruled_tables = page.find_tables()
+    ruled_tables = page.find_tables() if has_ruled_table_candidate else []
     ruled_bboxes = [
         _table_bbox(
             table.bbox,
@@ -539,6 +602,24 @@ def _extract_tables(
         )
         for table in ruled_tables
     ]
+    if ruled_tables:
+        table_source_count = sum(
+            _object_overlaps_table(source, ruled_bboxes)
+            for object_type in _TABLE_SOURCE_OBJECT_TYPES
+            for source in objects.get(object_type, ())
+        )
+        table_edge_count = sum(
+            _object_overlaps_table(edge, ruled_bboxes) for edge in edges
+        )
+        if (
+            table_source_count > _MAX_TABLE_SOURCE_OBJECTS
+            or table_edge_count > _MAX_TABLE_EDGES
+            or budget.used + table_edge_count + intersection_count + _TABLE_WORK_RESERVE
+            > budget.limit
+        ):
+            raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+        budget.consume(table_edge_count + intersection_count)
+
     candidates: list[tuple[Any, Any, _BBox, bool]] = [
         (page, table, bbox, False)
         for table, bbox in zip(ruled_tables, ruled_bboxes, strict=True)
@@ -564,9 +645,12 @@ def _extract_tables(
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
     budget.consume(len(text_words))
     text_edges = _estimate_text_edges(text_words)
+    estimated_text_intersections = (text_edges // 2) * (text_edges - (text_edges // 2))
     if (
         text_edges > _MAX_TABLE_EDGES
         or text_edges * text_edges > _MAX_TABLE_INTERSECTIONS
+        or estimated_text_intersections * estimated_text_intersections
+        > _MAX_TEXT_TABLE_FINDER_WORK
         or budget.used + _TABLE_WORK_RESERVE > budget.limit
     ):
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
@@ -720,7 +804,7 @@ def _extract_tables(
                 [table_bbox],
             )
         )
-    return parsed_tables
+    return parsed_tables, vector_needs_review and not parsed_tables
 
 
 def _is_heading(
@@ -772,6 +856,8 @@ def _parse_pages(
         tuple[dict[str, Any], list[tuple[float, float]], int, float] | None
     ) = None
     for page_number, page in enumerate(pages, start=1):
+        section_start = len(all_sections)
+        paragraph_start = len(all_paragraphs)
         try:
             page_width = float(page.width)
             page_height = float(page.height)
@@ -785,7 +871,7 @@ def _parse_pages(
         ):
             raise PDFValidationError("PDF_IR_MALFORMED")
 
-        page_table_regions = _extract_tables(
+        page_table_regions, vector_needs_review = _extract_tables(
             page,
             page_number=page_number,
             page_width=page_width,
@@ -979,6 +1065,11 @@ def _parse_pages(
                 all_paragraphs,
                 page_paragraph_ids,
             )
+        if vector_needs_review:
+            for index in range(section_start, len(all_sections)):
+                all_sections[index]["needs_review"] = True
+            for index in range(paragraph_start, len(all_paragraphs)):
+                all_paragraphs[index]["needs_review"] = True
         parsed_pages.append(
             {
                 "number": page_number,
