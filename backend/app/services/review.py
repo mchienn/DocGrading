@@ -5,7 +5,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import sqlalchemy as sa
@@ -31,6 +31,7 @@ from app.api.schemas_submission import (
     ReviewLockResponse,
     SubmissionQueueItem,
     SubmissionQueueResponse,
+    SubmissionVersionListResponse,
     SubmissionVersionResponse,
     VersionComparisonFindingResponse,
     VersionComparisonResponse,
@@ -1466,6 +1467,7 @@ _PROCESSING_STATUS = {
     DocumentStatus.INVALID: VersionProcessingStatus.ERROR,
     DocumentStatus.PROCESSING_FAILED: VersionProcessingStatus.ERROR,
 }
+assert set(_PROCESSING_STATUS) == set(DocumentStatus)
 
 
 async def _submission_for_read(
@@ -1498,6 +1500,8 @@ async def _versions_with_latest_published_result(
     *,
     submission_id: uuid.UUID,
     version_ids: set[uuid.UUID] | None = None,
+    offset: int = 0,
+    limit: int | None = None,
 ) -> list[tuple[DocumentVersion, PublishedResultVersion | None]]:
     latest_result = aliased(PublishedResultVersion)
     latest_result_id = (
@@ -1519,15 +1523,35 @@ async def _versions_with_latest_published_result(
     )
     if version_ids is not None:
         statement = statement.where(DocumentVersion.id.in_(version_ids))
+    if limit is not None:
+        statement = statement.offset(offset).limit(limit)
     return list((await db.execute(statement)).all())
 
 
 async def list_submission_versions(
-    db: AsyncSession, *, submission_id: uuid.UUID, user: User
-) -> list[SubmissionVersionResponse]:
+    db: AsyncSession,
+    *,
+    submission_id: uuid.UUID,
+    user: User,
+    page: int = 1,
+    page_size: int = 50,
+) -> SubmissionVersionListResponse:
     submission, _, privileged = await _submission_for_read(db, submission_id, user)
-    rows = await _versions_with_latest_published_result(db, submission_id=submission.id)
-    response = []
+    total = int(
+        await db.scalar(
+            sa.select(sa.func.count(DocumentVersion.id)).where(
+                DocumentVersion.submission_id == submission.id
+            )
+        )
+        or 0
+    )
+    rows = await _versions_with_latest_published_result(
+        db,
+        submission_id=submission.id,
+        offset=(page - 1) * page_size,
+        limit=page_size,
+    )
+    items = []
     for version, result in rows:
         visible_result = (
             result if privileged or version.status is DocumentStatus.PUBLISHED else None
@@ -1539,7 +1563,7 @@ async def list_submission_versions(
                 if version.status is DocumentStatus.PUBLISHED
                 else VersionPublicationStatus.UNPUBLISHED
             )
-        response.append(
+        items.append(
             SubmissionVersionResponse(
                 document_version_id=version.id,
                 version_number=version.version_number,
@@ -1550,7 +1574,24 @@ async def list_submission_versions(
                 published_at=visible_result.published_at if visible_result else None,
             )
         )
-    return response
+    return SubmissionVersionListResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
+
+
+def _snapshot_score(value: object) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, str | int | float | Decimal):
+        return None
+    try:
+        score = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return score if score.is_finite() else None
 
 
 def _snapshot_findings(
@@ -1587,7 +1628,7 @@ def _snapshot_findings(
             VersionComparisonFindingResponse(
                 criterion_version_id=criterion_version_id,
                 finding_id=finding_id,
-                score=raw.get("score"),
+                score=_snapshot_score(raw.get("score")),
                 decision=decision,
                 evidence_count=evidence_count,
             )

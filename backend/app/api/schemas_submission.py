@@ -303,6 +303,13 @@ class SubmissionVersionResponse(BaseModel):
     published_at: datetime | None = None
 
 
+class SubmissionVersionListResponse(BaseModel):
+    items: list[SubmissionVersionResponse]
+    page: int
+    page_size: int
+    total: int
+
+
 class VersionComparisonFindingResponse(BaseModel):
     criterion_version_id: uuid.UUID
     finding_id: uuid.UUID

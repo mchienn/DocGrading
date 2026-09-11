@@ -445,6 +445,212 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/courses/{course_id}/submission-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Submission Queue */
+        get: operations["submission_queue_api_v1_courses__course_id__submission_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Submission Evidence */
+        get: operations["submission_evidence_api_v1_submissions__submission_id__evidence_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/review-lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acquire Submission Review Lock */
+        post: operations["acquire_submission_review_lock_api_v1_submissions__submission_id__review_lock_post"];
+        /** Release Submission Review Lock */
+        delete: operations["release_submission_review_lock_api_v1_submissions__submission_id__review_lock_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/review-lock/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Heartbeat Submission Review Lock */
+        put: operations["heartbeat_submission_review_lock_api_v1_submissions__submission_id__review_lock_heartbeat_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/review-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Submission Review Draft */
+        get: operations["get_submission_review_draft_api_v1_submissions__submission_id__review_draft_get"];
+        /** Put Submission Review Draft */
+        put: operations["put_submission_review_draft_api_v1_submissions__submission_id__review_draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-versions/{version_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Document Version */
+        post: operations["approve_document_version_api_v1_document_versions__version_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-versions/{version_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Document Version */
+        post: operations["publish_document_version_api_v1_document_versions__version_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assignments/{assignment_id}/document-versions/bulk-publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Publish Document Versions */
+        post: operations["bulk_publish_document_versions_api_v1_assignments__assignment_id__document_versions_bulk_publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/published-results/{published_result_id}/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unpublish Published Result */
+        post: operations["unpublish_published_result_api_v1_published_results__published_result_id__unpublish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Submission Versions */
+        get: operations["list_submission_versions_api_v1_submissions__submission_id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/versions/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Compare Submission Versions */
+        get: operations["compare_submission_versions_api_v1_submissions__submission_id__versions_compare_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/published-result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Submission Published Result */
+        get: operations["get_submission_published_result_api_v1_submissions__submission_id__published_result_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -485,6 +691,21 @@ export interface components {
             started_at: string | null;
             /** Finished At */
             finished_at: string | null;
+        };
+        /** ApprovalResponse */
+        ApprovalResponse: {
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Status */
+            status: string;
+            /**
+             * Approved At
+             * Format: date-time
+             */
+            approved_at: string;
         };
         /** AssignmentCreate */
         AssignmentCreate: {
@@ -562,6 +783,29 @@ export interface components {
             max_submissions?: number | null;
             /** Rubric Version Id */
             rubric_version_id?: string | null;
+        };
+        /** BBox */
+        BBox: {
+            /** X0 */
+            x0: number;
+            /** Top */
+            top: number;
+            /** X1 */
+            x1: number;
+            /** Bottom */
+            bottom: number;
+        };
+        /** BulkPublishRequest */
+        BulkPublishRequest: {
+            /** Version Ids */
+            version_ids: string[];
+            /** Reason */
+            reason: string;
+        };
+        /** BulkPublishResponse */
+        BulkPublishResponse: {
+            /** Results */
+            results: components["schemas"]["PublishedResultResponse"][];
         };
         /** CompletionResponse */
         CompletionResponse: {
@@ -740,6 +984,57 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** EvidenceResponse */
+        EvidenceResponse: {
+            /**
+             * Document Ir Id
+             * Format: uuid
+             */
+            document_ir_id: string;
+            /** Element Id */
+            element_id: string;
+            /** Page Number */
+            page_number: number;
+            bbox: components["schemas"]["BBox"];
+        };
+        /** EvidenceWorkspaceResponse */
+        EvidenceWorkspaceResponse: {
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Findings */
+            findings: components["schemas"]["FindingResponse"][];
+        };
+        /** FindingResponse */
+        FindingResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Criterion Version Id
+             * Format: uuid
+             */
+            criterion_version_id: string;
+            /** Severity */
+            severity: string;
+            /** Description */
+            description: string;
+            /** Suggestion */
+            suggestion: string | null;
+            /** Proposed Score */
+            proposed_score: string | null;
+            /** Evidence */
+            evidence: components["schemas"]["EvidenceResponse"][];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -804,6 +1099,177 @@ export interface components {
             /** Analysis Job Id */
             analysis_job_id?: string | null;
         };
+        /** PublishRequest */
+        PublishRequest: {
+            /** Reason */
+            reason: string;
+        };
+        /** PublishedFindingResponse */
+        PublishedFindingResponse: {
+            /**
+             * Criterion Version Id
+             * Format: uuid
+             */
+            criterion_version_id: string;
+            /**
+             * Finding Id
+             * Format: uuid
+             */
+            finding_id: string;
+            /** Score */
+            score: string | null;
+            /** Description */
+            description: string;
+            /** Suggestion */
+            suggestion: string | null;
+            /** Evidence */
+            evidence: components["schemas"]["EvidenceResponse"][];
+        };
+        /** PublishedResultResponse */
+        PublishedResultResponse: {
+            /**
+             * Published Result Id
+             * Format: uuid
+             */
+            published_result_id: string;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Version Number */
+            version_number: number;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Comment */
+            comment: string;
+            /** Findings */
+            findings: components["schemas"]["PublishedFindingResponse"][];
+        };
+        /** QueueLockResponse */
+        QueueLockResponse: {
+            /**
+             * Reviewer User Id
+             * Format: uuid
+             */
+            reviewer_user_id: string;
+            /** Reviewer Display Name */
+            reviewer_display_name: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /**
+         * QueueSort
+         * @enum {string}
+         */
+        QueueSort: "asc" | "desc";
+        /**
+         * QueueStatus
+         * @enum {string}
+         */
+        QueueStatus: "UNREVIEWED" | "REVIEWED" | "ERROR";
+        /** ReviewDecisionRequest */
+        ReviewDecisionRequest: {
+            /**
+             * Finding Id
+             * Format: uuid
+             */
+            finding_id: string;
+            decision: components["schemas"]["ReviewDecisionType"];
+            /** Edited Description */
+            edited_description?: string | null;
+            /** Final Score */
+            final_score?: number | string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** ReviewDecisionResponse */
+        ReviewDecisionResponse: {
+            /**
+             * Finding Id
+             * Format: uuid
+             */
+            finding_id: string;
+            decision: components["schemas"]["ReviewDecisionType"];
+            /** Edited Description */
+            edited_description: string | null;
+            /** Final Score */
+            final_score: string | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * ReviewDecisionType
+         * @enum {string}
+         */
+        ReviewDecisionType: "ACCEPT" | "EDIT" | "REJECT";
+        /** ReviewDraftRequest */
+        ReviewDraftRequest: {
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Revision */
+            revision: number;
+            /**
+             * Comment
+             * @default
+             */
+            comment: string;
+            /** Decisions */
+            decisions?: components["schemas"]["ReviewDecisionRequest"][];
+        };
+        /** ReviewDraftResponse */
+        ReviewDraftResponse: {
+            /** Id */
+            id: string | null;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /** Document Version Id */
+            document_version_id: string | null;
+            /**
+             * Reviewer User Id
+             * Format: uuid
+             */
+            reviewer_user_id: string;
+            /** Revision */
+            revision: number;
+            /** Comment */
+            comment: string;
+            /** Decisions */
+            decisions: components["schemas"]["ReviewDecisionResponse"][];
+        };
+        /** ReviewLockResponse */
+        ReviewLockResponse: {
+            /** Acquired */
+            acquired: boolean;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /** Reviewer User Id */
+            reviewer_user_id?: string | null;
+            /** Reviewer Display Name */
+            reviewer_display_name?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+        };
         /** RubricVersionCreate */
         RubricVersionCreate: {
             /** Name */
@@ -866,6 +1332,78 @@ export interface components {
             /** Calculation Method */
             calculation_method?: string | null;
         };
+        /** SubmissionQueueItem */
+        SubmissionQueueItem: {
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /** Document Version Id */
+            document_version_id: string | null;
+            /**
+             * Student Id
+             * Format: uuid
+             */
+            student_id: string;
+            /** Document Status */
+            document_status: string | null;
+            queue_status: components["schemas"]["QueueStatus"];
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            review_lock?: components["schemas"]["QueueLockResponse"] | null;
+        };
+        /** SubmissionQueueResponse */
+        SubmissionQueueResponse: {
+            /** Items */
+            items: components["schemas"]["SubmissionQueueItem"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+        };
+        /** SubmissionVersionListResponse */
+        SubmissionVersionListResponse: {
+            /** Items */
+            items: components["schemas"]["SubmissionVersionResponse"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+        };
+        /** SubmissionVersionResponse */
+        SubmissionVersionResponse: {
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Version Number */
+            version_number: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            processing_status: components["schemas"]["VersionProcessingStatus"];
+            publication_status?: components["schemas"]["VersionPublicationStatus"] | null;
+            /** Published Result Id */
+            published_result_id?: string | null;
+            /** Published At */
+            published_at?: string | null;
+        };
+        /** UnpublishRequest */
+        UnpublishRequest: {
+            /** Reason */
+            reason: string;
+        };
         /** UserResponse */
         UserResponse: {
             /**
@@ -895,6 +1433,58 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** VersionComparisonFindingResponse */
+        VersionComparisonFindingResponse: {
+            /**
+             * Criterion Version Id
+             * Format: uuid
+             */
+            criterion_version_id: string;
+            /**
+             * Finding Id
+             * Format: uuid
+             */
+            finding_id: string;
+            /** Score */
+            score: string | null;
+            decision: components["schemas"]["ReviewDecisionType"] | null;
+            /** Evidence Count */
+            evidence_count: number;
+        };
+        /** VersionComparisonResponse */
+        VersionComparisonResponse: {
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            left: components["schemas"]["VersionComparisonSideResponse"];
+            right: components["schemas"]["VersionComparisonSideResponse"];
+        };
+        /** VersionComparisonSideResponse */
+        VersionComparisonSideResponse: {
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Version Number */
+            version_number: number;
+            /** Comment */
+            comment: string;
+            /** Findings */
+            findings: components["schemas"]["VersionComparisonFindingResponse"][];
+        };
+        /**
+         * VersionProcessingStatus
+         * @enum {string}
+         */
+        VersionProcessingStatus: "QUEUED" | "PROCESSING" | "AWAITING_REVIEW" | "ERROR";
+        /**
+         * VersionPublicationStatus
+         * @enum {string}
+         */
+        VersionPublicationStatus: "PUBLISHED" | "UNPUBLISHED";
     };
     responses: never;
     parameters: never;
@@ -1802,6 +2392,473 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnalysisJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submission_queue_api_v1_courses__course_id__submission_queue_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["QueueStatus"] | null;
+                sort?: components["schemas"]["QueueSort"];
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionQueueResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submission_evidence_api_v1_submissions__submission_id__evidence_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceWorkspaceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    acquire_submission_review_lock_api_v1_submissions__submission_id__review_lock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewLockResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    release_submission_review_lock_api_v1_submissions__submission_id__review_lock_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    heartbeat_submission_review_lock_api_v1_submissions__submission_id__review_lock_heartbeat_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewLockResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_submission_review_draft_api_v1_submissions__submission_id__review_draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewDraftResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_submission_review_draft_api_v1_submissions__submission_id__review_draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewDraftResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_document_version_api_v1_document_versions__version_id__approve_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_document_version_api_v1_document_versions__version_id__publish_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_publish_document_versions_api_v1_assignments__assignment_id__document_versions_bulk_publish_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                assignment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkPublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkPublishResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unpublish_published_result_api_v1_published_results__published_result_id__unpublish_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                published_result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnpublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_submission_versions_api_v1_submissions__submission_id__versions_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionVersionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_submission_versions_api_v1_submissions__submission_id__versions_compare_get: {
+        parameters: {
+            query: {
+                left_version_id: string;
+                right_version_id: string;
+            };
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionComparisonResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_submission_published_result_api_v1_submissions__submission_id__published_result_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedResultResponse"];
                 };
             };
             /** @description Validation Error */

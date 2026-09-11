@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.api.schemas_submission import (
+    SubmissionVersionListResponse,
     SubmissionVersionResponse,
     VersionComparisonResponse,
 )
@@ -86,7 +87,21 @@ def _snapshot(
 
 def test_t015_routes_and_response_contract() -> None:
     schema = app.openapi()
-    assert "/api/v1/submissions/{submission_id}/versions" in schema["paths"]
+    versions = schema["paths"]["/api/v1/submissions/{submission_id}/versions"]["get"]
+    version_parameters = {
+        parameter["name"]: parameter for parameter in versions["parameters"]
+    }
+    assert version_parameters["page"]["schema"]["default"] == 1
+    assert version_parameters["page_size"]["schema"] == {
+        "type": "integer",
+        "maximum": 100,
+        "minimum": 1,
+        "default": 50,
+        "title": "Page Size",
+    }
+    assert versions["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/SubmissionVersionListResponse"
+    }
     compare = schema["paths"]["/api/v1/submissions/{submission_id}/versions/compare"][
         "get"
     ]
@@ -101,6 +116,12 @@ def test_t015_routes_and_response_contract() -> None:
         "publication_status",
         "published_result_id",
         "published_at",
+    }
+    assert set(SubmissionVersionListResponse.model_fields) == {
+        "items",
+        "page",
+        "page_size",
+        "total",
     }
     assert set(VersionComparisonResponse.model_fields) == {
         "submission_id",
@@ -277,20 +298,34 @@ async def _version_history_scenario() -> None:
         student_versions = await list_submission_versions(
             session, submission_id=ids["submission_1"], user=student
         )
-        assert [item.version_number for item in student_versions] == [1, 2, 3]
-        assert [item.processing_status for item in student_versions] == [
+        assert student_versions.model_dump(exclude={"items"}) == {
+            "page": 1,
+            "page_size": 50,
+            "total": 3,
+        }
+        assert [item.version_number for item in student_versions.items] == [1, 2, 3]
+        assert [item.processing_status for item in student_versions.items] == [
             "AWAITING_REVIEW",
             "AWAITING_REVIEW",
             "ERROR",
         ]
-        assert [item.publication_status for item in student_versions] == [
+        assert [item.publication_status for item in student_versions.items] == [
             "PUBLISHED",
             "PUBLISHED",
             None,
         ]
         assert "secret internal detail" not in str(
-            [item.model_dump() for item in student_versions]
+            [item.model_dump() for item in student_versions.items]
         )
+        second_page = await list_submission_versions(
+            session,
+            submission_id=ids["submission_1"],
+            user=student,
+            page=2,
+            page_size=2,
+        )
+        assert second_page.total == 3
+        assert [item.version_number for item in second_page.items] == [3]
 
         comparison = await compare_submission_versions(
             session,
@@ -353,6 +388,64 @@ async def _version_history_scenario() -> None:
                 user=student,
             )
         assert hidden_error.value.status_code == 404
+
+        malformed_version = DocumentVersion(
+            id=uuid.uuid4(),
+            submission_id=ids["submission_1"],
+            version_number=4,
+            previous_version_id=failed.id,
+            storage_key=f"private/{uuid.uuid4()}",
+            original_filename="malformed.pdf",
+            content_type="application/pdf",
+            size_bytes=200,
+            sha256="e" * 64,
+            status=DocumentStatus.PUBLISHED,
+            approved_at=now,
+            approved_by_user_id=ids["teacher"],
+            approved_snapshot={},
+        )
+        malformed_snapshot = {
+            "comment": "Malformed score comment",
+            "findings": [
+                {
+                    **first_result.snapshot["findings"][0],
+                    "score": {"malformed": True},
+                },
+                {
+                    "criterion_version_id": str(ids["criterion"]),
+                    "finding_id": str(uuid.uuid4()),
+                    "decision": "ACCEPT",
+                    "evidence_count": 0,
+                },
+            ],
+        }
+        session.add_all(
+            [
+                malformed_version,
+                PublishedResultVersion(
+                    id=uuid.uuid4(),
+                    document_version_id=malformed_version.id,
+                    version_number=1,
+                    approved_by_user_id=ids["teacher"],
+                    published_by_user_id=ids["teacher"],
+                    approved_at=now,
+                    published_at=now,
+                    snapshot=malformed_snapshot,
+                ),
+            ]
+        )
+        await session.flush()
+        malformed_scores = await compare_submission_versions(
+            session,
+            submission_id=ids["submission_1"],
+            left_version_id=first.id,
+            right_version_id=malformed_version.id,
+            user=student,
+        )
+        assert [finding.score for finding in malformed_scores.right.findings] == [
+            None,
+            None,
+        ]
     finally:
         await session.close()
         await transaction.rollback()
