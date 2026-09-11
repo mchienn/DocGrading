@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -112,6 +112,10 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "length(btrim(content_type)) > 0 " "AND content_type !~ '^[[:space:]]*$'",
             name="ck_document_versions_content_type_not_blank",
         ),
+        sa.CheckConstraint(
+            "approved_snapshot IS NULL OR jsonb_typeof(approved_snapshot) = 'object'",
+            name="ck_document_versions_approved_snapshot_object",
+        ),
     )
 
     submission_id: Mapped[uuid.UUID] = mapped_column(
@@ -154,7 +158,25 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     failure_code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     failure_detail: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+            name="fk_document_versions_approved_by_user_id_users",
+        ),
+        nullable=True,
+    )
+    approved_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
 
+    approved_by: Mapped[User | None] = relationship(
+        "User", foreign_keys=[approved_by_user_id]
+    )
     submission: Mapped[Submission] = relationship(
         "Submission",
         back_populates="document_versions",

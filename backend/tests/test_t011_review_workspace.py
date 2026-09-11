@@ -495,14 +495,14 @@ async def _queue_evidence_scenario() -> None:
             ids["document_3"]
         ]
 
-        for denied_user in (other, student):
+        for denied_user, expected_status in ((other, 404), (student, 403)):
             with pytest.raises(HTTPException) as error:
                 await list_submission_queue(
                     session,
                     course_id=ids["course"],
                     user=denied_user,
                 )
-            assert error.value.status_code == 403
+            assert error.value.status_code == expected_status
 
         evidence = await get_evidence(
             session, submission_id=ids["submission_1"], user=owner
@@ -538,7 +538,7 @@ async def _queue_evidence_scenario() -> None:
         assert f"private/{ids['document_1']}" not in str(evidence.model_dump())
         with pytest.raises(HTTPException) as error:
             await get_evidence(session, submission_id=ids["submission_1"], user=other)
-        assert error.value.status_code == 403
+        assert error.value.status_code == 404
     finally:
         await session.close()
         await transaction.rollback()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -10,14 +12,17 @@ import sqlalchemy as sa
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.api.deps import check_course_ownership
 from app.api.schemas_submission import (
+    ApprovalResponse,
     BBox,
+    BulkPublishResponse,
     EvidenceResponse,
     EvidenceWorkspaceResponse,
     FindingResponse,
+    PublishedResultResponse,
     QueueStatus,
     ReviewDecisionRequest,
     ReviewDecisionResponse,
@@ -40,6 +45,8 @@ from app.models.identity import User
 from app.models.review import (
     EvidenceAnchor,
     Finding,
+    PublishedResultVersion,
+    ReviewCommand,
     ReviewDecision,
     ReviewDraft,
     ReviewLock,
@@ -764,4 +771,644 @@ async def save_review_draft(
         submission_id,
         user.id,
         document_version_id,
+    )
+
+
+def _command_fingerprint(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+async def _command_start(
+    db: AsyncSession,
+    *,
+    actor_user_id: uuid.UUID,
+    action: str,
+    idempotency_key: str,
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str]:
+    if not idempotency_key or not idempotency_key.strip() or len(idempotency_key) > 128:
+        raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+    fingerprint = _command_fingerprint(payload)
+    lock_key = f"{actor_user_id}:{action}:{idempotency_key}"
+    await db.execute(
+        sa.text(
+            "SELECT pg_catalog.pg_advisory_xact_lock("
+            "pg_catalog.hashtextextended(:lock_key, 0))"
+        ),
+        {"lock_key": lock_key},
+    )
+    command = (
+        await db.execute(
+            sa.select(ReviewCommand)
+            .where(
+                ReviewCommand.actor_user_id == actor_user_id,
+                ReviewCommand.action == action,
+                ReviewCommand.idempotency_key == idempotency_key,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if command is not None:
+        if command.request_fingerprint != fingerprint:
+            raise HTTPException(
+                status_code=409, detail="Idempotency-Key payload conflict"
+            )
+        return command.response, fingerprint
+    return None, fingerprint
+
+
+async def _command_finish(
+    db: AsyncSession,
+    *,
+    actor_user_id: uuid.UUID,
+    action: str,
+    idempotency_key: str,
+    fingerprint: str,
+    response: dict[str, Any],
+) -> None:
+    db.add(
+        ReviewCommand(
+            id=uuid.uuid4(),
+            actor_user_id=actor_user_id,
+            action=action,
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            response=response,
+        )
+    )
+    await db.flush()
+
+
+async def _locked_document_context(
+    db: AsyncSession, version_id: uuid.UUID, user: User
+) -> tuple[Course, Submission, DocumentVersion]:
+    course = (
+        await db.execute(
+            sa.select(Course)
+            .join(Assignment, Assignment.course_id == Course.id)
+            .join(Submission, Submission.assignment_id == Assignment.id)
+            .join(DocumentVersion, DocumentVersion.submission_id == Submission.id)
+            .where(DocumentVersion.id == version_id)
+            .with_for_update(read=True, of=Course)
+        )
+    ).scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=404, detail="Document version not found")
+    _authorize_course(user, course)
+    if course.status is CourseStatus.ARCHIVED:
+        raise HTTPException(status_code=409, detail="Archived courses are read-only")
+    submission = (
+        await db.execute(
+            sa.select(Submission)
+            .join(DocumentVersion, DocumentVersion.submission_id == Submission.id)
+            .where(DocumentVersion.id == version_id)
+            .with_for_update(of=Submission)
+        )
+    ).scalar_one()
+    version = (
+        await db.execute(
+            sa.select(DocumentVersion)
+            .where(DocumentVersion.id == version_id)
+            .with_for_update(of=DocumentVersion)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    return course, submission, version
+
+
+async def _approval_snapshot(
+    db: AsyncSession,
+    *,
+    version: DocumentVersion,
+    submission: Submission,
+) -> dict[str, Any]:
+    draft = (
+        await db.execute(
+            sa.select(ReviewDraft)
+            .where(
+                ReviewDraft.submission_id == submission.id,
+                ReviewDraft.document_version_id == version.id,
+            )
+            .order_by(ReviewDraft.updated_at.desc(), ReviewDraft.id.desc())
+            .limit(1)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if draft is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Current review draft is required before approval",
+        )
+    decisions: dict[uuid.UUID, ReviewDecision] = {}
+    if draft is not None:
+        decisions = {
+            decision.finding_id: decision
+            for decision in (
+                await db.execute(
+                    sa.select(ReviewDecision)
+                    .where(ReviewDecision.review_draft_id == draft.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        }
+
+    findings = list(
+        (
+            await db.execute(
+                sa.select(Finding)
+                .join(AnalysisJob, AnalysisJob.id == Finding.analysis_job_id)
+                .where(AnalysisJob.document_version_id == version.id)
+                .order_by(Finding.id)
+            )
+        ).scalars()
+    )
+    missing = [finding.id for finding in findings if finding.id not in decisions]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail="Every finding requires a review decision before approval",
+        )
+
+    finding_ids = {
+        finding.id
+        for finding in findings
+        if decisions[finding.id].decision is not ReviewDecisionType.REJECT
+    }
+    all_anchors = list(
+        (
+            await db.execute(
+                sa.select(EvidenceAnchor)
+                .where(EvidenceAnchor.finding_id.in_(finding_ids))
+                .order_by(
+                    EvidenceAnchor.finding_id,
+                    EvidenceAnchor.page_number,
+                    EvidenceAnchor.element_id,
+                )
+            )
+        ).scalars()
+    )
+    document_ir = (
+        await db.execute(
+            sa.select(DocumentIR).where(DocumentIR.document_version_id == version.id)
+        )
+    ).scalar_one_or_none()
+    if all_anchors and document_ir is None:
+        raise HTTPException(status_code=409, detail="Document IR is not available")
+    anchors = (
+        [anchor for anchor in all_anchors if anchor.document_ir_id == document_ir.id]
+        if document_ir is not None
+        else []
+    )
+    if len(anchors) != len(all_anchors):
+        raise _evidence_error()
+    anchor_by_finding: dict[uuid.UUID, list[EvidenceAnchor]] = {}
+    for anchor in anchors:
+        anchor_by_finding.setdefault(anchor.finding_id, []).append(anchor)
+    required = {(anchor.element_id, anchor.page_number) for anchor in anchors}
+    geometry = _anchor_index(document_ir.content, required) if document_ir else {}
+
+    output_findings: list[dict[str, Any]] = []
+    for finding in findings:
+        decision = decisions[finding.id]
+        if decision.decision is ReviewDecisionType.REJECT:
+            continue
+        description = (
+            decision.edited_description
+            if decision.decision is ReviewDecisionType.EDIT
+            and decision.edited_description is not None
+            else finding.description
+        )
+        score = (
+            decision.final_score
+            if decision.decision is ReviewDecisionType.EDIT
+            and decision.final_score is not None
+            else finding.proposed_score
+        )
+        evidence = []
+        for anchor in anchor_by_finding.get(finding.id, []):
+            bbox = geometry[(anchor.element_id, anchor.page_number)]
+            evidence.append(
+                {
+                    "document_ir_id": str(anchor.document_ir_id),
+                    "element_id": anchor.element_id,
+                    "page_number": anchor.page_number,
+                    "bbox": bbox.model_dump(),
+                }
+            )
+        output_findings.append(
+            {
+                "criterion_version_id": str(finding.criterion_version_id),
+                "finding_id": str(finding.id),
+                "score": format(score, "f") if score is not None else None,
+                "description": description,
+                "suggestion": finding.suggestion,
+                "evidence": evidence,
+            }
+        )
+    return {
+        "comment": draft.comment if draft is not None else "",
+        "findings": output_findings,
+    }
+
+
+def _published_response(
+    result: PublishedResultVersion, submission_id: uuid.UUID
+) -> dict[str, Any]:
+    snapshot = result.snapshot
+    return {
+        "published_result_id": str(result.id),
+        "submission_id": str(submission_id),
+        "document_version_id": str(result.document_version_id),
+        "version_number": result.version_number,
+        "published_at": result.published_at.isoformat(),
+        "comment": snapshot.get("comment", ""),
+        "findings": snapshot.get("findings", []),
+    }
+
+
+async def approve_document_version(
+    db: AsyncSession,
+    *,
+    version_id: uuid.UUID,
+    user: User,
+    idempotency_key: str,
+) -> ApprovalResponse:
+    payload = {"document_version_id": str(version_id)}
+    replay, fingerprint = await _command_start(
+        db,
+        actor_user_id=user.id,
+        action="APPROVE",
+        idempotency_key=idempotency_key,
+        payload=payload,
+    )
+    if replay is not None:
+        return ApprovalResponse.model_validate(replay)
+    _, submission, version = await _locked_document_context(db, version_id, user)
+    if version.status is not DocumentStatus.AWAITING_REVIEW:
+        raise HTTPException(status_code=409, detail="Document is not awaiting review")
+    snapshot = await _approval_snapshot(db, version=version, submission=submission)
+    now = _now()
+    before = {"status": version.status.value}
+    version.status = DocumentStatus.APPROVED
+    version.approved_at = now
+    version.approved_by_user_id = user.id
+    version.approved_snapshot = snapshot
+    await record_audit(
+        db,
+        actor_user_id=user.id,
+        resource_type="DocumentVersion",
+        resource_id=version.id,
+        action="APPROVE",
+        before=before,
+        after={
+            "status": version.status.value,
+            "approved_at": now.isoformat(),
+            "approved_by_user_id": str(user.id),
+        },
+        reason="Teacher approved review snapshot",
+    )
+    response = {
+        "document_version_id": str(version.id),
+        "status": version.status.value,
+        "approved_at": now.isoformat(),
+    }
+    await _command_finish(
+        db,
+        actor_user_id=user.id,
+        action="APPROVE",
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        response=response,
+    )
+    return ApprovalResponse.model_validate(response)
+
+
+async def _publish_locked(
+    db: AsyncSession,
+    *,
+    version: DocumentVersion,
+    submission: Submission,
+    user: User,
+    reason: str,
+) -> PublishedResultVersion:
+    if version.status is not DocumentStatus.APPROVED:
+        raise HTTPException(status_code=409, detail="Document is not approved")
+    if (
+        version.approved_snapshot is None
+        or version.approved_at is None
+        or version.approved_by_user_id is None
+    ):
+        raise HTTPException(status_code=409, detail="Approved snapshot is missing")
+    latest_number = (
+        await db.execute(
+            sa.select(PublishedResultVersion.version_number)
+            .where(PublishedResultVersion.document_version_id == version.id)
+            .order_by(PublishedResultVersion.version_number.desc())
+            .limit(1)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    latest_number = latest_number or 0
+    result = PublishedResultVersion(
+        id=uuid.uuid4(),
+        document_version_id=version.id,
+        version_number=int(latest_number) + 1,
+        approved_by_user_id=version.approved_by_user_id,
+        published_by_user_id=user.id,
+        approved_at=version.approved_at,
+        published_at=_now(),
+        snapshot=version.approved_snapshot,
+    )
+    db.add(result)
+    before = {"status": version.status.value}
+    version.status = DocumentStatus.PUBLISHED
+    await record_audit(
+        db,
+        actor_user_id=user.id,
+        resource_type="DocumentVersion",
+        resource_id=version.id,
+        action="PUBLISH",
+        before=before,
+        after={
+            "status": version.status.value,
+            "published_result_id": str(result.id),
+            "version_number": result.version_number,
+            "approved_at": result.approved_at.isoformat(),
+            "approved_by_user_id": str(result.approved_by_user_id),
+            "published_at": result.published_at.isoformat(),
+        },
+        reason=reason,
+    )
+    return result
+
+
+async def publish_document_version(
+    db: AsyncSession,
+    *,
+    version_id: uuid.UUID,
+    user: User,
+    idempotency_key: str,
+    reason: str,
+) -> PublishedResultResponse:
+    payload = {"document_version_id": str(version_id), "reason": reason}
+    replay, fingerprint = await _command_start(
+        db,
+        actor_user_id=user.id,
+        action="PUBLISH",
+        idempotency_key=idempotency_key,
+        payload=payload,
+    )
+    if replay is not None:
+        return PublishedResultResponse.model_validate(replay)
+    if not reason.strip():
+        raise HTTPException(status_code=422, detail="Reason must not be blank")
+    _, submission, version = await _locked_document_context(db, version_id, user)
+    result = await _publish_locked(
+        db, version=version, submission=submission, user=user, reason=reason
+    )
+    response = _published_response(result, submission.id)
+    await _command_finish(
+        db,
+        actor_user_id=user.id,
+        action="PUBLISH",
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        response=response,
+    )
+    return PublishedResultResponse.model_validate(response)
+
+
+async def bulk_publish_document_versions(
+    db: AsyncSession,
+    *,
+    assignment_id: uuid.UUID,
+    version_ids: list[uuid.UUID],
+    user: User,
+    idempotency_key: str,
+    reason: str,
+) -> BulkPublishResponse:
+    payload = {
+        "assignment_id": str(assignment_id),
+        "version_ids": [str(value) for value in version_ids],
+        "reason": reason,
+    }
+    replay, fingerprint = await _command_start(
+        db,
+        actor_user_id=user.id,
+        action="BULK_PUBLISH",
+        idempotency_key=idempotency_key,
+        payload=payload,
+    )
+    if replay is not None:
+        return BulkPublishResponse.model_validate(replay)
+    if not reason.strip():
+        raise HTTPException(status_code=422, detail="Reason must not be blank")
+    assignment = (
+        await db.execute(sa.select(Assignment).where(Assignment.id == assignment_id))
+    ).scalar_one_or_none()
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    course = (
+        await db.execute(
+            sa.select(Course)
+            .where(Course.id == assignment.course_id)
+            .with_for_update(read=True, of=Course)
+        )
+    ).scalar_one()
+    _authorize_course(user, course)
+    if course.status is CourseStatus.ARCHIVED:
+        raise HTTPException(status_code=409, detail="Archived courses are read-only")
+    submissions = list(
+        (
+            await db.execute(
+                sa.select(Submission)
+                .where(Submission.assignment_id == assignment_id)
+                .order_by(Submission.id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    submission_by_id = {submission.id: submission for submission in submissions}
+    versions = list(
+        (
+            await db.execute(
+                sa.select(DocumentVersion)
+                .where(DocumentVersion.id.in_(version_ids))
+                .order_by(DocumentVersion.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalars()
+    )
+    if len(versions) != len(version_ids):
+        raise HTTPException(
+            status_code=409, detail="Bulk publish contains invalid version"
+        )
+    if any(
+        version.submission_id not in submission_by_id
+        or version.status is not DocumentStatus.APPROVED
+        for version in versions
+    ):
+        raise HTTPException(
+            status_code=409, detail="All versions must be approved in assignment"
+        )
+    results: list[PublishedResultResponse] = []
+    for version in versions:
+        result = await _publish_locked(
+            db,
+            version=version,
+            submission=submission_by_id[version.submission_id],
+            user=user,
+            reason=reason,
+        )
+        results.append(
+            PublishedResultResponse.model_validate(
+                _published_response(result, version.submission_id)
+            )
+        )
+    response = {"results": [result.model_dump(mode="json") for result in results]}
+    await _command_finish(
+        db,
+        actor_user_id=user.id,
+        action="BULK_PUBLISH",
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        response=response,
+    )
+    return BulkPublishResponse.model_validate(response)
+
+
+async def unpublish_result(
+    db: AsyncSession,
+    *,
+    published_result_id: uuid.UUID,
+    user: User,
+    idempotency_key: str,
+    reason: str,
+) -> ApprovalResponse:
+    payload = {"published_result_id": str(published_result_id), "reason": reason}
+    replay, fingerprint = await _command_start(
+        db,
+        actor_user_id=user.id,
+        action="UNPUBLISH",
+        idempotency_key=idempotency_key,
+        payload=payload,
+    )
+    if not reason.strip():
+        raise HTTPException(status_code=422, detail="Reason must not be blank")
+    if replay is not None:
+        return ApprovalResponse.model_validate(replay)
+    result = (
+        await db.execute(
+            sa.select(PublishedResultVersion).where(
+                PublishedResultVersion.id == published_result_id
+            )
+        )
+    ).scalar_one_or_none()
+    if result is None:
+        raise HTTPException(status_code=404, detail="Published result not found")
+    _, submission, version = await _locked_document_context(
+        db, result.document_version_id, user
+    )
+    result = (
+        await db.execute(
+            sa.select(PublishedResultVersion)
+            .where(PublishedResultVersion.id == published_result_id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    if version.status is not DocumentStatus.PUBLISHED:
+        raise HTTPException(status_code=409, detail="Document is not published")
+    latest_document_id = await _latest_document_id(db, submission.id)
+    if latest_document_id != version.id:
+        raise HTTPException(
+            status_code=409,
+            detail="Only latest document result can be unpublished",
+        )
+    latest_id = (
+        await db.execute(
+            sa.select(PublishedResultVersion.id)
+            .where(PublishedResultVersion.document_version_id == version.id)
+            .order_by(PublishedResultVersion.version_number.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    if latest_id != result.id:
+        raise HTTPException(
+            status_code=409, detail="Only latest published result can be unpublished"
+        )
+    before = {
+        "status": version.status.value,
+        "published_result_id": str(result.id),
+        "version_number": result.version_number,
+    }
+    version.status = DocumentStatus.APPROVED
+    await record_audit(
+        db,
+        actor_user_id=user.id,
+        resource_type="DocumentVersion",
+        resource_id=version.id,
+        action="UNPUBLISH",
+        before=before,
+        after={
+            "status": version.status.value,
+            "published_result_id": str(result.id),
+            "version_number": result.version_number,
+        },
+        reason=reason,
+    )
+    response = {
+        "document_version_id": str(version.id),
+        "status": version.status.value,
+        "approved_at": version.approved_at.isoformat(),
+    }
+    await _command_finish(
+        db,
+        actor_user_id=user.id,
+        action="UNPUBLISH",
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        response=response,
+    )
+    return ApprovalResponse.model_validate(response)
+
+
+async def get_student_published_result(
+    db: AsyncSession, *, submission_id: uuid.UUID, user: User
+) -> PublishedResultResponse:
+    if UserRole.STUDENT not in user.roles:
+        raise HTTPException(status_code=404, detail="Published result not found")
+    latest_document = aliased(DocumentVersion)
+    latest_version_number = (
+        sa.select(sa.func.max(latest_document.version_number))
+        .where(latest_document.submission_id == submission_id)
+        .scalar_subquery()
+    )
+    row = (
+        await db.execute(
+            sa.select(PublishedResultVersion, Submission.id)
+            .join(
+                DocumentVersion,
+                DocumentVersion.id == PublishedResultVersion.document_version_id,
+            )
+            .join(Submission, Submission.id == DocumentVersion.submission_id)
+            .where(
+                Submission.id == submission_id,
+                Submission.student_id == user.id,
+                DocumentVersion.status == DocumentStatus.PUBLISHED,
+                DocumentVersion.version_number == latest_version_number,
+            )
+            .order_by(
+                DocumentVersion.version_number.desc(),
+                PublishedResultVersion.version_number.desc(),
+            )
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Published result not found")
+    result, owner_submission_id = row
+    return PublishedResultResponse.model_validate(
+        _published_response(result, owner_submission_id)
     )

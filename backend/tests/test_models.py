@@ -17,6 +17,8 @@ from app.models import (
     EvidenceAnchor,
     Finding,
     Membership,
+    PublishedResultVersion,
+    ReviewCommand,
     ReviewDecision,
     ReviewDraft,
     ReviewLock,
@@ -44,6 +46,8 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     AuditEvent: "audit_events",
     Finding: "findings",
     EvidenceAnchor: "evidence_anchors",
+    PublishedResultVersion: "published_result_versions",
+    ReviewCommand: "review_commands",
     ReviewLock: "review_locks",
     ReviewDraft: "review_drafts",
     ReviewDecision: "review_decisions",
@@ -84,6 +88,9 @@ def test_user_roles_and_json_snapshots_use_postgresql_types() -> None:
     assert isinstance(AuditEvent.__table__.c.before.type, JSONB)
     assert isinstance(AuditEvent.__table__.c.after.type, JSONB)
     assert isinstance(DocumentIR.__table__.c.content.type, JSONB)
+    assert isinstance(DocumentVersion.__table__.c.approved_snapshot.type, JSONB)
+    assert isinstance(PublishedResultVersion.__table__.c.snapshot.type, JSONB)
+    assert isinstance(ReviewCommand.__table__.c.response.type, JSONB)
 
 
 def test_ownership_and_version_foreign_keys_are_explicit() -> None:
