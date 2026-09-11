@@ -23,7 +23,9 @@ from app.api.schemas_submission import (
     ReviewDraftResponse,
     ReviewLockResponse,
     SubmissionQueueResponse,
+    SubmissionVersionListResponse,
     UnpublishRequest,
+    VersionComparisonResponse,
 )
 from app.db.session import get_db_session
 from app.models.enums import AnalysisJobStatus
@@ -305,6 +307,46 @@ async def unpublish_published_result(
     )
     await db.commit()
     return response
+
+
+@router.get(
+    "/submissions/{submission_id}/versions",
+    response_model=SubmissionVersionListResponse,
+)
+async def list_submission_versions(
+    submission_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SubmissionVersionListResponse:
+    return await review_svc.list_submission_versions(
+        db,
+        submission_id=submission_id,
+        user=user,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/submissions/{submission_id}/versions/compare",
+    response_model=VersionComparisonResponse,
+)
+async def compare_submission_versions(
+    submission_id: uuid.UUID,
+    left_version_id: uuid.UUID = Query(...),
+    right_version_id: uuid.UUID = Query(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> VersionComparisonResponse:
+    return await review_svc.compare_submission_versions(
+        db,
+        submission_id=submission_id,
+        left_version_id=left_version_id,
+        right_version_id=right_version_id,
+        user=user,
+    )
 
 
 @router.get(

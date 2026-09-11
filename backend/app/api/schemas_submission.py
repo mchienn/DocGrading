@@ -71,6 +71,18 @@ class QueueSort(StrEnum):
     DESC = "desc"
 
 
+class VersionProcessingStatus(StrEnum):
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    AWAITING_REVIEW = "AWAITING_REVIEW"
+    ERROR = "ERROR"
+
+
+class VersionPublicationStatus(StrEnum):
+    PUBLISHED = "PUBLISHED"
+    UNPUBLISHED = "UNPUBLISHED"
+
+
 class BBox(BaseModel):
     x0: float
     top: float
@@ -279,3 +291,41 @@ class PublishedResultResponse(BaseModel):
 
 class BulkPublishResponse(BaseModel):
     results: list[PublishedResultResponse]
+
+
+class SubmissionVersionResponse(BaseModel):
+    document_version_id: uuid.UUID
+    version_number: int
+    created_at: datetime
+    processing_status: VersionProcessingStatus
+    publication_status: VersionPublicationStatus | None = None
+    published_result_id: uuid.UUID | None = None
+    published_at: datetime | None = None
+
+
+class SubmissionVersionListResponse(BaseModel):
+    items: list[SubmissionVersionResponse]
+    page: int
+    page_size: int
+    total: int
+
+
+class VersionComparisonFindingResponse(BaseModel):
+    criterion_version_id: uuid.UUID
+    finding_id: uuid.UUID
+    score: Decimal | None
+    decision: ReviewDecisionType | None
+    evidence_count: int = Field(ge=0)
+
+
+class VersionComparisonSideResponse(BaseModel):
+    document_version_id: uuid.UUID
+    version_number: int
+    comment: str
+    findings: list[VersionComparisonFindingResponse]
+
+
+class VersionComparisonResponse(BaseModel):
+    submission_id: uuid.UUID
+    left: VersionComparisonSideResponse
+    right: VersionComparisonSideResponse

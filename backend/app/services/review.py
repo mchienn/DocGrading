@@ -5,7 +5,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import sqlalchemy as sa
@@ -31,6 +31,13 @@ from app.api.schemas_submission import (
     ReviewLockResponse,
     SubmissionQueueItem,
     SubmissionQueueResponse,
+    SubmissionVersionListResponse,
+    SubmissionVersionResponse,
+    VersionComparisonFindingResponse,
+    VersionComparisonResponse,
+    VersionComparisonSideResponse,
+    VersionProcessingStatus,
+    VersionPublicationStatus,
 )
 from app.models.analysis import AnalysisJob, DocumentIR
 from app.models.assignment import Assignment
@@ -930,7 +937,7 @@ async def _approval_snapshot(
             detail="Every finding requires a review decision before approval",
         )
 
-    finding_ids = {
+    published_finding_ids = {
         finding.id
         for finding in findings
         if decisions[finding.id].decision is not ReviewDecisionType.REJECT
@@ -939,7 +946,9 @@ async def _approval_snapshot(
         (
             await db.execute(
                 sa.select(EvidenceAnchor)
-                .where(EvidenceAnchor.finding_id.in_(finding_ids))
+                .where(
+                    EvidenceAnchor.finding_id.in_([finding.id for finding in findings])
+                )
                 .order_by(
                     EvidenceAnchor.finding_id,
                     EvidenceAnchor.page_number,
@@ -948,19 +957,31 @@ async def _approval_snapshot(
             )
         ).scalars()
     )
+    evidence_counts: dict[uuid.UUID, int] = {}
+    for anchor in all_anchors:
+        evidence_counts[anchor.finding_id] = (
+            evidence_counts.get(anchor.finding_id, 0) + 1
+        )
+    published_anchors = [
+        anchor for anchor in all_anchors if anchor.finding_id in published_finding_ids
+    ]
     document_ir = (
         await db.execute(
             sa.select(DocumentIR).where(DocumentIR.document_version_id == version.id)
         )
     ).scalar_one_or_none()
-    if all_anchors and document_ir is None:
+    if published_anchors and document_ir is None:
         raise HTTPException(status_code=409, detail="Document IR is not available")
     anchors = (
-        [anchor for anchor in all_anchors if anchor.document_ir_id == document_ir.id]
+        [
+            anchor
+            for anchor in published_anchors
+            if anchor.document_ir_id == document_ir.id
+        ]
         if document_ir is not None
         else []
     )
-    if len(anchors) != len(all_anchors):
+    if len(anchors) != len(published_anchors):
         raise _evidence_error()
     anchor_by_finding: dict[uuid.UUID, list[EvidenceAnchor]] = {}
     for anchor in anchors:
@@ -969,22 +990,16 @@ async def _approval_snapshot(
     geometry = _anchor_index(document_ir.content, required) if document_ir else {}
 
     output_findings: list[dict[str, Any]] = []
+    rejected_findings: list[dict[str, Any]] = []
     for finding in findings:
         decision = decisions[finding.id]
-        if decision.decision is ReviewDecisionType.REJECT:
-            continue
         description = (
             decision.edited_description
             if decision.decision is ReviewDecisionType.EDIT
             and decision.edited_description is not None
             else finding.description
         )
-        score = (
-            decision.final_score
-            if decision.decision is ReviewDecisionType.EDIT
-            and decision.final_score is not None
-            else finding.proposed_score
-        )
+        score = _effective_score(finding, decision)
         evidence = []
         for anchor in anchor_by_finding.get(finding.id, []):
             bbox = geometry[(anchor.element_id, anchor.page_number)]
@@ -996,7 +1011,12 @@ async def _approval_snapshot(
                     "bbox": bbox.model_dump(),
                 }
             )
-        output_findings.append(
+        target = (
+            rejected_findings
+            if decision.decision is ReviewDecisionType.REJECT
+            else output_findings
+        )
+        target.append(
             {
                 "criterion_version_id": str(finding.criterion_version_id),
                 "finding_id": str(finding.id),
@@ -1004,11 +1024,14 @@ async def _approval_snapshot(
                 "description": description,
                 "suggestion": finding.suggestion,
                 "evidence": evidence,
+                "decision": decision.decision.value,
+                "evidence_count": evidence_counts.get(finding.id, 0),
             }
         )
     return {
         "comment": draft.comment if draft is not None else "",
         "findings": output_findings,
+        "rejected_findings": rejected_findings,
     }
 
 
@@ -1431,6 +1454,340 @@ async def unpublish_result(
         response=response,
     )
     return ApprovalResponse.model_validate(response)
+
+
+_PROCESSING_STATUS = {
+    DocumentStatus.UPLOADING: VersionProcessingStatus.QUEUED,
+    DocumentStatus.VALIDATING: VersionProcessingStatus.QUEUED,
+    DocumentStatus.QUEUED: VersionProcessingStatus.QUEUED,
+    DocumentStatus.PROCESSING: VersionProcessingStatus.PROCESSING,
+    DocumentStatus.AWAITING_REVIEW: VersionProcessingStatus.AWAITING_REVIEW,
+    DocumentStatus.APPROVED: VersionProcessingStatus.AWAITING_REVIEW,
+    DocumentStatus.PUBLISHED: VersionProcessingStatus.AWAITING_REVIEW,
+    DocumentStatus.INVALID: VersionProcessingStatus.ERROR,
+    DocumentStatus.PROCESSING_FAILED: VersionProcessingStatus.ERROR,
+}
+assert set(_PROCESSING_STATUS) == set(DocumentStatus)
+
+
+async def _submission_for_read(
+    db: AsyncSession, submission_id: uuid.UUID, user: User
+) -> tuple[Submission, Course, bool]:
+    row = (
+        await db.execute(
+            sa.select(Submission, Course)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(Course, Course.id == Assignment.course_id)
+            .where(Submission.id == submission_id)
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    submission, course = row
+    if UserRole.ADMIN in user.roles:
+        return submission, course, True
+    if UserRole.TEACHER in user.roles:
+        if course.owner_teacher_id != user.id:
+            raise HTTPException(status_code=404, detail="Submission not found")
+        return submission, course, True
+    if UserRole.STUDENT in user.roles and submission.student_id == user.id:
+        return submission, course, False
+    raise HTTPException(status_code=404, detail="Submission not found")
+
+
+async def _versions_with_latest_published_result(
+    db: AsyncSession,
+    *,
+    submission_id: uuid.UUID,
+    version_ids: set[uuid.UUID] | None = None,
+    offset: int = 0,
+    limit: int | None = None,
+) -> list[tuple[DocumentVersion, PublishedResultVersion | None]]:
+    latest_result = aliased(PublishedResultVersion)
+    latest_result_id = (
+        sa.select(latest_result.id)
+        .where(latest_result.document_version_id == DocumentVersion.id)
+        .order_by(latest_result.version_number.desc())
+        .limit(1)
+        .correlate(DocumentVersion)
+        .scalar_subquery()
+    )
+    statement = (
+        sa.select(DocumentVersion, PublishedResultVersion)
+        .outerjoin(
+            PublishedResultVersion,
+            PublishedResultVersion.id == latest_result_id,
+        )
+        .where(DocumentVersion.submission_id == submission_id)
+        .order_by(DocumentVersion.version_number)
+    )
+    if version_ids is not None:
+        statement = statement.where(DocumentVersion.id.in_(version_ids))
+    if limit is not None:
+        statement = statement.offset(offset).limit(limit)
+    return list((await db.execute(statement)).all())
+
+
+async def list_submission_versions(
+    db: AsyncSession,
+    *,
+    submission_id: uuid.UUID,
+    user: User,
+    page: int = 1,
+    page_size: int = 50,
+) -> SubmissionVersionListResponse:
+    submission, _, privileged = await _submission_for_read(db, submission_id, user)
+    total = int(
+        await db.scalar(
+            sa.select(sa.func.count(DocumentVersion.id)).where(
+                DocumentVersion.submission_id == submission.id
+            )
+        )
+        or 0
+    )
+    rows = await _versions_with_latest_published_result(
+        db,
+        submission_id=submission.id,
+        offset=(page - 1) * page_size,
+        limit=page_size,
+    )
+    items = []
+    for version, result in rows:
+        visible_result = (
+            result if privileged or version.status is DocumentStatus.PUBLISHED else None
+        )
+        publication_status = None
+        if visible_result is not None:
+            publication_status = (
+                VersionPublicationStatus.PUBLISHED
+                if version.status is DocumentStatus.PUBLISHED
+                else VersionPublicationStatus.UNPUBLISHED
+            )
+        items.append(
+            SubmissionVersionResponse(
+                document_version_id=version.id,
+                version_number=version.version_number,
+                created_at=version.created_at,
+                processing_status=_PROCESSING_STATUS[version.status],
+                publication_status=publication_status,
+                published_result_id=visible_result.id if visible_result else None,
+                published_at=visible_result.published_at if visible_result else None,
+            )
+        )
+    return SubmissionVersionListResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
+
+
+def _snapshot_score(value: object) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, str | int | float | Decimal):
+        return None
+    try:
+        score = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return score if score.is_finite() else None
+
+
+def _snapshot_findings(
+    snapshot: Mapping[str, Any], *, include_rejected: bool = False
+) -> list[VersionComparisonFindingResponse]:
+    findings: list[VersionComparisonFindingResponse] = []
+    raw_findings = snapshot.get("findings", [])
+    if not isinstance(raw_findings, list):
+        return findings
+    if include_rejected:
+        raw_rejected = snapshot.get("rejected_findings", [])
+        if isinstance(raw_rejected, list):
+            raw_findings = [*raw_findings, *raw_rejected]
+    for raw in raw_findings:
+        if not isinstance(raw, Mapping):
+            continue
+        try:
+            criterion_version_id = uuid.UUID(str(raw["criterion_version_id"]))
+            finding_id = uuid.UUID(str(raw["finding_id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        decision = raw.get("decision")
+        try:
+            decision = ReviewDecisionType(decision) if decision is not None else None
+        except ValueError:
+            decision = None
+        if decision is ReviewDecisionType.REJECT and not include_rejected:
+            continue
+        evidence = raw.get("evidence")
+        evidence_count = raw.get("evidence_count")
+        if not isinstance(evidence_count, int):
+            evidence_count = len(evidence) if isinstance(evidence, list) else 0
+        findings.append(
+            VersionComparisonFindingResponse(
+                criterion_version_id=criterion_version_id,
+                finding_id=finding_id,
+                score=_snapshot_score(raw.get("score")),
+                decision=decision,
+                evidence_count=evidence_count,
+            )
+        )
+    return findings
+
+
+def _snapshot_side(
+    version: DocumentVersion,
+    snapshot: Mapping[str, Any],
+    *,
+    include_rejected: bool = False,
+) -> VersionComparisonSideResponse:
+    comment = snapshot.get("comment", "")
+    return VersionComparisonSideResponse(
+        document_version_id=version.id,
+        version_number=version.version_number,
+        comment=comment if isinstance(comment, str) else "",
+        findings=_snapshot_findings(snapshot, include_rejected=include_rejected),
+    )
+
+
+async def _privileged_snapshot_side(
+    db: AsyncSession,
+    version: DocumentVersion,
+    snapshot: Mapping[str, Any],
+) -> VersionComparisonSideResponse:
+    side = _snapshot_side(version, snapshot, include_rejected=True)
+    if "rejected_findings" in snapshot:
+        return side
+    draft_side = await _draft_side(db, version)
+    finding_ids = {finding.finding_id for finding in side.findings}
+    side.findings.extend(
+        finding
+        for finding in draft_side.findings
+        if finding.decision is ReviewDecisionType.REJECT
+        and finding.finding_id not in finding_ids
+    )
+    return side
+
+
+async def _draft_side(
+    db: AsyncSession, version: DocumentVersion
+) -> VersionComparisonSideResponse:
+    draft = (
+        await db.execute(
+            sa.select(ReviewDraft)
+            .where(
+                ReviewDraft.submission_id == version.submission_id,
+                ReviewDraft.document_version_id == version.id,
+            )
+            .order_by(ReviewDraft.updated_at.desc(), ReviewDraft.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    decisions: dict[uuid.UUID, ReviewDecision] = {}
+    if draft is not None:
+        decisions = {
+            decision.finding_id: decision
+            for decision in (
+                await db.execute(
+                    sa.select(ReviewDecision).where(
+                        ReviewDecision.review_draft_id == draft.id
+                    )
+                )
+            ).scalars()
+        }
+    findings = list(
+        (
+            await db.execute(
+                sa.select(Finding)
+                .join(AnalysisJob, AnalysisJob.id == Finding.analysis_job_id)
+                .where(AnalysisJob.document_version_id == version.id)
+                .order_by(Finding.id)
+            )
+        ).scalars()
+    )
+    evidence_counts: dict[uuid.UUID, int] = {}
+    if findings:
+        evidence_counts = {
+            finding_id: count
+            for finding_id, count in (
+                await db.execute(
+                    sa.select(
+                        EvidenceAnchor.finding_id,
+                        sa.func.count(EvidenceAnchor.id),
+                    )
+                    .where(
+                        EvidenceAnchor.finding_id.in_(
+                            [finding.id for finding in findings]
+                        )
+                    )
+                    .group_by(EvidenceAnchor.finding_id)
+                )
+            ).all()
+        }
+    output = [
+        VersionComparisonFindingResponse(
+            criterion_version_id=finding.criterion_version_id,
+            finding_id=finding.id,
+            score=_effective_score(finding, decisions.get(finding.id)),
+            decision=(
+                decisions[finding.id].decision if finding.id in decisions else None
+            ),
+            evidence_count=evidence_counts.get(finding.id, 0),
+        )
+        for finding in findings
+    ]
+    return VersionComparisonSideResponse(
+        document_version_id=version.id,
+        version_number=version.version_number,
+        comment=draft.comment if draft is not None else "",
+        findings=output,
+    )
+
+
+async def compare_submission_versions(
+    db: AsyncSession,
+    *,
+    submission_id: uuid.UUID,
+    left_version_id: uuid.UUID,
+    right_version_id: uuid.UUID,
+    user: User,
+) -> VersionComparisonResponse:
+    submission, _, privileged = await _submission_for_read(db, submission_id, user)
+    if left_version_id == right_version_id:
+        raise HTTPException(status_code=404, detail="Document versions not found")
+    rows = await _versions_with_latest_published_result(
+        db,
+        submission_id=submission.id,
+        version_ids={left_version_id, right_version_id},
+    )
+    version_by_id = {version.id: (version, result) for version, result in rows}
+    if len(version_by_id) != 2:
+        raise HTTPException(status_code=404, detail="Document versions not found")
+    left = version_by_id[left_version_id]
+    right = version_by_id[right_version_id]
+    if not privileged and any(
+        version.status is not DocumentStatus.PUBLISHED or result is None
+        for version, result in (left, right)
+    ):
+        raise HTTPException(status_code=404, detail="Document versions not found")
+
+    sides: list[VersionComparisonSideResponse] = []
+    for version, result in (left, right):
+        snapshot = result.snapshot if result is not None else version.approved_snapshot
+        if snapshot is not None:
+            sides.append(
+                await _privileged_snapshot_side(db, version, snapshot)
+                if privileged
+                else _snapshot_side(version, snapshot)
+            )
+        else:
+            sides.append(await _draft_side(db, version))
+    return VersionComparisonResponse(
+        submission_id=submission.id,
+        left=sides[0],
+        right=sides[1],
+    )
 
 
 async def get_student_published_result(
