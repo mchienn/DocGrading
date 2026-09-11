@@ -10,11 +10,19 @@ from app.models.enums import (
     DocumentStatus,
     MembershipRole,
     MembershipStatus,
+    ReviewDecisionType,
     RubricStatus,
     UserRole,
     UserStatus,
 )
 from app.models.identity import User
+from app.models.review import (
+    EvidenceAnchor,
+    Finding,
+    ReviewDecision,
+    ReviewDraft,
+    ReviewLock,
+)
 from app.models.rubric import CriterionVersion, RubricVersion, TemplateVersion
 from app.models.session import Session
 from app.models.submission import DocumentVersion, Submission
@@ -34,9 +42,15 @@ __all__ = [
     "DocumentIR",
     "DocumentStatus",
     "DocumentVersion",
+    "EvidenceAnchor",
+    "Finding",
     "Membership",
     "MembershipRole",
     "MembershipStatus",
+    "ReviewDecision",
+    "ReviewDecisionType",
+    "ReviewDraft",
+    "ReviewLock",
     "RubricStatus",
     "RubricVersion",
     "Session",
