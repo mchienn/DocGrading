@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -22,15 +23,20 @@ from app.api.schemas_submission import (
     ReviewDraftRequest,
     ReviewDraftResponse,
     ReviewLockResponse,
+    ReviewRequestCreate,
+    ReviewRequestListResponse,
+    ReviewRequestResponse,
+    ReviewRequestUpdate,
     SubmissionQueueResponse,
     SubmissionVersionListResponse,
     UnpublishRequest,
     VersionComparisonResponse,
 )
 from app.db.session import get_db_session
-from app.models.enums import AnalysisJobStatus
+from app.models.enums import AnalysisJobStatus, ReviewRequestStatus
 from app.models.identity import User
 from app.services import analysis_job as job_svc
+from app.services import appeal as appeal_svc
 from app.services import review as review_svc
 from app.services import submission as submission_svc
 from app.services.analysis_dispatch import dispatch_analysis_job_now
@@ -361,3 +367,95 @@ async def get_submission_published_result(
     return await review_svc.get_student_published_result(
         db, submission_id=submission_id, user=user
     )
+
+
+@router.post(
+    "/published-results/{published_result_id}/review-requests",
+    response_model=ReviewRequestResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_review_request(
+    published_result_id: uuid.UUID,
+    payload: ReviewRequestCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ReviewRequestResponse:
+    try:
+        response = await appeal_svc.create_review_request(
+            db,
+            published_result_id=published_result_id,
+            payload=payload,
+            user=user,
+        )
+    except IntegrityError as exc:
+        original = exc.orig
+        cause = getattr(original, "__cause__", None)
+        constraint_name = (
+            getattr(getattr(original, "diag", None), "constraint_name", None)
+            or getattr(original, "constraint_name", None)
+            or getattr(cause, "constraint_name", None)
+        )
+        if constraint_name != "uq_review_requests_open_target":
+            raise
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="Open review request already exists"
+        ) from exc
+    await db.commit()
+    return response
+
+
+@router.get(
+    "/courses/{course_id}/review-requests",
+    response_model=ReviewRequestListResponse,
+)
+async def list_review_requests(
+    course_id: uuid.UUID,
+    status_filter: ReviewRequestStatus | None = Query(default=None, alias="status"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ReviewRequestListResponse:
+    return await appeal_svc.list_review_requests(
+        db,
+        course_id=course_id,
+        user=user,
+        status_filter=status_filter,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/review-requests/{review_request_id}",
+    response_model=ReviewRequestResponse,
+)
+async def get_review_request(
+    review_request_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ReviewRequestResponse:
+    return await appeal_svc.get_review_request(
+        db, request_id=review_request_id, user=user
+    )
+
+
+@router.patch(
+    "/review-requests/{review_request_id}",
+    response_model=ReviewRequestResponse,
+)
+async def respond_review_request(
+    review_request_id: uuid.UUID,
+    payload: ReviewRequestUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ReviewRequestResponse:
+    response = await appeal_svc.respond_review_request(
+        db,
+        request_id=review_request_id,
+        payload=payload,
+        user=user,
+    )
+    await db.commit()
+    return response
