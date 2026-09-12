@@ -13,26 +13,15 @@ from app.api.schemas_notification import (
     NotificationListResponse,
     NotificationResponse,
 )
-from app.models.enums import NotificationType
+from app.models.enums import NOTIFICATION_PAYLOAD_KEYS, NotificationType
 from app.models.identity import User
 from app.models.notification import Notification
-
-_PAYLOAD_KEYS = {
-    NotificationType.ANALYSIS_JOB_ERROR: {"analysis_job_id"},
-    NotificationType.RESULT_PUBLISHED: {
-        "published_result_version_id",
-        "submission_id",
-    },
-    NotificationType.REVIEW_REQUEST_CREATED: {"review_request_id"},
-    NotificationType.REVIEW_REQUEST_RESOLVED: {"review_request_id"},
-    NotificationType.REVIEW_REQUEST_REJECTED: {"review_request_id"},
-}
 
 
 def _reference_payload(
     notification_type: NotificationType, payload: dict[str, Any]
 ) -> dict[str, str]:
-    if set(payload) != _PAYLOAD_KEYS[notification_type]:
+    if set(payload) != NOTIFICATION_PAYLOAD_KEYS[notification_type]:
         raise ValueError("Notification payload contains invalid references")
     try:
         return {key: str(uuid.UUID(str(value))) for key, value in payload.items()}

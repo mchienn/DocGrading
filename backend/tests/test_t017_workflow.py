@@ -4,6 +4,7 @@ import asyncio
 import os
 import uuid
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -196,17 +197,25 @@ def test_t017_source_events_create_private_reference_notifications() -> None:
                 NotificationType.REVIEW_REQUEST_RESOLVED.value: 1,
                 NotificationType.REVIEW_REQUEST_REJECTED.value: 1,
             }
+            error_rows = [
+                row
+                for row in rows
+                if row["type"] == NotificationType.ANALYSIS_JOB_ERROR.value
+            ]
+            assert len(error_rows) == 2
+            assert all(
+                row["recipient_id"] == ids["student_1"]
+                and row["payload"] == {"analysis_job_id": str(ids["job"])}
+                for row in error_rows
+            )
             by_type = {
                 row["type"]: row
                 for row in rows
-                if row["type"] != NotificationType.REVIEW_REQUEST_CREATED.value
-            }
-            assert (
-                by_type[NotificationType.ANALYSIS_JOB_ERROR.value]["recipient_id"]
-                == ids["student_1"]
-            )
-            assert by_type[NotificationType.ANALYSIS_JOB_ERROR.value]["payload"] == {
-                "analysis_job_id": str(ids["job"])
+                if row["type"]
+                not in (
+                    NotificationType.ANALYSIS_JOB_ERROR.value,
+                    NotificationType.REVIEW_REQUEST_CREATED.value,
+                )
             }
             assert (
                 by_type[NotificationType.RESULT_PUBLISHED.value]["recipient_id"]
@@ -287,6 +296,9 @@ def test_t017_polling_is_actor_scoped_and_mark_read_idempotent() -> None:
                 notification_type=NotificationType.REVIEW_REQUEST_CREATED,
                 payload={"review_request_id": uuid.uuid4()},
             )
+            own_first.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+            own_second.created_at = datetime(2026, 1, 2, tzinfo=UTC)
+            await session.flush()
             student = _actor(ids["student_1"], "Student 1", UserRole.STUDENT)
             first_page = await notification_svc.list_notifications(
                 session, user=student, unread=None, page=1, page_size=1
@@ -295,10 +307,8 @@ def test_t017_polling_is_actor_scoped_and_mark_read_idempotent() -> None:
                 session, user=student, unread=None, page=2, page_size=1
             )
             assert first_page.total == second_page.total == 2
-            assert {
-                first_page.items[0].id,
-                second_page.items[0].id,
-            } == {own_first.id, own_second.id}
+            assert first_page.items[0].id == own_second.id
+            assert second_page.items[0].id == own_first.id
             assert (
                 await notification_svc.list_notifications(
                     session, user=student, unread=True, page=1, page_size=50

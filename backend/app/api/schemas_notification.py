@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.enums import NotificationType
+from app.models.enums import NOTIFICATION_PAYLOAD_KEYS, NotificationType
 
 
 class NotificationResponse(BaseModel):
@@ -19,16 +19,7 @@ class NotificationResponse(BaseModel):
 
     @model_validator(mode="after")
     def validate_payload_references(self) -> NotificationResponse:
-        expected = {
-            NotificationType.ANALYSIS_JOB_ERROR: {"analysis_job_id"},
-            NotificationType.RESULT_PUBLISHED: {
-                "published_result_version_id",
-                "submission_id",
-            },
-            NotificationType.REVIEW_REQUEST_CREATED: {"review_request_id"},
-            NotificationType.REVIEW_REQUEST_RESOLVED: {"review_request_id"},
-            NotificationType.REVIEW_REQUEST_REJECTED: {"review_request_id"},
-        }[self.type]
+        expected = NOTIFICATION_PAYLOAD_KEYS[self.type]
         if set(self.payload) != expected:
             raise ValueError("Notification payload contains invalid references")
         return self

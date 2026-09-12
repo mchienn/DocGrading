@@ -78,15 +78,14 @@ def test_notification_model_and_routes_are_allowlisted() -> None:
         "created_at",
     }
     schema = app.openapi()
-    assert {
-        "get",
-    } <= set(schema["paths"]["/api/v1/notifications"])
-    assert {
-        "patch",
-    } <= set(schema["paths"]["/api/v1/notifications/read"])
-    assert {
-        "patch",
-    } <= set(schema["paths"]["/api/v1/notifications/{notification_id}/read"])
+    http_methods = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
+    assert set(schema["paths"]["/api/v1/notifications"]) & http_methods == {"get"}
+    assert set(schema["paths"]["/api/v1/notifications/read"]) & http_methods == {
+        "patch"
+    }
+    assert set(
+        schema["paths"]["/api/v1/notifications/{notification_id}/read"]
+    ) & http_methods == {"patch"}
 
 
 def test_bulk_read_ids_are_unique_and_bounded() -> None:

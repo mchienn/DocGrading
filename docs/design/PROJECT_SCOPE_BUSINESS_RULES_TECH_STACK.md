@@ -65,7 +65,7 @@ Repository hiện có frontend React/Vite nối trực tiếp session auth, Cour
 12. Sinh viên xem điểm tổng, breakdown, feedback ghim, annotation và so sánh với lần nộp liền trước.
 13. Sinh viên gửi một yêu cầu xem lại gắn với tiêu chí của một phiên bản kết quả đã công bố.
 14. Admin quản lý người dùng, rubric/template mặc định, danh sách job, thử lại job, usage cơ bản và audit log.
-15. Thông báo trong ứng dụng khi AnalysisJob chuyển `ERROR`, tạo `PublishedResultVersion`, tạo ReviewRequest và chuyển ReviewRequest sang `RESOLVED` hoặc `REJECTED`; MVP dùng polling, không có push/email/websocket.
+15. Thông báo trong ứng dụng khi AnalysisJob chuyển `ERROR`, tạo `PublishedResultVersion`, tạo ReviewRequest và chuyển ReviewRequest sang `RESOLVED` hoặc `REJECTED`; MVP dùng polling, không có push/email/websocket. Thông báo khi unpublish theo BR-33 được hoãn sang `DOC-30`.
 
 Evaluator tự động của MVP chỉ được nghiệm thu cho SRS tiếng Việt. SRS tiếng Anh hoặc tài liệu thuộc ngôn ngữ khác vẫn có thể dùng rubric thủ công nếu PDF hợp lệ; chỉ được bật tự động sau khi có corpus và qua quality gate riêng.
 
