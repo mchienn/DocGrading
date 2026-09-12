@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -379,12 +380,27 @@ async def create_review_request(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ReviewRequestResponse:
-    response = await appeal_svc.create_review_request(
-        db,
-        published_result_id=published_result_id,
-        payload=payload,
-        user=user,
-    )
+    try:
+        response = await appeal_svc.create_review_request(
+            db,
+            published_result_id=published_result_id,
+            payload=payload,
+            user=user,
+        )
+    except IntegrityError as exc:
+        original = exc.orig
+        cause = getattr(original, "__cause__", None)
+        constraint_name = (
+            getattr(getattr(original, "diag", None), "constraint_name", None)
+            or getattr(original, "constraint_name", None)
+            or getattr(cause, "constraint_name", None)
+        )
+        if constraint_name != "uq_review_requests_open_target":
+            raise
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="Open review request already exists"
+        ) from exc
     await db.commit()
     return response
 

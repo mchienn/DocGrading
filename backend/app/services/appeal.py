@@ -89,6 +89,11 @@ def _require_pure_student(user: User) -> None:
 
 
 def _authorize_course_actor(user: User, course: Course) -> None:
+    """Authorize Course mutation/list access.
+
+    Cross-course Teachers intentionally receive 404 to mask Course existence. This is
+    an established exception to the general authenticated-user 403 rule.
+    """
     if UserRole.ADMIN in user.roles:
         return
     if UserRole.TEACHER in user.roles:
@@ -357,7 +362,9 @@ async def _get_request_with_course(
     if owner_teacher_id is not None:
         statement = statement.where(Course.owner_teacher_id == owner_teacher_id)
     if lock_course:
-        statement = statement.with_for_update(read=True, of=Course)
+        statement = statement.with_for_update(read=True, of=Course).execution_options(
+            populate_existing=True
+        )
     row = (await db.execute(statement)).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Review request not found")
@@ -380,6 +387,11 @@ async def _locked_request(db: AsyncSession, request_id: uuid.UUID) -> ReviewRequ
 
 
 def _authorize_read(user: User, request: ReviewRequest, course: Course) -> None:
+    """Authorize request reads with object-existence masking.
+
+    Cross-course Teachers intentionally receive 404. This is an established exception
+    to the general authenticated-user 403 rule.
+    """
     if UserRole.ADMIN in user.roles:
         return
     if UserRole.TEACHER in user.roles:

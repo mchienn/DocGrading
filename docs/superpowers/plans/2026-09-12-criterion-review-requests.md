@@ -54,7 +54,7 @@ Verify strongest-role/object ownership in both Student/Teacher directions, Admin
 
 - `uv run ruff check`: passed.
 - `uv run black --check .`: passed; 93 files unchanged.
-- `RUN_DATABASE_TESTS=1 uv run pytest -q`: passed; 351 tests.
+- `RUN_DATABASE_TESTS=1 uv run pytest -q`: passed; 352 tests.
 - Real PostgreSQL 17 migration checks: T-012/T-016 roundtrip tests passed; explicit Alembic `20260912_0011 -> 20260911_0010 -> 20260912_0011` passed. Both append-only TRUNCATE guards remained active; nonempty `review_requests` downgrade was refused.
 
 ## Final review

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
 import app.models  # noqa: F401
+from app.api.routers import submissions as submissions_router
 from app.api.schemas_submission import (
     ReviewRequestCreate,
     ReviewRequestResponse,
@@ -150,3 +155,56 @@ def test_t016_routes_and_migration_security_contract() -> None:
                     and keyword.value.value == "public"
                     for keyword in call.keywords
                 )
+
+
+class _ConstraintViolation(Exception):
+    def __init__(self, constraint_name: str) -> None:
+        super().__init__(constraint_name)
+        self.constraint_name = constraint_name
+
+
+def test_t016_create_route_maps_only_open_target_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        payload = ReviewRequestCreate(
+            submission_id=uuid.uuid4(),
+            criterion_id=uuid.uuid4(),
+            reason="reason",
+        )
+        duplicate_driver_error = Exception("duplicate")
+        duplicate_driver_error.__cause__ = _ConstraintViolation(
+            "uq_review_requests_open_target"
+        )
+        duplicate_error = IntegrityError("INSERT", {}, duplicate_driver_error)
+        db = AsyncMock()
+        monkeypatch.setattr(
+            submissions_router.appeal_svc,
+            "create_review_request",
+            AsyncMock(side_effect=duplicate_error),
+        )
+
+        with pytest.raises(HTTPException) as duplicate:
+            await submissions_router.create_review_request(
+                uuid.uuid4(), payload, user=object(), db=db
+            )
+        assert duplicate.value.status_code == 409
+        assert duplicate.value.detail == "Open review request already exists"
+        db.rollback.assert_awaited_once()
+        db.commit.assert_not_awaited()
+
+        unrelated_error = IntegrityError(
+            "INSERT", {}, _ConstraintViolation("fk_review_requests_submission")
+        )
+        unrelated_db = AsyncMock()
+        submissions_router.appeal_svc.create_review_request.side_effect = (
+            unrelated_error
+        )
+        with pytest.raises(IntegrityError) as unrelated:
+            await submissions_router.create_review_request(
+                uuid.uuid4(), payload, user=object(), db=unrelated_db
+            )
+        assert unrelated.value is unrelated_error
+        unrelated_db.rollback.assert_not_awaited()
+
+    asyncio.run(scenario())

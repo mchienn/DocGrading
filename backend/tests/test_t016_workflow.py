@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -28,8 +28,23 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-async def _publish_seed(connection, ids: dict[str, uuid.UUID]) -> uuid.UUID:
+async def _publish_seed(
+    connection,
+    ids: dict[str, uuid.UUID],
+    *,
+    document_id: uuid.UUID,
+    published_at: datetime,
+) -> uuid.UUID:
     result_id = uuid.uuid4()
+    snapshot = (
+        '{"comment":"public", "findings":[{"criterion_version_id":"'
+        f'{ids["criterion"]}'
+        '","finding_id":"'
+        f'{ids["finding"]}'
+        '"}]}'
+        if document_id == ids["document_1"]
+        else '{"comment":"public", "findings":[]}'
+    )
     await connection.execute(
         text(
             "INSERT INTO public.published_result_versions "
@@ -40,16 +55,10 @@ async def _publish_seed(connection, ids: dict[str, uuid.UUID]) -> uuid.UUID:
         ),
         {
             "id": result_id,
-            "document": ids["document_1"],
+            "document": document_id,
             "teacher": ids["teacher"],
-            "now": datetime.now(UTC),
-            "snapshot": (
-                '{"comment":"public", "findings":[{"criterion_version_id":"'
-                f'{ids["criterion"]}'
-                '","finding_id":"'
-                f'{ids["finding"]}'
-                '"}]}'
-            ),
+            "now": published_at,
+            "snapshot": snapshot,
         },
     )
     return result_id
@@ -63,9 +72,28 @@ async def _workflow() -> None:
     session = AsyncSession(bind=connection, expire_on_commit=False)
     try:
         await _seed_graph(connection, ids)
-        result_id = await _publish_seed(connection, ids)
+        published_at = datetime.now(UTC)
+        result_id = await _publish_seed(
+            connection,
+            ids,
+            document_id=ids["document_1"],
+            published_at=published_at,
+        )
+        expired_result_id = await _publish_seed(
+            connection,
+            ids,
+            document_id=ids["document_2"],
+            published_at=published_at - timedelta(days=8),
+        )
+        future_result_id = await _publish_seed(
+            connection,
+            ids,
+            document_id=ids["document_3"],
+            published_at=published_at + timedelta(minutes=1),
+        )
         student = _actor(ids["student_1"], "Student 1", UserRole.STUDENT)
         other_student = _actor(ids["student_2"], "Student 2", UserRole.STUDENT)
+        future_student = _actor(ids["student_3"], "Student 3", UserRole.STUDENT)
         owner = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
         other_teacher = _actor(ids["other_teacher"], "Teacher B", UserRole.TEACHER)
         admin = _actor(ids["admin"], "Admin", UserRole.ADMIN)
@@ -91,10 +119,38 @@ async def _workflow() -> None:
             text(
                 "UPDATE public.document_versions "
                 "SET status = 'PUBLISHED'::public.document_status "
-                "WHERE id = :id"
+                "WHERE id IN (:current, :expired, :future)"
             ),
-            {"id": ids["document_1"]},
+            {
+                "current": ids["document_1"],
+                "expired": ids["document_2"],
+                "future": ids["document_3"],
+            },
         )
+        with pytest.raises(HTTPException) as expired:
+            await create_review_request(
+                session,
+                published_result_id=expired_result_id,
+                payload=ReviewRequestCreate(
+                    submission_id=ids["submission_2"],
+                    criterion_id=criterion_id,
+                    reason="Expired",
+                ),
+                user=other_student,
+            )
+        assert expired.value.status_code == 409
+        with pytest.raises(HTTPException) as future:
+            await create_review_request(
+                session,
+                published_result_id=future_result_id,
+                payload=ReviewRequestCreate(
+                    submission_id=ids["submission_3"],
+                    criterion_id=criterion_id,
+                    reason="Future",
+                ),
+                user=future_student,
+            )
+        assert future.value.status_code == 409
         document_before = (
             await connection.execute(
                 text(

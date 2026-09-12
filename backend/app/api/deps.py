@@ -37,7 +37,11 @@ def check_roles(user: User, required: set[UserRole]) -> None:
 
 
 def check_course_ownership(user: User, course: Course) -> None:
-    """Raise 404 unless *user* is Admin or owns *course*."""
+    """Raise 404 unless *user* is Admin or owns *course*.
+
+    Cross-course Teacher access intentionally returns 404 to mask Course existence.
+    This is an established exception to the general authenticated-user 403 rule.
+    """
     if UserRole.ADMIN in user.roles:
         return
     if course.owner_teacher_id != user.id:
