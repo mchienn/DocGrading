@@ -417,7 +417,10 @@ async def retry_job(db: AsyncSession, job: AnalysisJob, user: User) -> AnalysisJ
     await authorize_job(db, job, user, retry=True)
     locked = (
         await db.execute(
-            sa.select(AnalysisJob).where(AnalysisJob.id == job.id).with_for_update()
+            sa.select(AnalysisJob)
+            .where(AnalysisJob.id == job.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
         )
     ).scalar_one()
     if locked.status is not AnalysisJobStatus.ERROR:
