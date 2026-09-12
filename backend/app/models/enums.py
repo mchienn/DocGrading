@@ -79,6 +79,25 @@ class ReviewRequestStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class NotificationType(StrEnum):
+    ANALYSIS_JOB_ERROR = "ANALYSIS_JOB_ERROR"
+    RESULT_PUBLISHED = "RESULT_PUBLISHED"
+    REVIEW_REQUEST_CREATED = "REVIEW_REQUEST_CREATED"
+    REVIEW_REQUEST_RESOLVED = "REVIEW_REQUEST_RESOLVED"
+    REVIEW_REQUEST_REJECTED = "REVIEW_REQUEST_REJECTED"
+
+
+NOTIFICATION_PAYLOAD_KEYS: dict[NotificationType, frozenset[str]] = {
+    NotificationType.ANALYSIS_JOB_ERROR: frozenset({"analysis_job_id"}),
+    NotificationType.RESULT_PUBLISHED: frozenset(
+        {"published_result_version_id", "submission_id"}
+    ),
+    NotificationType.REVIEW_REQUEST_CREATED: frozenset({"review_request_id"}),
+    NotificationType.REVIEW_REQUEST_RESOLVED: frozenset({"review_request_id"}),
+    NotificationType.REVIEW_REQUEST_REJECTED: frozenset({"review_request_id"}),
+}
+
+
 def pg_enum(
     enum_cls: type[StrEnum],
     name: str,

@@ -14,9 +14,15 @@ from app.core.config import get_settings
 from app.models.analysis import AnalysisJob
 from app.models.assignment import Assignment
 from app.models.course import Course
-from app.models.enums import AnalysisJobStatus, DocumentStatus, UserRole
+from app.models.enums import (
+    AnalysisJobStatus,
+    DocumentStatus,
+    NotificationType,
+    UserRole,
+)
 from app.models.identity import User
 from app.models.submission import DocumentVersion, Submission
+from app.services import notification as notification_svc
 from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.audit import record_audit, record_system_audit
 
@@ -49,6 +55,22 @@ async def authorize_job(
     if UserRole.STUDENT in user.roles and student_id == user.id and not retry:
         return
     raise HTTPException(status_code=404, detail="Analysis job not found")
+
+
+async def _notify_error(db: AsyncSession, job: AnalysisJob) -> None:
+    student_id = (
+        await db.execute(
+            sa.select(Submission.student_id)
+            .join(DocumentVersion, DocumentVersion.submission_id == Submission.id)
+            .where(DocumentVersion.id == job.document_version_id)
+        )
+    ).scalar_one()
+    await notification_svc.add_notification(
+        db,
+        recipient_id=student_id,
+        notification_type=NotificationType.ANALYSIS_JOB_ERROR,
+        payload={"analysis_job_id": str(job.id)},
+    )
 
 
 async def create_or_get_job(
@@ -233,6 +255,7 @@ async def _handle_locked_job(
                 reason="Analysis job lease expired and attempts exhausted",
             )
         await db.flush()
+        await _notify_error(db, job)
         return None
     return None
 
@@ -381,6 +404,7 @@ async def mark_error(
         after={"status": job.status.value, "error_code": code},
         reason="PDF ingestion failed",
     )
+    await _notify_error(db, job)
     await db.flush()
     return True
 

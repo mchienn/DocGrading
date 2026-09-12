@@ -45,6 +45,7 @@ from app.models.course import Course
 from app.models.enums import (
     CourseStatus,
     DocumentStatus,
+    NotificationType,
     ReviewDecisionType,
     UserRole,
 )
@@ -59,6 +60,7 @@ from app.models.review import (
     ReviewLock,
 )
 from app.models.submission import DocumentVersion, Submission
+from app.services import notification as notification_svc
 from app.services.audit import record_audit
 
 LOCK_TTL = timedelta(minutes=10)
@@ -1177,6 +1179,15 @@ async def _publish_locked(
         snapshot=version.approved_snapshot,
     )
     db.add(result)
+    await notification_svc.add_notification(
+        db,
+        recipient_id=submission.student_id,
+        notification_type=NotificationType.RESULT_PUBLISHED,
+        payload={
+            "published_result_version_id": str(result.id),
+            "submission_id": str(submission.id),
+        },
+    )
     before = {"status": version.status.value}
     version.status = DocumentStatus.PUBLISHED
     await record_audit(

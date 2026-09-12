@@ -10,6 +10,7 @@ from app.models.enums import (
     DocumentStatus,
     MembershipRole,
     MembershipStatus,
+    NotificationType,
     ReviewDecisionType,
     ReviewRequestStatus,
     RubricStatus,
@@ -17,6 +18,7 @@ from app.models.enums import (
     UserStatus,
 )
 from app.models.identity import User
+from app.models.notification import Notification
 from app.models.review import (
     EvidenceAnchor,
     Finding,
@@ -32,6 +34,8 @@ from app.models.session import Session
 from app.models.submission import DocumentVersion, Submission
 
 __all__ = [
+    "Notification",
+    "NotificationType",
     "AnalysisJob",
     "AnalysisJobDispatch",
     "AnalysisJobStatus",

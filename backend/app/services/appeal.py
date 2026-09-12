@@ -23,6 +23,7 @@ from app.models.enums import (
     AssignmentStatus,
     CourseStatus,
     DocumentStatus,
+    NotificationType,
     ReviewRequestStatus,
     UserRole,
 )
@@ -30,6 +31,7 @@ from app.models.identity import User
 from app.models.review import Finding, PublishedResultVersion, ReviewRequest
 from app.models.rubric import CriterionVersion
 from app.models.submission import DocumentVersion, Submission
+from app.services import notification as notification_svc
 from app.services.audit import record_audit
 
 _WINDOW = timedelta(days=7)
@@ -330,6 +332,12 @@ async def create_review_request(
         reason=payload.reason,
     )
     db.add(request)
+    await notification_svc.add_notification(
+        db,
+        recipient_id=course.owner_teacher_id,
+        notification_type=NotificationType.REVIEW_REQUEST_CREATED,
+        payload={"review_request_id": str(request.id)},
+    )
     await db.flush()
     await record_audit(
         db,
@@ -514,6 +522,16 @@ async def respond_review_request(
     request.responded_at = _now()
     await db.flush()
     await db.refresh(request, attribute_names=["updated_at"])
+    await notification_svc.add_notification(
+        db,
+        recipient_id=request.student_id,
+        notification_type=(
+            NotificationType.REVIEW_REQUEST_RESOLVED
+            if payload.status is ReviewRequestStatus.RESOLVED
+            else NotificationType.REVIEW_REQUEST_REJECTED
+        ),
+        payload={"review_request_id": str(request.id)},
+    )
     await record_audit(
         db,
         actor_user_id=user.id,

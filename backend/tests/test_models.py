@@ -17,6 +17,7 @@ from app.models import (
     EvidenceAnchor,
     Finding,
     Membership,
+    Notification,
     PublishedResultVersion,
     ReviewCommand,
     ReviewDecision,
@@ -53,6 +54,7 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     ReviewDraft: "review_drafts",
     ReviewDecision: "review_decisions",
     ReviewRequest: "review_requests",
+    Notification: "notifications",
     Session: "sessions",
 }
 
@@ -93,6 +95,7 @@ def test_user_roles_and_json_snapshots_use_postgresql_types() -> None:
     assert isinstance(DocumentVersion.__table__.c.approved_snapshot.type, JSONB)
     assert isinstance(PublishedResultVersion.__table__.c.snapshot.type, JSONB)
     assert isinstance(ReviewCommand.__table__.c.response.type, JSONB)
+    assert isinstance(Notification.__table__.c.payload.type, JSONB)
 
 
 def test_ownership_and_version_foreign_keys_are_explicit() -> None:
@@ -126,6 +129,7 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
         "criterion_versions.id",
         "findings.id",
     } <= foreign_key_targets(ReviewRequest)
+    assert "users.id" in foreign_key_targets(Notification)
 
 
 def test_critical_constraints_and_indexes_have_stable_names() -> None:

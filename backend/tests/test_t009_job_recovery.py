@@ -309,10 +309,15 @@ def test_claim_exhausts_stale_running_job_to_error_and_document_processing_faile
 
         flush = AsyncMock()
 
-    with patch.object(
-        job_service, "record_system_audit", side_effect=fake_system_audit
+    db = DB()
+    notify_error = AsyncMock()
+    with (
+        patch.object(job_service, "record_system_audit", side_effect=fake_system_audit),
+        patch.object(job_service, "_notify_error", notify_error),
     ):
-        claimed = asyncio.run(job_service.claim_next_job(DB()))
+        claimed = asyncio.run(job_service.claim_next_job(db))
+
+    notify_error.assert_awaited_once_with(db, job)
 
     # Must NOT process exhausted job
     assert claimed is None
