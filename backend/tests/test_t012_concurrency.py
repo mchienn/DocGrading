@@ -198,6 +198,13 @@ async def _race_scenario(monkeypatch: pytest.MonkeyPatch) -> None:
             )
             await connection.execute(
                 text(
+                    "DELETE FROM public.notifications "
+                    "WHERE recipient_id IN (:student_1, :student_2)"
+                ),
+                ids,
+            )
+            await connection.execute(
+                text(
                     "DELETE FROM public.published_result_versions "
                     "WHERE document_version_id IN (:one, :two)"
                 ),

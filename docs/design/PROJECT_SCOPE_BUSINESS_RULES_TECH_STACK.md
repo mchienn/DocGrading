@@ -65,7 +65,7 @@ Repository hiện có frontend React/Vite nối trực tiếp session auth, Cour
 12. Sinh viên xem điểm tổng, breakdown, feedback ghim, annotation và so sánh với lần nộp liền trước.
 13. Sinh viên gửi một yêu cầu xem lại gắn với tiêu chí của một phiên bản kết quả đã công bố.
 14. Admin quản lý người dùng, rubric/template mặc định, danh sách job, thử lại job, usage cơ bản và audit log.
-15. Thông báo trong ứng dụng cho các sự kiện nộp bài, xử lý lỗi, công bố và phản hồi yêu cầu xem lại.
+15. Thông báo trong ứng dụng khi AnalysisJob chuyển `ERROR`, tạo `PublishedResultVersion`, tạo ReviewRequest và chuyển ReviewRequest sang `RESOLVED` hoặc `REJECTED`; MVP dùng polling, không có push/email/websocket.
 
 Evaluator tự động của MVP chỉ được nghiệm thu cho SRS tiếng Việt. SRS tiếng Anh hoặc tài liệu thuộc ngôn ngữ khác vẫn có thể dùng rubric thủ công nếu PDF hợp lệ; chỉ được bật tự động sau khi có corpus và qua quality gate riêng.
 
@@ -208,7 +208,7 @@ QUEUED → RUNNING → DONE
 | BR-24 | LLM bên ngoài chỉ được dùng khi cấu hình không dùng dữ liệu để huấn luyện, có chính sách lưu giữ phù hợp và text đã loại metadata/định danh có thể loại. Không đáp ứng điều kiện thì toàn bộ LLM evaluator bị tắt, rule và review thủ công vẫn hoạt động. |
 | BR-25 | Tối đa hai job đang hoạt động cho mỗi sinh viên và năm upload/phút/tài khoản. Vượt giới hạn trả lỗi có thời gian thử lại; không tạo job ngầm. |
 | BR-26 | Document/result được giữ 365 ngày sau khi Assignment đóng; technical log 30 ngày; audit event 365 ngày. Xóa dữ liệu là job có audit, còn audit giữ định danh đã pseudonymize. |
-| BR-27 | Notification là best-effort: lỗi gửi thông báo không rollback thao tác publish, retry job hoặc trả lời review request. Trạng thái nguồn vẫn là nguồn sự thật. |
+| BR-27 | Việc tạo Notification trong ứng dụng nằm cùng transaction với sự kiện nguồn; lỗi ghi Notification phải rollback cả hai để không mất thông báo hoặc tạo trạng thái nửa vời. Mọi delivery bên ngoài được bổ sung sau này là best-effort sau commit và không rollback trạng thái nguồn. |
 | BR-28 | Assignment cấu hình số lần nộp từ 1 đến 5, mặc định 3. Chỉ nhận bài khi Assignment ở trạng thái `OPEN`, chưa quá hạn và còn lượt; MVP không có late submission hoặc gia hạn riêng từng sinh viên. Giảng viên có thể đổi hạn chung trước khi đóng Assignment. |
 | BR-29 | Rubric và trọng số được hiển thị cho sinh viên từ khi Assignment mở. Cấu hình evaluator, prompt, rule và ghi chú nội bộ không được hiển thị. |
 | BR-30 | Review request chỉ được mở trong 7 ngày lịch từ thời điểm publish kết quả và trước khi Assignment bị archive. Hết hạn, sinh viên vẫn xem kết quả nhưng không tạo request mới. |
@@ -363,7 +363,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 | Approve/publish | `POST /document-versions/{version_id}/approve`, `POST /document-versions/{version_id}/publish`, `POST /published-results/{published_result_id}/unpublish` | Approve và publish là hai command riêng. Publish/unpublish atomic, idempotent, có reason/audit và không lộ kết quả một phần. |
 | Student result | `GET /submissions/{submission_id}/published-result`, `POST /published-results/{published_result_id}/review-requests` | Chỉ trả published snapshot và field được phép công khai; tạo review request theo BR-23/BR-30. |
 | Review request | `GET /courses/{course_id}/review-requests`, `GET/PATCH /review-requests/{review_request_id}` | Teacher phụ trách Course hoặc Admin lọc, xem và phản hồi request; `status` hỗ trợ `OPEN`, `RESOLVED`, `REJECTED`; danh sách trả `{items, page, page_size, total}`. Student chỉ xem request của chính mình. Mỗi request giữ exact PublishedResultVersion; thay đổi điểm phải tạo PublishedResultVersion mới. |
-| Operations | `GET/PATCH /users/{user_id}`, `GET /operations/audit-events` | Admin quản lý account và xem audit có filter/pagination; không trả secret hoặc nội dung tài liệu. |
+| Operations | `GET/PATCH /users/{user_id}`, `GET /operations/audit-events`, `GET /notifications`, `PATCH /notifications/{notification_id}/read`, `PATCH /notifications/read` | Admin quản lý account và xem audit có filter/pagination; mỗi actor chỉ list/mark-read Notification của chính mình. Danh sách có pagination và filter `unread`; single/bulk mark-read idempotent. Notification chỉ chứa type, reference-ID payload, `read_at`, `created_at`; không trả secret hoặc nội dung tài liệu. |
 
 #### 9.4.3. Hợp đồng trạng thái bất đồng bộ
 
@@ -372,6 +372,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 3. Frontend poll `GET /analysis-jobs/{job_id}` theo backoff từ 2 đến tối đa 10 giây và dừng ở `DONE` hoặc `ERROR`; trạng thái tài liệu vẫn theo state machine tại mục 5.4.
 4. API chỉ trả progress khi worker có số bước đo được; nếu không thì không giả lập phần trăm. `ERROR` dùng mã lỗi ổn định; chi tiết provider, URL ký và nội dung PDF không được trả cho người dùng.
 5. Browser refresh phải khôi phục trạng thái từ API bằng `status_url`; timer và state trong prototype không phải nguồn sự thật.
+6. Notification dùng polling `GET /notifications`; không có push, email hoặc websocket cho tới khi có hạ tầng delivery riêng.
 
 #### 9.4.4. Điều kiện hoàn tất contract
 

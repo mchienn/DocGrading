@@ -79,6 +79,14 @@ class ReviewRequestStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class NotificationType(StrEnum):
+    ANALYSIS_JOB_ERROR = "ANALYSIS_JOB_ERROR"
+    RESULT_PUBLISHED = "RESULT_PUBLISHED"
+    REVIEW_REQUEST_CREATED = "REVIEW_REQUEST_CREATED"
+    REVIEW_REQUEST_RESOLVED = "REVIEW_REQUEST_RESOLVED"
+    REVIEW_REQUEST_REJECTED = "REVIEW_REQUEST_REJECTED"
+
+
 def pg_enum(
     enum_cls: type[StrEnum],
     name: str,
