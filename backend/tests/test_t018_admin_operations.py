@@ -318,8 +318,8 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
         connection = await engine.connect()
         transaction = await connection.begin()
         session = AsyncSession(bind=connection, expire_on_commit=False)
-        baseline_dashboard = await operations_svc.get_dashboard(session)
         try:
+            baseline_dashboard = await operations_svc.get_dashboard(session)
             await _seed_graph(connection, ids)
             await _seed_second_course(connection, ids, extra)
             published_id = await _publish_seed(
@@ -406,6 +406,41 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
                 actor_user_id=admin.id,
             )
             assert concurrent_replay.revision == 2
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM public.audit_events "
+                        "WHERE resource_type = 'User' AND resource_id = :id"
+                    ),
+                    {"id": admin.id},
+                )
+                == 0
+            )
+            for self_change in (
+                AdminUserUpdateRequest(
+                    roles=[UserRole.TEACHER, UserRole.STUDENT],
+                    reason="Self demotion",
+                ),
+                AdminUserUpdateRequest(
+                    status=UserStatus.LOCKED,
+                    reason="Self lock",
+                ),
+            ):
+                with pytest.raises(HTTPException) as protected:
+                    await operations_svc.update_user(
+                        session,
+                        user_id=admin.id,
+                        body=self_change,
+                        actor_user_id=admin.id,
+                    )
+                assert protected.value.status_code == 409
+            assert cached_admin.roles == [
+                UserRole.ADMIN,
+                UserRole.TEACHER,
+                UserRole.STUDENT,
+            ]
+            assert cached_admin.status is UserStatus.ACTIVE
+            assert cached_admin.revision == 2
             assert (
                 await connection.scalar(
                     text(
@@ -779,6 +814,73 @@ def test_retry_refreshes_locked_state_after_concurrent_change() -> None:
                     await job_svc.retry_job(session, stale_job, admin)
                 assert conflict.value.status_code == 409
                 await session.rollback()
+        finally:
+            async with engine.begin() as connection:
+                await _cleanup_graph(connection, ids)
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+@requires_database
+def test_concurrent_admin_updates_preserve_one_active_administrator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        ids = _ids()
+        engine = create_async_engine(get_settings().database_url, poolclass=NullPool)
+        audit = AsyncMock()
+        monkeypatch.setattr(operations_svc, "record_audit", audit)
+        try:
+            async with engine.begin() as connection:
+                await _seed_graph(connection, ids)
+                await connection.execute(
+                    text(
+                        "UPDATE public.users "
+                        "SET roles = ARRAY['ADMIN', 'TEACHER']::public.user_role[] "
+                        "WHERE id = :id"
+                    ),
+                    {"id": ids["teacher"]},
+                )
+
+            async def remove_admin(
+                target_user_id: uuid.UUID, actor_user_id: uuid.UUID
+            ) -> int:
+                async with AsyncSession(engine, expire_on_commit=False) as session:
+                    try:
+                        await operations_svc.update_user(
+                            session,
+                            user_id=target_user_id,
+                            body=AdminUserUpdateRequest(
+                                roles=[UserRole.TEACHER],
+                                reason="Concurrent administrator rotation",
+                            ),
+                            actor_user_id=actor_user_id,
+                        )
+                        await session.commit()
+                        return 200
+                    except HTTPException as error:
+                        await session.rollback()
+                        return error.status_code
+
+            outcomes = await asyncio.gather(
+                remove_admin(ids["admin"], ids["teacher"]),
+                remove_admin(ids["teacher"], ids["admin"]),
+            )
+            assert sorted(outcomes) == [200, 409]
+
+            async with engine.connect() as connection:
+                assert (
+                    await connection.scalar(
+                        text(
+                            "SELECT count(*) FROM public.users "
+                            "WHERE status = 'ACTIVE'::public.user_status "
+                            "AND roles @> ARRAY['ADMIN']::public.user_role[]"
+                        )
+                    )
+                    == 1
+                )
+            audit.assert_awaited_once()
         finally:
             async with engine.begin() as connection:
                 await _cleanup_graph(connection, ids)

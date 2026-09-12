@@ -72,6 +72,7 @@ _SENSITIVE_ASSIGNMENT = re.compile(
 _STORAGE_PATH = re.compile(r"(?i)\buploads/[^\s'\",;}]+")
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _KEY_SEPARATOR = re.compile(r"[-\s]+")
+_USER_ADMIN_MUTATION_LOCK_ID = 0x544F_3138
 _AUDIT_SAFE_FIELDS: dict[str, frozenset[str]] = {
     "AnalysisJob": frozenset({"status", "attempt_count", "error_code"}),
     "Assignment": frozenset(
@@ -287,6 +288,10 @@ async def update_user(
     body: AdminUserUpdateRequest,
     actor_user_id: uuid.UUID,
 ) -> AdminUserResponse:
+    # ponytail: one advisory lock serializes rare Admin account writes; shard if needed.
+    await db.execute(
+        sa.select(sa.func.pg_advisory_xact_lock(_USER_ADMIN_MUTATION_LOCK_ID))
+    )
     user = (
         await db.execute(
             sa.select(User)
@@ -298,18 +303,51 @@ async def update_user(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
+    requested_roles = set(body.roles) if body.roles is not None else set(user.roles)
+    canonical_roles = [role for role in UserRole if role in requested_roles]
+    requested_status = body.status if body.status is not None else user.status
+
+    if user.id == actor_user_id and (
+        (body.roles is not None and UserRole.ADMIN not in requested_roles)
+        or body.status is UserStatus.LOCKED
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Administrators cannot remove their own ADMIN role "
+                "or lock their own account"
+            ),
+        )
+
+    was_active_admin = UserRole.ADMIN in user.roles and user.status is UserStatus.ACTIVE
+    will_be_active_admin = (
+        UserRole.ADMIN in requested_roles and requested_status is UserStatus.ACTIVE
+    )
+    if was_active_admin and not will_be_active_admin:
+        has_other_active_admin = await db.scalar(
+            sa.select(
+                sa.exists().where(
+                    User.id != user.id,
+                    User.status == UserStatus.ACTIVE,
+                    User.roles.any(UserRole.ADMIN),
+                )
+            )
+        )
+        if not has_other_active_admin:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="At least one active administrator must remain",
+            )
+
     role_change: tuple[list[UserRole], list[UserRole]] | None = None
-    if body.roles is not None:
-        requested = set(body.roles)
-        canonical_roles = [role for role in UserRole if role in requested]
-        if set(user.roles) != requested:
-            role_change = (list(user.roles), canonical_roles)
-            user.roles = canonical_roles
+    if set(user.roles) != requested_roles:
+        role_change = (list(user.roles), canonical_roles)
+        user.roles = canonical_roles
 
     status_change: tuple[UserStatus, UserStatus] | None = None
-    if body.status is not None and user.status is not body.status:
-        status_change = (user.status, body.status)
-        user.status = body.status
+    if user.status is not requested_status:
+        status_change = (user.status, requested_status)
+        user.status = requested_status
 
     if role_change is None and status_change is None:
         return AdminUserResponse.model_validate(user)

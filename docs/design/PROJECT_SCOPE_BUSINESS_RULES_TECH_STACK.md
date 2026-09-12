@@ -183,7 +183,7 @@ QUEUED → RUNNING → DONE
 | ID | Luật đã chốt |
 |---|---|
 | BR-01 | Admin quản lý toàn hệ thống; Giảng viên chỉ quản lý Course, Assignment, rubric và bài thuộc phạm vi được giao; Sinh viên chỉ thao tác với Assignment được giao và bài của chính mình. Mọi API phải kiểm tra quyền theo object, không chỉ ẩn nút trên UI. |
-| BR-02 | Không có đăng ký công khai. Admin tạo, khóa hoặc mở khóa tài khoản. Mật khẩu tối thiểu 12 ký tự và được băm bằng Argon2id. |
+| BR-02 | Không có đăng ký công khai. Admin tạo, khóa hoặc mở khóa tài khoản. Admin không được tự bỏ role `ADMIN` hoặc tự khóa tài khoản; cập nhật đồng thời phải luôn giữ ít nhất một Admin đang `ACTIVE`. Mật khẩu tối thiểu 12 ký tự và được băm bằng Argon2id. |
 | BR-03 | Rubric hệ thống không được sửa trực tiếp. Giảng viên phải nhân bản. Khi Assignment nhận bài đầu tiên, rubric và liên kết RubricVersion của Assignment bị đóng băng. Phiên bản rubric mới chỉ dùng cho Assignment khác; không để sinh viên trong cùng một Assignment bị chấm bằng hai rubric khác nhau. |
 | BR-04 | Tổng trọng số tiêu chí đang bật phải bằng 100%. Mỗi tiêu chí phải có đủ mức 0–4, mô tả, trọng số và phương pháp đánh giá trước khi mở Assignment. |
 | BR-05 | Mỗi job lưu snapshot của Course, Assignment, RubricVersion, CriterionVersion, rule version, model/provider và cấu hình xử lý. Chạy lại cùng snapshot phải có thể truy nguyên kết quả. |
