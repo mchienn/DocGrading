@@ -5,10 +5,11 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.enums import ReviewDecisionType
+from app.models.enums import ReviewDecisionType, ReviewRequestStatus
 
 
 class PresignRequest(BaseModel):
@@ -329,3 +330,61 @@ class VersionComparisonResponse(BaseModel):
     submission_id: uuid.UUID
     left: VersionComparisonSideResponse
     right: VersionComparisonSideResponse
+
+
+class ReviewRequestCreate(BaseModel):
+    submission_id: uuid.UUID
+    criterion_id: uuid.UUID | None = None
+    finding_id: uuid.UUID | None = None
+    reason: str = Field(min_length=1, max_length=4_000)
+
+    model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def validate_target_and_reason(self) -> ReviewRequestCreate:
+        if (self.criterion_id is None) == (self.finding_id is None):
+            raise ValueError("Exactly one of criterion_id or finding_id is required")
+        if not self.reason.strip():
+            raise ValueError("Reason must not be blank")
+        return self
+
+
+class ReviewRequestResponse(BaseModel):
+    id: uuid.UUID
+    published_result_id: uuid.UUID
+    submission_id: uuid.UUID
+    student_id: uuid.UUID
+    criterion_id: uuid.UUID | None = None
+    finding_id: uuid.UUID | None = None
+    status: ReviewRequestStatus
+    reason: str
+    response: str | None = None
+    responded_by_user_id: uuid.UUID | None = None
+    responded_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"extra": "forbid", "from_attributes": True}
+
+
+class ReviewRequestListResponse(BaseModel):
+    items: list[ReviewRequestResponse]
+    page: int
+    page_size: int
+    total: int
+
+    model_config = {"extra": "forbid"}
+
+
+class ReviewRequestUpdate(BaseModel):
+    status: Literal[ReviewRequestStatus.RESOLVED, ReviewRequestStatus.REJECTED]
+    response: str = Field(min_length=1, max_length=4_000)
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("response")
+    @classmethod
+    def validate_response(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Response must not be blank")
+        return value

@@ -22,6 +22,7 @@ from app.models import (
     ReviewDecision,
     ReviewDraft,
     ReviewLock,
+    ReviewRequest,
     RubricVersion,
     Session,
     Submission,
@@ -51,6 +52,7 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     ReviewLock: "review_locks",
     ReviewDraft: "review_drafts",
     ReviewDecision: "review_decisions",
+    ReviewRequest: "review_requests",
     Session: "sessions",
 }
 
@@ -117,6 +119,13 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
         if isinstance(constraint, ForeignKeyConstraint)
     )
     assert document_ir_fk.ondelete == "CASCADE"
+    assert {
+        "published_result_versions.id",
+        "submissions.id",
+        "users.id",
+        "criterion_versions.id",
+        "findings.id",
+    } <= foreign_key_targets(ReviewRequest)
 
 
 def test_critical_constraints_and_indexes_have_stable_names() -> None:

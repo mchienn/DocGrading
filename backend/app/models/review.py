@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import ReviewDecisionType, pg_enum
+from app.models.enums import ReviewDecisionType, ReviewRequestStatus, pg_enum
 from app.models.mixins import RevisionMixin, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
@@ -340,6 +340,108 @@ class PublishedResultVersion(UUIDPrimaryKeyMixin, Base):
     approved_by: Mapped[User] = relationship("User", foreign_keys=[approved_by_user_id])
     published_by: Mapped[User] = relationship(
         "User", foreign_keys=[published_by_user_id]
+    )
+
+
+class ReviewRequest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "review_requests"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "(status = 'OPEN' AND response IS NULL "
+            "AND responded_by_user_id IS NULL AND responded_at IS NULL) "
+            "OR (status IN ('RESOLVED', 'REJECTED') "
+            "AND response IS NOT NULL AND responded_by_user_id IS NOT NULL "
+            "AND responded_at IS NOT NULL)",
+            name="ck_review_requests_state",
+        ),
+        _not_blank("reason", "ck_review_requests_reason_not_blank"),
+        _not_blank_optional("response", "ck_review_requests_response_not_blank"),
+        sa.ForeignKeyConstraint(
+            ["published_result_id"],
+            ["published_result_versions.id"],
+            name="fk_review_requests_published_result",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["submission_id"],
+            ["submissions.id"],
+            name="fk_review_requests_submission_id_submissions",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["student_id"],
+            ["users.id"],
+            name="fk_review_requests_student_id_users",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["criterion_version_id"],
+            ["criterion_versions.id"],
+            name="fk_review_requests_criterion_version_id_criterion_versions",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["finding_id"],
+            ["findings.id"],
+            name="fk_review_requests_finding_id_findings",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["responded_by_user_id"],
+            ["users.id"],
+            name="fk_review_requests_responded_by_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        sa.Index("ix_review_requests_published_result", "published_result_id"),
+        sa.Index("ix_review_requests_student", "student_id"),
+        sa.Index(
+            "uq_review_requests_open_target",
+            "published_result_id",
+            "student_id",
+            "criterion_version_id",
+            unique=True,
+            postgresql_where=sa.text("status = 'OPEN'"),
+        ),
+    )
+    published_result_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    submission_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    criterion_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    finding_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    status: Mapped[ReviewRequestStatus] = mapped_column(
+        pg_enum(ReviewRequestStatus, name="review_request_status"),
+        default=ReviewRequestStatus.OPEN,
+        server_default=sa.text("'OPEN'"),
+        nullable=False,
+    )
+    reason: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    response: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    responded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    responded_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+
+    published_result: Mapped[PublishedResultVersion] = relationship(
+        "PublishedResultVersion", foreign_keys=[published_result_id]
+    )
+    submission: Mapped[Submission] = relationship(
+        "Submission", foreign_keys=[submission_id]
+    )
+    student: Mapped[User] = relationship("User", foreign_keys=[student_id])
+    criterion_version: Mapped[CriterionVersion] = relationship(
+        "CriterionVersion", foreign_keys=[criterion_version_id]
+    )
+    finding: Mapped[Finding | None] = relationship("Finding", foreign_keys=[finding_id])
+    responded_by: Mapped[User | None] = relationship(
+        "User", foreign_keys=[responded_by_user_id]
     )
 
 

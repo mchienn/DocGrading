@@ -73,6 +73,12 @@ class ReviewDecisionType(StrEnum):
     REJECT = "REJECT"
 
 
+class ReviewRequestStatus(StrEnum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+    REJECTED = "REJECTED"
+
+
 def pg_enum(
     enum_cls: type[StrEnum],
     name: str,

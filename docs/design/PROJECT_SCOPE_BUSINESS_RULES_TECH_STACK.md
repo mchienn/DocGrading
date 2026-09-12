@@ -214,7 +214,7 @@ QUEUED → RUNNING → DONE
 | BR-30 | Review request chỉ được mở trong 7 ngày lịch từ thời điểm publish kết quả và trước khi Assignment bị archive. Hết hạn, sinh viên vẫn xem kết quả nhưng không tạo request mới. |
 | BR-31 | Dry-run rubric dùng PDF mẫu riêng, không tạo Submission hoặc PublishedResult, vẫn ghi usage và evaluator snapshot. Mỗi rubric chỉ có một dry-run đang hoạt động; kết quả dry-run tự hết hạn sau 30 ngày. |
 | BR-32 | Model/provider là cấu hình vận hành có version, không hard-code vào domain. Chỉ một cấu hình đã qua benchmark và chính sách dữ liệu mới được đặt `ACTIVE`; thay model không làm thay đổi kết quả đã lưu. |
-| BR-33 | Chỉ Teacher phụ trách hoặc Admin được unpublish. Thao tác phải có lý do, giữ nguyên PublishedResultVersion và audit, ẩn kết quả khỏi Student ngay lập tức, thông báo cho Student và đóng review request đang mở với trạng thái `RESULT_WITHDRAWN`. |
+| BR-33 | Chỉ Teacher phụ trách hoặc Admin được unpublish. Thao tác phải có lý do, giữ nguyên PublishedResultVersion và audit, ẩn kết quả khỏi Student ngay lập tức và thông báo cho Student. Unpublish chặn review request mới nhưng không sửa request đã tồn tại; request đang mở chỉ kết thúc bằng `RESOLVED` hoặc `REJECTED`. |
 
 ## 7. Quality gate cho evaluator tự động
 
@@ -362,7 +362,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 | Review | `GET /courses/{course_id}/submission-queue`, `POST /submissions/{submission_id}/review-lock`, `PUT /submissions/{submission_id}/review-lock/heartbeat`, `DELETE /submissions/{submission_id}/review-lock`, `GET/PUT /submissions/{submission_id}/review-draft` | Queue lọc `UNREVIEWED`/`REVIEWED`/`ERROR`, sort theo submission time và dùng `{items, page, page_size, total}`. Draft gắn DocumentVersion mới nhất; full-replacement gửi `revision` và `document_version_id`, hỗ trợ `ACCEPT`/`EDIT`/`REJECT` và comment. Lock/heartbeat theo BR-18; Admin force-release được audit. Score override yêu cầu reason và audit before/after. |
 | Approve/publish | `POST /document-versions/{version_id}/approve`, `POST /document-versions/{version_id}/publish`, `POST /published-results/{published_result_id}/unpublish` | Approve và publish là hai command riêng. Publish/unpublish atomic, idempotent, có reason/audit và không lộ kết quả một phần. |
 | Student result | `GET /submissions/{submission_id}/published-result`, `POST /published-results/{published_result_id}/review-requests` | Chỉ trả published snapshot và field được phép công khai; tạo review request theo BR-23/BR-30. |
-| Review request | `GET /assignments/{assignment_id}/review-requests`, `GET/PATCH /review-requests/{review_request_id}` | Teacher xem, phản hồi và đóng request; thay đổi điểm phải tạo PublishedResultVersion mới. |
+| Review request | `GET /courses/{course_id}/review-requests`, `GET/PATCH /review-requests/{review_request_id}` | Teacher phụ trách Course hoặc Admin lọc, xem và phản hồi request; Student chỉ xem request của chính mình; thay đổi điểm phải tạo PublishedResultVersion mới. |
 | Operations | `GET/PATCH /users/{user_id}`, `GET /operations/audit-events` | Admin quản lý account và xem audit có filter/pagination; không trả secret hoặc nội dung tài liệu. |
 
 #### 9.4.3. Hợp đồng trạng thái bất đồng bộ

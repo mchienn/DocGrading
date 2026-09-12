@@ -11,6 +11,7 @@ from app.models.enums import (
     MembershipRole,
     MembershipStatus,
     ReviewDecisionType,
+    ReviewRequestStatus,
     RubricStatus,
     UserRole,
     UserStatus,
@@ -24,6 +25,7 @@ from app.models.review import (
     ReviewDecision,
     ReviewDraft,
     ReviewLock,
+    ReviewRequest,
 )
 from app.models.rubric import CriterionVersion, RubricVersion, TemplateVersion
 from app.models.session import Session
@@ -55,6 +57,8 @@ __all__ = [
     "ReviewDecisionType",
     "ReviewDraft",
     "ReviewLock",
+    "ReviewRequest",
+    "ReviewRequestStatus",
     "RubricStatus",
     "RubricVersion",
     "Session",
