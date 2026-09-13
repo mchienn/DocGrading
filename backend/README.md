@@ -22,7 +22,7 @@ PowerShell:
 Copy-Item .env.example .env
 ```
 
-Đổi `POSTGRES_PASSWORD` trong `.env`. Không commit `.env`.
+Đổi `POSTGRES_PASSWORD` và đặt `LOAD_SMOKE_PASSWORD` không rỗng trong `.env`. Không commit `.env`.
 
 ## Chạy toàn bộ stack
 

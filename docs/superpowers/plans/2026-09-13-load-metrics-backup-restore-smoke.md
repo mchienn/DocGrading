@@ -11,10 +11,11 @@
 - Backup uses PostgreSQL 17 `pg_dump --format=custom` with owner and ACL restoration disabled. Before/after source row counts must match or backup is rejected. `umask 077` protects generated files where host filesystem permissions support POSIX modes.
 - Restore uses a dedicated internal Compose network and a PostgreSQL tmpfs service. It force-drops and recreates only `docgrading_restore`, restores in one transaction, compares every tracked table count, checks critical-flow relationships, and executes `TRUNCATE public.audit_events` expecting SQLSTATE-trigger failure.
 - Load, backup, and restore scripts refuse non-development `APP_ENV`. Generated `artifacts/` and `backups/` paths are Git ignored. No connection string or password is logged.
+- Load requires a non-empty `LOAD_SMOKE_PASSWORD`; that single value seeds and authenticates ephemeral smoke users. No fallback is committed.
 
 ## Reproduction
 
-From repository root with `.env` copied from `.env.example`:
+From repository root with `.env` copied from `.env.example` and non-empty `LOAD_SMOKE_PASSWORD` set:
 
 ```bash
 docker compose up --build

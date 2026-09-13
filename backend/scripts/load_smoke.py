@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import math
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -24,8 +25,6 @@ from app.models.course import Membership
 from app.models.enums import MembershipRole, MembershipStatus, UserRole, UserStatus
 from app.models.identity import User
 from app.services.auth import auth_cookie_names, hash_password
-
-PASSWORD = "T022-Development-Only-Password!"
 
 
 @dataclass
@@ -128,25 +127,27 @@ async def _request(
     return response
 
 
-async def _login(client: AsyncClient, email: str) -> None:
+async def _login(client: AsyncClient, email: str, password: str) -> None:
     await _request(
         client,
         "POST",
         "/api/v1/auth/login",
         200,
-        json={"email": email, "password": PASSWORD},
+        json={"email": email, "password": password},
     )
     _, csrf_cookie = auth_cookie_names(False)
     client.headers["X-CSRF-Token"] = client.cookies[csrf_cookie]
 
 
-async def _seed_users(run_id: str, users: int) -> tuple[str, str, list[str]]:
+async def _seed_users(
+    run_id: str, users: int, password: str
+) -> tuple[str, str, list[str]]:
     teacher_email = f"t022-teacher-{run_id}@example.test"
     admin_email = f"t022-admin-{run_id}@example.test"
     student_emails = [
         f"t022-student-{index}-{run_id}@example.test" for index in range(users)
     ]
-    password_hash = await asyncio.to_thread(hash_password, PASSWORD)
+    password_hash = await asyncio.to_thread(hash_password, password)
     async with _session_factory()() as database:
         database.add_all(
             [
@@ -470,9 +471,15 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
     if get_settings().app_env != "development":
         raise RuntimeError("load smoke is restricted to APP_ENV=development")
 
+    password = os.environ.get("LOAD_SMOKE_PASSWORD")
+    if not password:
+        raise RuntimeError("LOAD_SMOKE_PASSWORD is required")
+
     run_id = uuid.uuid4().hex[:12]
     recorder = Recorder()
-    teacher_email, admin_email, student_emails = await _seed_users(run_id, args.users)
+    teacher_email, admin_email, student_emails = await _seed_users(
+        run_id, args.users, password
+    )
     limits = Limits(max_connections=max(20, args.users * 4))
     clients = [
         AsyncClient(base_url=args.base_url, timeout=30, limits=limits)
@@ -480,11 +487,11 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
     ]
     teacher, admin, *students = clients
     try:
-        await _login(teacher, teacher_email)
-        await _login(admin, admin_email)
+        await _login(teacher, teacher_email, password)
+        await _login(admin, admin_email, password)
         await asyncio.gather(
             *[
-                _login(student, email)
+                _login(student, email, password)
                 for student, email in zip(students, student_emails, strict=True)
             ]
         )
