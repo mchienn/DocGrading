@@ -30,6 +30,7 @@ from app.db.session import get_db_session
 from app.main import create_app
 from app.models.enums import UserRole, UserStatus
 from app.models.identity import User
+from app.services import auth as auth_service
 from app.services.auth import (
     auth_cookie_names,
     authenticate_user,
@@ -54,54 +55,190 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-async def _run_brute_force_lockout() -> None:
+async def _run_brute_force_lockout(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    user_ids = [uuid.uuid4() for _ in range(4)]
+    email = f"t019-lockout-{user_ids[0]}@test.local"
+    locked_email = f"t019-admin-locked-{user_ids[1]}@test.local"
+    temporary_email = f"t019-temporary-lock-{user_ids[2]}@test.local"
+    wrong_email = f"t019-wrong-password-{user_ids[3]}@test.local"
+    password = "TestPassword!123"
+    original_verify_password = auth_service.verify_password
+    verify_calls = 0
+
+    def counted_verify_password(candidate: str, password_hash: str) -> bool:
+        nonlocal verify_calls
+        verify_calls += 1
+        return original_verify_password(candidate, password_hash)
+
+    async def assert_one_rejection(
+        database: AsyncSession, candidate_email: str, candidate_password: str
+    ) -> None:
+        before = verify_calls
+        with pytest.raises(HTTPException) as rejected:
+            await auth_router.login(
+                LoginRequest(email=candidate_email, password=candidate_password),
+                database,
+            )
+        assert rejected.value.status_code == 401
+        assert rejected.value.detail == "Invalid email or password"
+        assert verify_calls == before + 1
+
+    monkeypatch.setattr(auth_service, "verify_password", counted_verify_password)
+    try:
+        async with sessions() as db:
+            users = [
+                User(
+                    id=user_ids[0],
+                    email=email,
+                    display_name="T019 Lockout",
+                    password_hash=hash_password(password),
+                    roles=[UserRole.TEACHER],
+                    status=UserStatus.ACTIVE,
+                ),
+                User(
+                    id=user_ids[1],
+                    email=locked_email,
+                    display_name="T019 Admin Locked",
+                    password_hash=hash_password(password),
+                    roles=[UserRole.TEACHER],
+                    status=UserStatus.LOCKED,
+                ),
+                User(
+                    id=user_ids[2],
+                    email=temporary_email,
+                    display_name="T019 Temporary Lock",
+                    password_hash=hash_password(password),
+                    roles=[UserRole.TEACHER],
+                    status=UserStatus.ACTIVE,
+                    login_locked_until=datetime(2100, 1, 1, tzinfo=UTC),
+                ),
+                User(
+                    id=user_ids[3],
+                    email=wrong_email,
+                    display_name="T019 Wrong Password",
+                    password_hash=hash_password(password),
+                    roles=[UserRole.TEACHER],
+                    status=UserStatus.ACTIVE,
+                ),
+            ]
+            db.add_all(users)
+            await db.commit()
+
+            await assert_one_rejection(
+                db, f"t019-unknown-{uuid.uuid4()}@test.local", password
+            )
+            await assert_one_rejection(db, locked_email, password)
+            await assert_one_rejection(db, temporary_email, password)
+            await assert_one_rejection(db, wrong_email, "wrong-password")
+
+            for _ in range(settings.login_max_failed_attempts):
+                await assert_one_rejection(db, email, "wrong-password")
+
+            user = users[0]
+            await db.refresh(user)
+            assert user.failed_login_attempts == settings.login_max_failed_attempts
+            assert user.login_locked_until is not None
+
+            await assert_one_rejection(db, email, password)
+
+            user.login_locked_until = datetime(2000, 1, 1, tzinfo=UTC)
+            await db.commit()
+            authenticated = await authenticate_user(db, email, password)
+            assert authenticated is not None and authenticated.id == user_ids[0]
+            await db.commit()
+            await db.refresh(user)
+            assert user.failed_login_attempts == 0
+            assert user.failed_login_window_started_at is None
+            assert user.login_locked_until is None
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(delete(User).where(User.id.in_(user_ids)))
+        await engine.dispose()
+
+
+async def _run_expired_failure_window() -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     user_id = uuid.uuid4()
-    email = f"t019-lockout-{user_id}@test.local"
-    password = "TestPassword!123"
-
+    email = f"t019-expired-window-{user_id}@test.local"
+    expired_start = datetime(2000, 1, 1, tzinfo=UTC)
     try:
         async with sessions() as db:
             user = User(
                 id=user_id,
                 email=email,
-                display_name="T019 Lockout",
-                password_hash=hash_password(password),
+                display_name="T019 Expired Window",
+                password_hash=hash_password("TestPassword!123"),
                 roles=[UserRole.TEACHER],
                 status=UserStatus.ACTIVE,
+                failed_login_attempts=settings.login_max_failed_attempts - 1,
+                failed_login_window_started_at=expired_start,
             )
             db.add(user)
             await db.commit()
 
-            for _ in range(settings.login_max_failed_attempts):
+            with pytest.raises(HTTPException) as rejected:
+                await auth_router.login(
+                    LoginRequest(email=email, password="wrong-password"), db
+                )
+            assert rejected.value.status_code == 401
+            await db.refresh(user)
+            assert user.failed_login_attempts == 1
+            assert user.failed_login_window_started_at is not None
+            assert user.failed_login_window_started_at > expired_start + timedelta(
+                seconds=settings.login_failure_window_seconds
+            )
+            assert user.login_locked_until is None
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(delete(User).where(User.id == user_id))
+        await engine.dispose()
+
+
+async def _run_concurrent_lockout_threshold() -> None:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    user_id = uuid.uuid4()
+    email = f"t019-concurrent-lockout-{user_id}@test.local"
+    initial_attempts = max(0, settings.login_max_failed_attempts - 2)
+    try:
+        async with sessions() as db:
+            user = User(
+                id=user_id,
+                email=email,
+                display_name="T019 Concurrent Lockout",
+                password_hash=hash_password("TestPassword!123"),
+                roles=[UserRole.TEACHER],
+                status=UserStatus.ACTIVE,
+                failed_login_attempts=initial_attempts,
+                failed_login_window_started_at=datetime.now(UTC),
+            )
+            db.add(user)
+            await db.commit()
+
+        barrier = asyncio.Barrier(2)
+
+        async def reject_wrong_password() -> None:
+            async with sessions() as db:
+                await barrier.wait()
                 with pytest.raises(HTTPException) as rejected:
                     await auth_router.login(
                         LoginRequest(email=email, password="wrong-password"), db
                     )
                 assert rejected.value.status_code == 401
 
-            await db.refresh(user)
+        await asyncio.gather(reject_wrong_password(), reject_wrong_password())
+
+        async with sessions() as db:
+            user = await db.get(User, user_id)
+            assert user is not None
             assert user.failed_login_attempts == settings.login_max_failed_attempts
             assert user.login_locked_until is not None
-            assert user.login_locked_until > datetime.now(UTC)
-
-            with pytest.raises(HTTPException) as locked:
-                await auth_router.login(
-                    LoginRequest(email=email, password=password), db
-                )
-            assert locked.value.status_code == 401
-
-            user.login_locked_until = datetime.now(UTC) - timedelta(seconds=1)
-            await db.commit()
-            authenticated = await authenticate_user(db, email, password)
-            assert authenticated is not None and authenticated.id == user_id
-            await db.commit()
-            await db.refresh(user)
-            assert user.failed_login_attempts == 0
-            assert user.failed_login_window_started_at is None
-            assert user.login_locked_until is None
     finally:
         async with engine.begin() as connection:
             await connection.execute(delete(User).where(User.id == user_id))
@@ -696,5 +833,15 @@ def test_head_migrations_preserve_both_truncate_guards() -> None:
     asyncio.run(_run_head_truncate_guards())
 
 
-def test_repeated_login_failures_lock_then_expire_on_postgresql() -> None:
-    asyncio.run(_run_brute_force_lockout())
+def test_repeated_login_failures_lock_then_expire_on_postgresql(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncio.run(_run_brute_force_lockout(monkeypatch))
+
+
+def test_expired_failure_window_starts_a_fresh_counter() -> None:
+    asyncio.run(_run_expired_failure_window())
+
+
+def test_concurrent_failures_reach_lockout_threshold() -> None:
+    asyncio.run(_run_concurrent_lockout_threshold())

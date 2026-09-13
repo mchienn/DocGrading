@@ -61,11 +61,11 @@ async def authenticate_user(
 ) -> User | None:
     """Validate credentials and enforce a persistent fixed-window lockout."""
     settings = get_settings()
-    now = datetime.now(UTC)
     normalized_email = email.strip().lower()
     await db.execute(
         select(func.pg_advisory_xact_lock(_email_lock_id(normalized_email)))
     )
+    now = datetime.now(UTC)
     user = (
         await db.execute(
             select(User)
