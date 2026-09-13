@@ -735,6 +735,41 @@ class TestStudentRubricVisibility:
         assert exc_info.value.status_code == 403
 
 
+class TestRubricCreateAudit:
+    def test_create_rubric_version_records_audit(self) -> None:
+        async def _run() -> None:
+            from unittest.mock import patch
+
+            from app.services.rubric import create_rubric_version
+
+            teacher_id = uuid.uuid4()
+            database = _mock_db()
+            with patch(
+                "app.services.rubric.record_audit", new_callable=AsyncMock
+            ) as mock_audit:
+                rubric = await create_rubric_version(
+                    database,
+                    owner_user_id=teacher_id,
+                    created_by_user_id=teacher_id,
+                    name="Audited rubric",
+                )
+
+            mock_audit.assert_awaited_once_with(
+                database,
+                actor_user_id=teacher_id,
+                resource_type="RubricVersion",
+                resource_id=rubric.id,
+                action="CREATE",
+                after={
+                    "name": "Audited rubric",
+                    "calculation_method": "WEIGHTED_SUM",
+                },
+                reason="Rubric version created",
+            )
+
+        asyncio.run(_run())
+
+
 # ---------------------------------------------------------------------------
 # Assignment CREATE audit record
 # ---------------------------------------------------------------------------
