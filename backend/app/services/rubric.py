@@ -48,6 +48,19 @@ async def create_rubric_version(
     )
     db.add(rv)
     await db.flush()
+    await record_audit(
+        db,
+        actor_user_id=created_by_user_id,
+        resource_type="RubricVersion",
+        resource_id=rv.id,
+        action="CREATE",
+        after={
+            "name": name,
+            "calculation_method": calculation_method,
+        },
+        reason="Rubric version created",
+    )
+    await db.flush()
     return rv
 
 
