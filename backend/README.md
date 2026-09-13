@@ -1,6 +1,6 @@
 # DocGrading backend
 
-FastAPI API và Celery worker của DocGrading. Backend dùng PostgreSQL cho dữ liệu, Redis cho queue/result và volume riêng cho PDF development.
+FastAPI API và Celery worker của DocGrading. Backend dùng PostgreSQL cho dữ liệu, Redis cho queue/result và LocalStack S3 cho PDF development.
 
 ## Yêu cầu
 
@@ -55,6 +55,23 @@ docker compose down
 ```
 
 Thêm `--volumes` chỉ khi chủ động muốn xóa dữ liệu development.
+
+## Load, metrics, backup và restore smoke
+
+Các smoke service chỉ chạy khi `APP_ENV=development`. Từ repository root, sau khi stack healthy:
+
+```bash
+docker compose --profile smoke run --rm load-smoke
+docker compose --profile ops run --rm backup
+docker compose --profile ops run --rm restore-smoke
+docker compose --profile smoke --profile ops config --quiet
+```
+
+Load mặc định dùng 8 user đồng thời trong 30 giây, think time 0,05 giây và tối đa 5 upload/publish round cho mỗi Student. Đổi tải bằng `LOAD_USERS` và `LOAD_DURATION_SECONDS`. Kết quả JSON nằm tại `artifacts/t022-load-results.json`.
+
+`GET /metrics` trả Prometheus text cho Admin đã đăng nhập: số AnalysisJob theo status, queue depth và tuổi trung bình của job `QUEUED`/`RUNNING`.
+
+Backup logical nằm tại `backups/docgrading.dump`; row count nguồn nằm cạnh backup. Cả `artifacts/` và `backups/` đều bị Git ignore. Backup dừng nếu row count thay đổi trong lúc `pg_dump`. Restore luôn drop/recreate `docgrading_restore` trên PostgreSQL tmpfs tách mạng ứng dụng, đối chiếu row count, kiểm tra critical-flow join và chứng minh `TRUNCATE public.audit_events` vẫn bị chặn.
 
 ## Chạy process Python local
 

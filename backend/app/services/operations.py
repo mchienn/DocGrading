@@ -561,7 +561,9 @@ async def list_audit_events(
     )
 
 
-async def get_dashboard(db: AsyncSession) -> AdminDashboardResponse:
+async def _jobs_by_status(
+    db: AsyncSession,
+) -> dict[AnalysisJobStatus, int]:
     job_rows = (
         await db.execute(
             sa.select(AnalysisJob.status, sa.func.count(AnalysisJob.id)).group_by(
@@ -569,8 +571,54 @@ async def get_dashboard(db: AsyncSession) -> AdminDashboardResponse:
             )
         )
     ).all()
-    jobs_by_status = {job_status: 0 for job_status in AnalysisJobStatus}
-    jobs_by_status.update(dict(job_rows))
+    counts = {job_status: 0 for job_status in AnalysisJobStatus}
+    counts.update(dict(job_rows))
+    return counts
+
+
+async def get_metrics(db: AsyncSession) -> str:
+    jobs_by_status = await _jobs_by_status(db)
+    average_active_age = (
+        await db.execute(
+            sa.select(
+                sa.func.coalesce(
+                    sa.func.avg(
+                        sa.extract(
+                            "epoch",
+                            sa.func.now() - AnalysisJob.queued_at,
+                        )
+                    ),
+                    0,
+                )
+            ).where(
+                AnalysisJob.status.in_(
+                    (AnalysisJobStatus.QUEUED, AnalysisJobStatus.RUNNING)
+                )
+            )
+        )
+    ).scalar_one()
+    lines = [
+        "# HELP docgrading_analysis_jobs Current analysis jobs by status.",
+        "# TYPE docgrading_analysis_jobs gauge",
+        *[
+            f'docgrading_analysis_jobs{{status="{job_status.value}"}} '
+            f"{jobs_by_status[job_status]}"
+            for job_status in AnalysisJobStatus
+        ],
+        "# HELP docgrading_analysis_queue_depth Current queued analysis jobs.",
+        "# TYPE docgrading_analysis_queue_depth gauge",
+        f"docgrading_analysis_queue_depth "
+        f"{jobs_by_status[AnalysisJobStatus.QUEUED]}",
+        "# HELP docgrading_analysis_job_age_seconds_avg "
+        "Average age of queued and running jobs.",
+        "# TYPE docgrading_analysis_job_age_seconds_avg gauge",
+        f"docgrading_analysis_job_age_seconds_avg {float(average_active_age):.6f}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+async def get_dashboard(db: AsyncSession) -> AdminDashboardResponse:
+    jobs_by_status = await _jobs_by_status(db)
 
     course_rows = (
         await db.execute(

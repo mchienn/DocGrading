@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,7 @@ from app.services import operations as operations_svc
 from app.services.analysis_dispatch import dispatch_analysis_job_now
 
 router = APIRouter(tags=["operations"])
+metrics_router = APIRouter(tags=["operations"])
 admin_user = require_roles(UserRole.ADMIN)
 
 
@@ -158,3 +160,14 @@ async def get_dashboard(
     db: AsyncSession = Depends(get_db_session),
 ) -> AdminDashboardResponse:
     return await operations_svc.get_dashboard(db)
+
+
+@metrics_router.get("/metrics", response_class=PlainTextResponse)
+async def get_metrics(
+    _admin: User = Depends(admin_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PlainTextResponse:
+    return PlainTextResponse(
+        await operations_svc.get_metrics(db),
+        media_type="text/plain; version=0.0.4",
+    )
