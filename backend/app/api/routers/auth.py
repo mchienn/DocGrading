@@ -47,6 +47,7 @@ async def login(
     """Authenticate with email + password, receive a session cookie."""
     user = await authenticate_user(db, body.email, body.password)
     if user is None:
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
