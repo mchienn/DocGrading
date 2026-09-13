@@ -148,6 +148,94 @@ services:
       retries: 5
     networks: [backend]
 
+  load-smoke:
+    image: ghcr.io/astral-sh/uv:0.11.19-python3.13-trixie-slim
+    profiles: [smoke]
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      STORAGE_ENDPOINT_URL: http://storage:4566
+      UV_PROJECT_ENVIRONMENT: /tmp/t022-venv
+    working_dir: /app
+    volumes:
+      - ./backend:/app:ro
+      - ./artifacts:/results
+    command:
+      [
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "scripts/load_smoke.py",
+        "--base-url",
+        "http://api:8000",
+        "--storage-base-url",
+        "http://storage:4566",
+        "--users",
+        "${LOAD_USERS:-8}",
+        "--duration",
+        "${LOAD_DURATION_SECONDS:-30}",
+        "--output",
+        "/results/t022-load-results.json",
+      ]
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    networks: [backend]
+
+  backup:
+    image: postgres:17-bookworm
+    profiles: [ops]
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./backups:/backups
+      - ./backend/scripts:/scripts:ro
+    command: ["sh", "/scripts/backup.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+
+  restore-postgres:
+    image: postgres:17-bookworm
+    profiles: [ops]
+    env_file: .env
+    environment:
+      POSTGRES_DB: postgres
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    networks: [restore]
+
+  restore-smoke:
+    image: postgres:17-bookworm
+    profiles: [ops]
+    env_file: .env
+    environment:
+      POSTGRES_HOST: restore-postgres
+      POSTGRES_PORT: 5432
+      RESTORE_DB: docgrading_restore
+    volumes:
+      - ./backups:/backups:ro
+      - ./backend/scripts:/scripts:ro
+    command: ["sh", "/scripts/restore_smoke.sh"]
+    depends_on:
+      restore-postgres:
+        condition: service_healthy
+    networks: [restore]
+
 volumes:
   postgres_data:
   redis_data:
@@ -156,3 +244,6 @@ volumes:
 networks:
   backend:
     driver: bridge
+  restore:
+    driver: bridge
+    internal: true
