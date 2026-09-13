@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerifyMismatchError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -17,6 +17,12 @@ from app.models.identity import User
 from app.models.session import Session
 
 _ph = PasswordHasher(type=Type.ID)
+_DUMMY_PASSWORD_HASH = _ph.hash("DocGrading dummy authentication hash")
+
+
+def _email_lock_id(email: str) -> int:
+    digest = hashlib.sha256(email.encode()).digest()
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
 
 def csrf_token_for_session(session_id: uuid.UUID) -> str:
@@ -53,19 +59,62 @@ async def authenticate_user(
     email: str,
     password: str,
 ) -> User | None:
-    """Validate credentials and return the active user, or ``None``."""
-    stmt = select(User).where(
-        User.email == email,
-        User.status == UserStatus.ACTIVE,
+    """Validate credentials and enforce a persistent fixed-window lockout."""
+    settings = get_settings()
+    now = datetime.now(UTC)
+    normalized_email = email.strip().lower()
+    await db.execute(
+        select(func.pg_advisory_xact_lock(_email_lock_id(normalized_email)))
     )
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    user = (
+        await db.execute(
+            select(User)
+            .where(
+                func.lower(User.email) == normalized_email,
+                User.status == UserStatus.ACTIVE,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if user is None:
+        verify_password(password, _DUMMY_PASSWORD_HASH)
         return None
+
+    changed = False
+    if user.login_locked_until is not None:
+        if user.login_locked_until > now:
+            verify_password(password, _DUMMY_PASSWORD_HASH)
+            return None
+        user.failed_login_attempts = 0
+        user.failed_login_window_started_at = None
+        user.login_locked_until = None
+        changed = True
+
     if not verify_password(password, user.password_hash):
+        window = timedelta(seconds=settings.login_failure_window_seconds)
+        if (
+            user.failed_login_window_started_at is None
+            or user.failed_login_window_started_at + window <= now
+        ):
+            user.failed_login_attempts = 1
+            user.failed_login_window_started_at = now
+        else:
+            user.failed_login_attempts += 1
+        if user.failed_login_attempts >= settings.login_max_failed_attempts:
+            user.login_locked_until = now + timedelta(
+                seconds=settings.login_lockout_seconds
+            )
+        await db.flush()
         return None
+
+    if user.failed_login_attempts or user.failed_login_window_started_at is not None:
+        user.failed_login_attempts = 0
+        user.failed_login_window_started_at = None
+        changed = True
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(password)
+        changed = True
+    if changed:
         await db.flush()
     return user
 

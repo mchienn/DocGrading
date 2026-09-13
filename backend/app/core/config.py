@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
     session_lifetime_seconds: int = 86400
+    login_max_failed_attempts: int = Field(default=5, ge=1)
+    login_failure_window_seconds: int = Field(default=900, gt=0)
+    login_lockout_seconds: int = Field(default=900, gt=0)
 
     storage_bucket: str = "docgrading"
     storage_endpoint_url: str = "http://localhost:9000"

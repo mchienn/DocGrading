@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
@@ -40,6 +41,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
             name="ck_users_password_hash_not_blank",
         ),
         sa.CheckConstraint("revision > 0", name="ck_users_revision_positive"),
+        sa.CheckConstraint(
+            "failed_login_attempts >= 0",
+            name="ck_users_failed_login_attempts_nonnegative",
+        ),
         sa.Index(
             "uq_users_email_lower",
             sa.func.lower(sa.column("email")),
@@ -59,6 +64,20 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         pg_enum(UserStatus, name="user_status"),
         default=UserStatus.ACTIVE,
         nullable=False,
+    )
+    failed_login_attempts: Mapped[int] = mapped_column(
+        sa.Integer,
+        default=0,
+        server_default=sa.text("0"),
+        nullable=False,
+    )
+    failed_login_window_started_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
+    login_locked_until: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
     )
 
     owned_courses: Mapped[list[Course]] = relationship(
