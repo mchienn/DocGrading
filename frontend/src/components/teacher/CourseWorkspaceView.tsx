@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, CalendarClock, Pencil, Plus, Send, Square } from 'lucide-react';
+import { ArrowLeft, CalendarClock, ClipboardCheck, Pencil, Plus, Send, Square } from 'lucide-react';
 import type { components } from '../../api/schema';
 import { getErrorMessage } from '../../api/client';
 import type { ApiAssignment, ApiCourse, ApiRubric } from '../../types/api';
@@ -14,6 +14,7 @@ interface CourseWorkspaceViewProps {
   loading: boolean;
   error?: string;
   onBack: () => void;
+  onOpenSubmissionQueue: () => void;
   onSaveAssignment: (input: AssignmentInput, assignmentId?: string) => Promise<void>;
   onPublishAssignment: (assignmentId: string) => Promise<void>;
   onCloseAssignment: (assignmentId: string) => Promise<void>;
@@ -26,6 +27,7 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   loading,
   error,
   onBack,
+  onOpenSubmissionQueue,
   onSaveAssignment,
   onPublishAssignment,
   onCloseAssignment,
@@ -54,18 +56,27 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
           <h1 className="text-2xl font-bold text-slate-900 mt-1">{course.name}</h1>
           <p className="text-sm text-slate-500 mt-1">{course.term} · {course.status}</p>
         </div>
-        {course.status === 'ACTIVE' && (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              setEditing(undefined);
-              setShowForm(true);
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold"
+            onClick={onOpenSubmissionQueue}
+            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold"
           >
-            <Plus className="w-4 h-4" /> Create assignment
+            <ClipboardCheck className="w-4 h-4" /> Submission Queue
           </button>
-        )}
+          {course.status === 'ACTIVE' && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(undefined);
+                setShowForm(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold"
+            >
+              <Plus className="w-4 h-4" /> Create assignment
+            </button>
+          )}
+        </div>
       </div>
 
       {(error || actionError) && (

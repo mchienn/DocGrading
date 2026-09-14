@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, LoaderCircle, RotateCcw } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, Eye, LoaderCircle, RotateCcw } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, apiData, getErrorMessage } from '../../api/client';
 import type { WorkspaceRole } from '../../types/api';
 
@@ -24,6 +24,8 @@ const friendlyErrors: Record<string, string> = {
 export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps> = ({ activeRole }) => {
   const { jobId = '' } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const submissionId = searchParams.get('submissionId');
   const queryClient = useQueryClient();
   const [retryError, setRetryError] = useState<string>();
   const [retrying, setRetrying] = useState(false);
@@ -65,7 +67,7 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
       return {
         icon: <CheckCircle2 className="w-10 h-10 text-emerald-600" />,
         title: 'PDF processing completed',
-        detail: 'Ingestion and validation finished. Evaluation results are not available in current scope.',
+        detail: 'Ingestion and validation finished. Teacher review and publication may still be pending.',
       };
     }
     if (job.status === 'ERROR') {
@@ -130,6 +132,15 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
               <dd className="text-sm font-semibold text-slate-900">{job.status}</dd>
             </div>
           </dl>
+          {job.status === 'DONE' && activeRole === 'student' && submissionId && (
+            <button
+              type="button"
+              onClick={() => navigate(`/student/submissions/${submissionId}/result`)}
+              className="inline-flex items-center gap-2 mt-6 px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold"
+            >
+              <Eye className="w-4 h-4" /> View published result
+            </button>
+          )}
           {job.status === 'ERROR' && job.attempt_count < job.max_attempts && activeRole !== 'student' && (
             <button type="button" disabled={retrying} onClick={retry} className="inline-flex items-center gap-2 mt-6 px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold disabled:opacity-50">
               <RotateCcw className="w-4 h-4" /> {retrying ? 'Retrying...' : 'Retry job'}

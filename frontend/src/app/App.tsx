@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { components } from '../api/schema';
@@ -18,6 +18,9 @@ import { AuthShell } from '../components/auth/AuthShell';
 import { CourseListView } from '../components/teacher/CourseListView';
 import { CourseWorkspaceView } from '../components/teacher/CourseWorkspaceView';
 import { RubricTemplatesView } from '../components/teacher/RubricTemplatesView';
+import { SubmissionQueueView } from '../components/teacher/SubmissionQueueView';
+import { ReviewWorkspaceView } from '../components/teacher/ReviewWorkspaceView';
+import { StudentPublishedResultView } from '../components/student/StudentPublishedResultView';
 import { StudentAssignmentsView } from '../components/student/StudentAssignmentsView';
 import { StudentUploadView } from '../components/student/StudentUploadView';
 import { StudentStatusTimelineView } from '../components/student/StudentStatusTimelineView';
@@ -147,11 +150,22 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
       loading={assignmentsQuery.isLoading || rubricsQuery.isLoading}
       error={assignmentsQuery.error || rubricsQuery.error ? getErrorMessage(assignmentsQuery.error ?? rubricsQuery.error) : undefined}
       onBack={() => navigate(`/${role}/courses`)}
+      onOpenSubmissionQueue={() => navigate(`/${role}/courses/${courseId}/submissions`)}
       onSaveAssignment={saveAssignment}
       onPublishAssignment={publishAssignment}
       onCloseAssignment={closeAssignment}
     />
   );
+};
+
+const LogoutRoute: React.FC<{ onLogout: () => Promise<void> }> = ({ onLogout }) => {
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void onLogout();
+  }, [onLogout]);
+  return <p className="p-8 text-sm text-slate-500">Logging out...</p>;
 };
 
 export const App: React.FC = () => {
@@ -242,7 +256,7 @@ export const App: React.FC = () => {
       broadcastAuthChange('signed-out');
       setAuthExpired(true);
       clearUserData(queryClient);
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (error) {
       setLogoutError(`Logout failed; session may still be active. ${getErrorMessage(error)}`);
     } finally {
@@ -257,21 +271,27 @@ export const App: React.FC = () => {
         displayName={user.display_name}
         currentPath={location.pathname}
         onNavigate={navigate}
-        onLogout={logout}
+        onLogout={() => navigate('/logout', { replace: true })}
       />
       <div className="flex-1 min-w-0">
         <AppHeader activeRole={activeRole} title={title} />
         <main>
           <Routes>
             <Route path="/" element={<Navigate to={home} replace />} />
+            <Route path="/logout" element={<LogoutRoute onLogout={logout} />} />
             <Route path="/teacher/courses" element={activeRole === 'teacher' ? <CoursesPage role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId" element={activeRole === 'teacher' ? <CoursePage role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/rubrics" element={activeRole === 'teacher' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/courses/:courseId/submissions" element={activeRole === 'teacher' ? <SubmissionQueueView role="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/courses/:courseId/submissions/:submissionId" element={activeRole === 'teacher' ? <ReviewWorkspaceView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses" element={activeRole === 'admin' ? <CoursesPage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId" element={activeRole === 'admin' ? <CoursePage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/rubrics" element={activeRole === 'admin' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/courses/:courseId/submissions" element={activeRole === 'admin' ? <SubmissionQueueView role="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/courses/:courseId/submissions/:submissionId" element={activeRole === 'admin' ? <ReviewWorkspaceView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments" element={activeRole === 'student' ? <StudentAssignmentsView /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments/:courseId/:assignmentId/upload" element={activeRole === 'student' ? <StudentUploadView /> : <Navigate to={home} replace />} />
+            <Route path="/student/submissions/:submissionId/result" element={activeRole === 'student' ? <StudentPublishedResultView /> : <Navigate to={home} replace />} />
             <Route path="/jobs/:jobId" element={<StudentStatusTimelineView activeRole={activeRole} />} />
             <Route path="*" element={<Navigate to={home} replace />} />
           </Routes>

@@ -19,6 +19,7 @@ from app.api.schemas_submission import (
     ApprovalResponse,
     BBox,
     BulkPublishResponse,
+    DocumentDownloadResponse,
     EvidenceResponse,
     EvidenceWorkspaceResponse,
     FindingResponse,
@@ -62,6 +63,7 @@ from app.models.review import (
 from app.models.submission import DocumentVersion, Submission
 from app.services import notification as notification_svc
 from app.services.audit import record_audit
+from app.services.storage import S3Storage
 
 LOCK_TTL = timedelta(minutes=10)
 _REVIEWED_STATUSES = (DocumentStatus.APPROVED, DocumentStatus.PUBLISHED)
@@ -1504,6 +1506,24 @@ async def _submission_for_read(
     if UserRole.STUDENT in user.roles and submission.student_id == user.id:
         return submission, course, False
     raise HTTPException(status_code=404, detail="Submission not found")
+
+
+async def get_document_download(
+    db: AsyncSession,
+    *,
+    version_id: uuid.UUID,
+    user: User,
+    storage: S3Storage | None = None,
+) -> DocumentDownloadResponse:
+    version = await db.get(DocumentVersion, version_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Document version not found")
+    await _submission_for_read(db, version.submission_id, user)
+    storage = storage or S3Storage()
+    return DocumentDownloadResponse(
+        url=storage.create_presigned_get(version.storage_key),
+        expires_in=storage.expiry_seconds,
+    )
 
 
 async def _versions_with_latest_published_result(

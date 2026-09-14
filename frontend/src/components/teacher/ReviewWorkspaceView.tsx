@@ -1,696 +1,630 @@
-import React, { useState } from 'react';
-import {
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-  CheckCircle2,
-  XCircle,
-  Edit3,
-  MessageSquare,
-  Sparkles,
-  AlertTriangle,
-  Info,
-  Send,
-  Save,
-  Clock,
-  ShieldCheck,
-  Search,
-  BookOpen,
-} from 'lucide-react';
-import { Submission, Finding, CriterionResult } from '../../types/docgrading';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, CheckCircle2, LockKeyhole, Send, XCircle } from 'lucide-react';
+import { useBeforeUnload, useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
+import type { components } from '../../api/schema';
+import { ApiError, api, apiData, apiVoid, getErrorMessage } from '../../api/client';
+import { PdfEvidenceViewer } from './PdfEvidenceViewer';
+
+type Finding = components['schemas']['FindingResponse'];
+type Decision = components['schemas']['ReviewDecisionRequest'];
+type DraftContent = Omit<components['schemas']['ReviewDraftRequest'], 'revision'>;
+type EvidenceWorkspace = components['schemas']['EvidenceWorkspaceResponse'];
+type ReviewDraft = components['schemas']['ReviewDraftResponse'];
+type SaveStatus = 'saved' | 'saving' | 'conflict' | 'error';
 
 interface ReviewWorkspaceViewProps {
-  submission: Submission;
-  onBack: () => void;
-  onApprove: (submissionId: string, updatedResults: CriterionResult[], finalScore: number) => void;
-  onPublish: (submissionId: string) => void;
+  role: 'teacher' | 'admin';
+}
+function trapFocus(event: React.KeyboardEvent<HTMLDialogElement>) {
+  if (event.key !== 'Tab') return;
+  const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+    'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+  ));
+  const first = elements[0];
+  const last = elements.at(-1);
+  const wrap = event.shiftKey
+    ? document.activeElement === first || document.activeElement === event.currentTarget
+    : document.activeElement === last;
+  if (!wrap) return;
+  event.preventDefault();
+  (event.shiftKey ? last : first)?.focus();
 }
 
-export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({
-  submission,
-  onBack,
-  onApprove,
-  onPublish,
-}) => {
-  // Navigation & Zoom
-  const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
-  const [zoomLevel, setZoomLevel] = useState<number>(100);
 
-  // Active criteria and findings
-  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(
-    submission.criteriaResults[0]?.findings[0]?.id || null
-  );
+function serializeDraft(draft: DraftContent): string {
+  return JSON.stringify(draft);
+}
 
-  // Edit / Override state
-  const [criteriaState, setCriteriaState] = useState<CriterionResult[]>(
-    submission.criteriaResults
-  );
-  const [showOverrideModal, setShowOverrideModal] = useState<boolean>(false);
-  const [editingCriterion, setEditingCriterion] = useState<CriterionResult | null>(null);
-  const [overrideLevel, setOverrideLevel] = useState<number>(3);
-  const [overrideReason, setOverrideReason] = useState<string>('');
-  const [overrideError, setOverrideError] = useState<string>('');
+const queuePageSize = 100;
 
-  // Comment library state
-  const [activeCommentCriterionId, setActiveCommentCriterionId] = useState<string | null>(null);
-  const commentBank = [
-    'Tài liệu có cấu trúc rõ ràng, chuẩn phân cấp IEEE 830.',
-    'Cần định lượng hóa các chỉ số hiệu năng (thời gian phản hồi < 2s).',
-    'Chuẩn hóa tên gọi Actor đồng nhất trong toàn bộ kịch bản Use Case.',
-    'Bổ sung mã ánh xạ còn thiếu trong bảng Ma trận truy vết (Traceability Matrix).',
-  ];
+async function loadDocumentStatus(courseId: string, submissionId: string): Promise<string> {
+  for (let page = 1; ; page += 1) {
+    const queue = await apiData(api.GET('/api/v1/courses/{course_id}/submission-queue', {
+      params: {
+        path: { course_id: courseId },
+        query: { sort: 'desc', page, page_size: queuePageSize },
+      },
+    }));
+    const submission = queue.items.find((item) => item.submission_id === submissionId);
+    if (submission) return submission.document_status ?? 'NO_DOCUMENT';
+    if (page * queue.page_size >= queue.total) throw new Error('Submission not found in course queue');
+  }
+}
 
-  // Save status
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
+export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }) => {
+  const { courseId = '', submissionId = '' } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
+  const routeState = location.state as { documentStatus?: string } | null;
+  const [documentStatus, setDocumentStatus] = useState<string | undefined>(routeState?.documentStatus);
+  const [reviewLock, setReviewLock] = useState<components['schemas']['ReviewLockResponse']>();
+  const [lockError, setLockError] = useState<string>();
+  const [draft, setDraft] = useState<DraftContent>();
+  const [selectedFindingId, setSelectedFindingId] = useState<string>();
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [saveError, setSaveError] = useState<string>();
+  const [action, setAction] = useState<'approve' | 'publish'>();
+  const [actionError, setActionError] = useState<string>();
+  const [showPublish, setShowPublish] = useState(false);
+  const [publishReason, setPublishReason] = useState('');
+  const [publishedResultId, setPublishedResultId] = useState<string>();
+  const [leaving, setLeaving] = useState(false);
+  const revisionRef = useRef(1);
+  const lastSavedRef = useRef('');
+  const draftRef = useRef<DraftContent>();
+  const queuedRef = useRef<DraftContent>();
+  const savePromiseRef = useRef<Promise<void>>();
+  const approveKeyRef = useRef(crypto.randomUUID());
+  const publishAttemptRef = useRef<{ key: string; reason: string }>();
+  const hydratedDocumentRef = useRef<string>();
+  const navigationBypassRef = useRef(false);
+  const exitPromiseRef = useRef<Promise<boolean>>();
+  const publishButtonRef = useRef<HTMLButtonElement>(null);
+  const publishDialogRef = useRef<HTMLDialogElement>(null);
+  const publishReasonRef = useRef<HTMLTextAreaElement>(null);
 
-  // Helper: Calculate total score
-  const calculateScore = (results: CriterionResult[]) => {
-    let total = 0;
-    results.forEach((r) => {
-      // level 0..4, percent = level/4 * weight
-      total += (r.confirmedLevel / 4) * r.weight;
+  useEffect(() => {
+    if (!showPublish) return;
+    const dialog = publishDialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    publishReasonRef.current?.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      publishButtonRef.current?.focus();
+    };
+  }, [showPublish]);
+
+  const hydrateDraft = useCallback((evidence: EvidenceWorkspace, stored: ReviewDraft) => {
+    const loaded: DraftContent = {
+      document_version_id: evidence.document_version_id,
+      comment: stored.comment,
+      decisions: stored.decisions,
+    };
+    hydratedDocumentRef.current = evidence.document_version_id;
+    revisionRef.current = stored.revision;
+    lastSavedRef.current = serializeDraft(loaded);
+    queuedRef.current = undefined;
+    draftRef.current = loaded;
+    setDraft(loaded);
+    setSaveStatus('saved');
+    setSaveError(undefined);
+    setSelectedFindingId(evidence.findings[0]?.id);
+  }, []);
+
+  const evidenceQuery = useQuery({
+    queryKey: ['submission-evidence', submissionId],
+    queryFn: () => apiData(api.GET('/api/v1/submissions/{submission_id}/evidence', {
+      params: { path: { submission_id: submissionId } },
+    })),
+    enabled: Boolean(submissionId),
+  });
+  const draftQuery = useQuery({
+    queryKey: ['review-draft', submissionId],
+    queryFn: () => apiData(api.GET('/api/v1/submissions/{submission_id}/review-draft', {
+      params: { path: { submission_id: submissionId } },
+    })),
+    enabled: Boolean(submissionId),
+  });
+  const statusQuery = useQuery({
+    queryKey: ['submission-document-status', courseId, submissionId],
+    queryFn: () => loadDocumentStatus(courseId, submissionId),
+    enabled: Boolean(courseId && submissionId && !routeState?.documentStatus),
+  });
+
+  useEffect(() => {
+    if (statusQuery.data) setDocumentStatus(statusQuery.data);
+  }, [statusQuery.data]);
+
+  useEffect(() => {
+    const evidence = evidenceQuery.data;
+    const stored = draftQuery.data;
+    if (!evidence || !stored || hydratedDocumentRef.current === evidence.document_version_id) return;
+    hydrateDraft(evidence, stored);
+  }, [draftQuery.data, evidenceQuery.data, hydrateDraft]);
+
+  const reloadServerDraft = async () => {
+    const result = await draftQuery.refetch();
+    if (result.data && evidenceQuery.data) hydrateDraft(evidenceQuery.data, result.data);
+  };
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  const acquireLock = useCallback(async () => {
+    setLockError(undefined);
+    try {
+      setReviewLock(await apiData(api.POST('/api/v1/submissions/{submission_id}/review-lock', {
+        params: { path: { submission_id: submissionId } },
+      })));
+    } catch (error) {
+      setLockError(getErrorMessage(error));
+    }
+  }, [submissionId]);
+
+  useEffect(() => {
+    if (!submissionId || documentStatus !== 'AWAITING_REVIEW') return;
+    void acquireLock();
+  }, [acquireLock, documentStatus, submissionId]);
+
+  useEffect(() => {
+    if (!reviewLock?.acquired) return;
+    const interval = window.setInterval(() => {
+      void apiData(api.PUT('/api/v1/submissions/{submission_id}/review-lock/heartbeat', {
+        params: { path: { submission_id: submissionId } },
+      })).then(setReviewLock).catch((error) => {
+        setReviewLock((current) => current ? { ...current, acquired: false } : current);
+        setLockError(getErrorMessage(error));
+      });
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [reviewLock?.acquired, submissionId]);
+
+  const drainSaves = useCallback((): Promise<void> => {
+    if (savePromiseRef.current) return savePromiseRef.current;
+    const savePromise = (async () => {
+      while (queuedRef.current) {
+        const content = queuedRef.current;
+        queuedRef.current = undefined;
+        setSaveStatus('saving');
+        try {
+          const saved = await apiData(api.PUT('/api/v1/submissions/{submission_id}/review-draft', {
+            params: { path: { submission_id: submissionId } },
+            body: { ...content, revision: revisionRef.current },
+          }));
+          revisionRef.current = saved.revision;
+          lastSavedRef.current = serializeDraft(content);
+          setSaveError(undefined);
+          const latest = draftRef.current;
+          if (!queuedRef.current && latest && serializeDraft(latest) === lastSavedRef.current) {
+            setSaveStatus('saved');
+          }
+        } catch (error) {
+          queuedRef.current = undefined;
+          setSaveStatus(error instanceof ApiError && error.status === 409 ? 'conflict' : 'error');
+          setSaveError(getErrorMessage(error));
+          break;
+        }
+      }
+    })();
+    savePromiseRef.current = savePromise;
+    void savePromise.finally(() => {
+      if (savePromiseRef.current === savePromise) savePromiseRef.current = undefined;
     });
-    // scale to 100 based on evaluated criteria weight
-    const totalWeight = results.reduce((sum, r) => sum + r.weight, 0);
-    if (totalWeight === 0) return 0;
-    return (total / totalWeight) * 100;
+    return savePromise;
+  }, [submissionId]);
+
+  const editable = !leaving && reviewLock?.acquired === true && documentStatus === 'AWAITING_REVIEW';
+  useEffect(() => {
+    if (!draft || !editable || serializeDraft(draft) === lastSavedRef.current) return;
+    setSaveStatus('saving');
+    const timeout = window.setTimeout(() => {
+      queuedRef.current = draft;
+      void drainSaves();
+    }, 800);
+    return () => window.clearTimeout(timeout);
+  }, [draft, drainSaves, editable]);
+
+  const findings = evidenceQuery.data?.findings ?? [];
+  const decisions = draft?.decisions ?? [];
+  const selectedFinding = findings.find((finding) => finding.id === selectedFindingId) ?? findings[0];
+  const allDecided = findings.every((finding) => decisions.some((decision) => decision.finding_id === finding.id));
+  const decisionByFinding = useMemo(
+    () => new Map(decisions.map((decision) => [decision.finding_id, decision])),
+    [decisions],
+  );
+
+  const changeDecision = (finding: Finding, decision: Decision['decision']) => {
+    setDraft((current) => {
+      if (!current) return current;
+      const existing = current.decisions?.find((item) => item.finding_id === finding.id);
+      const next: Decision = decision === 'EDIT'
+        ? {
+            finding_id: finding.id,
+            decision,
+            edited_description: existing?.edited_description ?? finding.description,
+            final_score: existing?.final_score ?? finding.proposed_score,
+            reason: existing?.reason ?? null,
+          }
+        : {
+            finding_id: finding.id,
+            decision,
+            reason: existing?.reason ?? null,
+          };
+      const currentDecisions = current.decisions ?? [];
+      const index = currentDecisions.findIndex((item) => item.finding_id === next.finding_id);
+      const updated = index < 0
+        ? [...currentDecisions, next]
+        : currentDecisions.map((item, currentIndex) => currentIndex === index ? next : item);
+      return { ...current, decisions: updated };
+    });
   };
 
-  const currentScore = calculateScore(criteriaState);
+  const updateDecision = (findingId: string, patch: Partial<Decision>) => {
+    setDraft((current) => {
+      if (!current) return current;
+      const existing = current.decisions?.find((decision) => decision.finding_id === findingId);
+      if (!existing) return current;
+      const currentDecisions = current.decisions ?? [];
+      const next = { ...existing, ...patch };
+      return {
+        ...current,
+        decisions: currentDecisions.map((decision) => decision.finding_id === findingId ? next : decision),
+      };
+    });
+  };
 
-  // Current page object
-  const pages = submission.pages.length > 0 ? submission.pages : [
-    {
-      pageNumber: 1,
-      title: 'Tài liệu SRS — Xem trước PDF',
-      content: ['Đang tải cấu trúc trang...'],
-    },
-  ];
+  const draftDirty = Boolean(draft && serializeDraft(draft) !== lastSavedRef.current);
+  const shouldBlockNavigation = draftDirty || saveStatus === 'saving' || reviewLock?.acquired === true;
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    !navigationBypassRef.current
+    && shouldBlockNavigation
+    && (
+      currentLocation.pathname !== nextLocation.pathname
+      || currentLocation.search !== nextLocation.search
+      || currentLocation.hash !== nextLocation.hash
+    ));
+  const handleBeforeUnload = useCallback((event: BeforeUnloadEvent) => {
+    if (!draftDirty && saveStatus !== 'saving') return;
+    event.preventDefault();
+    event.returnValue = '';
+  }, [draftDirty, saveStatus]);
+  useBeforeUnload(handleBeforeUnload);
 
-  const currentPage = pages[currentPageIndex] || pages[0];
+  const prepareToLeave = useCallback((): Promise<boolean> => {
+    if (exitPromiseRef.current) return exitPromiseRef.current;
+    const exitPromise = (async () => {
+      setLeaving(true);
+      const latest = draftRef.current;
+      if (latest && serializeDraft(latest) !== lastSavedRef.current) {
+        queuedRef.current = latest;
+        setSaveStatus('saving');
+        await drainSaves();
+        const savedLatest = draftRef.current;
+        if (savedLatest && serializeDraft(savedLatest) !== lastSavedRef.current) {
+          setLeaving(false);
+          return false;
+        }
+      }
+      if (reviewLock?.acquired) {
+        try {
+          await apiVoid(api.DELETE('/api/v1/submissions/{submission_id}/review-lock', {
+            params: { path: { submission_id: submissionId } },
+          }));
+        } catch {
+          // Lock expires server-side if release cannot reach API.
+        }
+      }
+      return true;
+    })();
+    exitPromiseRef.current = exitPromise;
+    void exitPromise.finally(() => {
+      if (exitPromiseRef.current === exitPromise) exitPromiseRef.current = undefined;
+    });
+    return exitPromise;
+  }, [drainSaves, reviewLock?.acquired, submissionId]);
 
-  // Helper to jump to page by finding
-  const handleSelectFinding = (finding: Finding) => {
-    setSelectedFindingId(finding.id);
-    const pageIdx = pages.findIndex((p) => p.pageNumber === finding.pageNumber);
-    if (pageIdx !== -1) {
-      setCurrentPageIndex(pageIdx);
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return;
+    let active = true;
+    const { proceed, reset } = blocker;
+    void prepareToLeave().then((ready) => {
+      if (!active) return;
+      if (ready) {
+        navigationBypassRef.current = true;
+        proceed();
+      } else {
+        reset();
+      }
+    });
+    return () => { active = false; };
+  }, [blocker, prepareToLeave]);
+
+  const leave = async () => {
+    if (!await prepareToLeave()) return;
+    navigationBypassRef.current = true;
+    navigate(`/${role}/courses/${courseId}/submissions`);
+  };
+
+  const approve = async () => {
+    const versionId = evidenceQuery.data?.document_version_id;
+    if (!versionId) return;
+    setAction('approve');
+    setActionError(undefined);
+    try {
+      const response = await apiData(api.POST('/api/v1/document-versions/{version_id}/approve', {
+        params: {
+          path: { version_id: versionId },
+          header: { 'Idempotency-Key': approveKeyRef.current },
+        },
+      }));
+      setDocumentStatus(response.status);
+      try {
+        await apiVoid(api.DELETE('/api/v1/submissions/{submission_id}/review-lock', {
+          params: { path: { submission_id: submissionId } },
+        }));
+      } catch {
+        // Approved document is immutable even if lock release cannot reach API.
+      }
+      setReviewLock((current) => current ? { ...current, acquired: false } : current);
+      await queryClient.invalidateQueries({ queryKey: ['submission-queue', courseId] });
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setAction(undefined);
     }
   };
 
-  // Open override dialog
-  const openOverrideDialog = (criterion: CriterionResult) => {
-    setEditingCriterion(criterion);
-    setOverrideLevel(criterion.confirmedLevel);
-    setOverrideReason(criterion.overrideReason || '');
-    setOverrideError('');
-    setShowOverrideModal(true);
-  };
-
-  // Confirm override
-  const handleSaveOverride = () => {
-    if (!overrideReason.trim()) {
-      setOverrideError('Bắt buộc nhập lý do điều chỉnh điểm để lưu vào Audit Log.');
-      return;
+  const publish = async () => {
+    const versionId = evidenceQuery.data?.document_version_id;
+    const reason = publishReason.trim();
+    if (!versionId || !reason) return;
+    const attempt = publishAttemptRef.current ?? {
+      key: crypto.randomUUID(),
+      reason,
+    };
+    publishAttemptRef.current = attempt;
+    setPublishReason(attempt.reason);
+    setAction('publish');
+    setActionError(undefined);
+    try {
+      const response = await apiData(api.POST('/api/v1/document-versions/{version_id}/publish', {
+        params: {
+          path: { version_id: versionId },
+          header: { 'Idempotency-Key': attempt.key },
+        },
+        body: { reason: attempt.reason },
+      }));
+      setDocumentStatus('PUBLISHED');
+      setPublishedResultId(response.published_result_id);
+      setShowPublish(false);
+      await queryClient.invalidateQueries({ queryKey: ['submission-queue', courseId] });
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setAction(undefined);
     }
-    if (!editingCriterion) return;
-
-    setSaveStatus('saving');
-    setCriteriaState((prev) =>
-      prev.map((c) =>
-        c.criterionId === editingCriterion.criterionId
-          ? {
-              ...c,
-              confirmedLevel: overrideLevel,
-              overrideReason: overrideReason.trim(),
-            }
-          : c
-      )
-    );
-    setTimeout(() => setSaveStatus('saved'), 400);
-    setShowOverrideModal(false);
   };
 
-  // Accept or reject finding
-  const handleToggleFindingStatus = (findingId: string, newStatus: 'accepted' | 'rejected') => {
-    setSaveStatus('saving');
-    setCriteriaState((prev) =>
-      prev.map((c) => ({
-        ...c,
-        findings: c.findings.map((f) =>
-          f.id === findingId ? { ...f, status: newStatus } : f
-        ),
-      }))
-    );
-    setTimeout(() => setSaveStatus('saved'), 300);
-  };
-
-  // Add reusable comment
-  const handleAddComment = (criterionId: string, comment: string) => {
-    setSaveStatus('saving');
-    setCriteriaState((prev) =>
-      prev.map((c) =>
-        c.criterionId === criterionId
-          ? {
-              ...c,
-              teacherNotes: c.teacherNotes ? `${c.teacherNotes}\n• ${comment}` : `• ${comment}`,
-            }
-          : c
-      )
-    );
-    setActiveCommentCriterionId(null);
-    setTimeout(() => setSaveStatus('saved'), 300);
-  };
+  const loadError = evidenceQuery.error ?? draftQuery.error ?? statusQuery.error;
+  const saveLabel = saveStatus === 'saved'
+    ? 'saved'
+    : saveStatus === 'saving'
+      ? 'saving'
+      : saveStatus;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden bg-slate-100">
-      {/* Top Header Bar */}
-      <div className="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0 shadow-2xs z-20">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
-            title="Quay lại hàng đợi"
-          >
+    <div className="p-4 sm:p-6 max-w-[1800px] mx-auto space-y-4">
+      <header className="sticky top-2 z-30 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center gap-3 min-w-0">
+          <button type="button" disabled={leaving} onClick={() => void leave()} className="p-2 border border-slate-300 rounded-lg disabled:opacity-40" aria-label="Back to queue">
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div className="border-l border-slate-200 pl-3">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-sm text-slate-900">{submission.studentName}</span>
-              <span className="text-xs font-mono text-slate-400">({submission.studentCode})</span>
-              <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono">
-                {submission.fileName}
-              </span>
-            </div>
+          <div className="min-w-0">
+            <h1 className="font-bold text-slate-900">Review Workspace</h1>
+            <p className="font-mono text-xs text-slate-500 truncate">Submission {submissionId}</p>
           </div>
         </div>
-
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 text-xs text-slate-400">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                saveStatus === 'saved' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
-              }`}
-            ></span>
-            <span>{saveStatus === 'saved' ? 'Đã tự động lưu' : 'Đang lưu...'}</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onApprove(submission.id, criteriaState, currentScore)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors shadow-2xs"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
-              <span>Duyệt kết quả (Approve)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onPublish(submission.id)}
-              disabled={submission.status !== 'approved'}
-              title={
-                submission.status === 'approved'
-                  ? 'Công bố kết quả'
-                  : 'Duyệt kết quả trước khi công bố'
-              }
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>Công bố kết quả (Publish)</span>
-            </button>
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="px-2 py-1 rounded border border-slate-200 bg-slate-50 font-mono text-xs">{documentStatus ?? 'LOADING_STATUS'}</span>
+          <span className={`px-2 py-1 rounded border font-mono text-xs ${saveStatus === 'conflict' ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-600'}`}>
+            {saveLabel}
+          </span>
+          <button
+            type="button"
+            disabled={!editable || !allDecided || saveStatus !== 'saved' || action !== undefined}
+            onClick={() => void approve()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold disabled:opacity-40"
+          >
+            <CheckCircle2 className="w-4 h-4" /> {action === 'approve' ? 'Approving...' : 'Approve'}
+          </button>
+          <button
+            ref={publishButtonRef}
+            type="button"
+            disabled={documentStatus !== 'APPROVED' || action !== undefined}
+            onClick={() => setShowPublish(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-700 text-white rounded-lg text-xs font-semibold disabled:opacity-40"
+          >
+            <Send className="w-4 h-4" /> Publish
+          </button>
         </div>
-      </div>
+      </header>
 
-      {/* Main Split Screen */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* LEFT COLUMN: PDF Document Viewer (~65% width) */}
-        <div className="flex-1 flex flex-col bg-slate-200/70 border-r border-slate-300/80 overflow-hidden">
-          {/* PDF Toolbar */}
-          <div className="h-11 bg-white border-b border-slate-200 px-4 flex items-center justify-between text-xs text-slate-600 shrink-0">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={currentPageIndex === 0}
-                onClick={() => setCurrentPageIndex((prev) => Math.max(0, prev - 1))}
-                className="p-1 rounded hover:bg-slate-100 disabled:opacity-30"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="font-mono">
-                Trang {currentPage.pageNumber} / {pages[pages.length - 1]?.pageNumber || pages.length}
-              </span>
-              <button
-                type="button"
-                disabled={currentPageIndex >= pages.length - 1}
-                onClick={() => setCurrentPageIndex((prev) => Math.min(pages.length - 1, prev + 1))}
-                className="p-1 rounded hover:bg-slate-100 disabled:opacity-30"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-
-              <div className="h-4 w-px bg-slate-200 mx-1"></div>
-
-              {/* Jump to page pills */}
-              <div className="flex items-center gap-1 text-[11px]">
-                <span className="text-slate-400">Chuyển nhanh:</span>
-                {pages.map((p, idx) => (
-                  <button
-                    key={p.pageNumber}
-                    type="button"
-                    onClick={() => setCurrentPageIndex(idx)}
-                    className={`px-1.5 py-0.5 rounded font-mono ${
-                      currentPageIndex === idx
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    P{p.pageNumber}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setZoomLevel((prev) => Math.max(70, prev - 10))}
-                className="p-1 rounded hover:bg-slate-100"
-                title="Thu nhỏ"
-              >
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-              <span className="font-mono text-[11px] w-12 text-center">{zoomLevel}%</span>
-              <button
-                type="button"
-                onClick={() => setZoomLevel((prev) => Math.min(150, prev + 10))}
-                className="p-1 rounded hover:bg-slate-100"
-                title="Phóng to"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoomLevel(100)}
-                className="p-1 rounded hover:bg-slate-100"
-                title="Khôi phục 100%"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* PDF Page Canvas Scrollable */}
-          <div className="flex-1 overflow-y-auto p-6 flex justify-center items-start">
-            <div
-              style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
-              className="w-full max-w-2xl bg-white shadow-xl rounded-lg border border-slate-300 p-8 min-h-[780px] text-slate-800 transition-transform font-serif leading-relaxed relative"
-            >
-              {/* Watermark/header simulation */}
-              <div className="border-b border-slate-200 pb-3 mb-6 flex items-center justify-between text-[11px] text-slate-400 font-sans">
-                <span>DOCGRADING ACADEMIC VERIFICATION • SE302 SRS</span>
-                <span className="font-mono">TRANG {currentPage.pageNumber}</span>
-              </div>
-
-              <h2 className="text-base font-bold text-slate-900 font-sans mb-4 border-b border-slate-100 pb-2">
-                {currentPage.title}
-              </h2>
-
-              {/* Text content lines */}
-              <div className="space-y-2 text-xs font-mono">
-                {currentPage.content.map((line, idx) => {
-                  // Check if this line matches an evidence snippet
-                  const matchedFinding = criteriaState
-                    .flatMap((c) => c.findings)
-                    .find(
-                      (f) =>
-                        f.pageNumber === currentPage.pageNumber &&
-                        (line.includes('Thủ kho') ||
-                          line.includes('nhanh chóng và trực quan') ||
-                          line.includes('Hủy phiếu nhập kho'))
-                    );
-
-                  const isSelected = matchedFinding && matchedFinding.id === selectedFindingId;
-
-                  return (
-                    <div
-                      key={idx}
-                      className={`p-1.5 rounded transition-all ${
-                        matchedFinding
-                          ? isSelected
-                            ? 'bg-amber-100 border-l-4 border-amber-500 font-bold shadow-xs cursor-pointer'
-                            : 'bg-amber-50/70 border-l-2 border-amber-300 cursor-pointer hover:bg-amber-100/80'
-                          : 'hover:bg-slate-50'
-                      }`}
-                      onClick={() => matchedFinding && handleSelectFinding(matchedFinding)}
-                    >
-                      {matchedFinding && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-sans font-semibold text-amber-700 bg-amber-200/80 px-1.5 py-0.2 rounded mr-2 uppercase">
-                          Bằng chứng {matchedFinding.severity}
-                        </span>
-                      )}
-                      <span>{line}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Page footer */}
-              <div className="absolute bottom-4 left-8 right-8 pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400 font-sans">
-                <span>Tài liệu: {submission.fileName}</span>
-                <span>Hệ thống chấm DocGrading</span>
-              </div>
-            </div>
-          </div>
+      {(loadError || lockError || saveError || actionError) && (
+        <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm flex items-start justify-between gap-3">
+          <span>{actionError ?? saveError ?? lockError ?? getErrorMessage(loadError)}</span>
+          {lockError && documentStatus === 'AWAITING_REVIEW' && (
+            <button type="button" onClick={() => void acquireLock()} className="underline shrink-0">Retry lock</button>
+          )}
+          {(saveStatus === 'conflict' || saveStatus === 'error') && draft && (
+            <span className="flex gap-2 shrink-0">
+              <button type="button" onClick={() => void reloadServerDraft()} className="underline">Reload server draft</button>
+              {saveStatus === 'error' && <button type="button" onClick={() => { queuedRef.current = draft; void drainSaves(); }} className="underline">Retry save</button>}
+            </span>
+          )}
         </div>
+      )}
 
-        {/* RIGHT COLUMN: Criteria & Findings Review Panel (~35% width, min 380px) */}
-        <div className="w-[420px] bg-white border-l border-slate-200 flex flex-col overflow-hidden shrink-0">
-          {/* Proposed Score Header */}
-          <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
-            <div>
-              <span className="text-[11px] text-sky-400 uppercase font-bold tracking-wider">
-                Điểm đề xuất (AI & Rule Engine)
-              </span>
-              <div className="flex items-baseline gap-2 mt-0.5">
-                <span className="text-2xl font-black font-mono tracking-tight text-white">
-                  {currentScore.toFixed(1)}
-                </span>
-                <span className="text-xs text-slate-400">/ 100</span>
-                <span className="text-xs font-mono text-slate-300">
-                  (~{(currentScore / 10).toFixed(2)}/10)
-                </span>
-              </div>
-            </div>
+      {publishedResultId && (
+        <div role="status" className="p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm">
+          Published result <span className="font-mono break-all">{publishedResultId}</span>
+        </div>
+      )}
 
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block">Độ tin cậy</span>
-              <span className="inline-block px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/20 text-sky-300 border border-sky-400/30">
-                {(submission.confidence * 100).toFixed(0)}% Tin cậy cao
-              </span>
-            </div>
-          </div>
+      {documentStatus === 'AWAITING_REVIEW' && !reviewLock?.acquired && !lockError && (
+        <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm flex items-center justify-between gap-3">
+          <span className="inline-flex items-center gap-2">
+            <LockKeyhole className="w-4 h-4" />
+            {reviewLock ? `Read-only: locked by ${reviewLock.reviewer_display_name ?? 'another reviewer'} until ${reviewLock.expires_at ? new Date(reviewLock.expires_at).toLocaleString() : 'expiry'}.` : 'Acquiring review lock...'}
+          </span>
+          {reviewLock && <button type="button" onClick={() => void acquireLock()} className="underline shrink-0">Retry lock</button>}
+        </div>
+      )}
 
-          {/* Criteria & Findings Tabs / List */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-900 uppercase text-[11px] tracking-wider">
-                Chi tiết đánh giá theo tiêu chí ({criteriaState.length})
-              </span>
-              <span className="text-[11px] text-slate-500">Mức 0 – 4</span>
-            </div>
+      {evidenceQuery.isLoading || draftQuery.isLoading ? (
+        <p className="p-8 text-center text-slate-500">Loading evidence and review draft...</p>
+      ) : !evidenceQuery.data || !draft ? null : (
+        <div className="grid lg:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] gap-4 items-start">
+          <PdfEvidenceViewer
+            documentVersionId={evidenceQuery.data.document_version_id}
+            findings={findings}
+            selectedFindingId={selectedFinding?.id}
+            onSelectFinding={setSelectedFindingId}
+          />
+
+          <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-4" aria-label="Review decisions">
+            <label className="block text-sm font-semibold text-slate-800">
+              Review comment
+              <textarea
+                rows={4}
+                maxLength={10_000}
+                disabled={!editable}
+                value={draft.comment}
+                onChange={(event) => setDraft((current) => current ? { ...current, comment: event.target.value } : current)}
+                className="block w-full mt-2 p-3 border border-slate-300 rounded-lg font-normal disabled:bg-slate-100"
+              />
+            </label>
 
             <div className="space-y-3">
-              {criteriaState.map((res) => {
-                const isOverridden = res.confirmedLevel !== res.proposedLevel;
+              {findings.map((finding) => {
+                const decision = decisionByFinding.get(finding.id);
                 return (
-                  <div
-                    key={res.criterionId}
-                    className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition-all space-y-2.5 shadow-2xs"
+                  <article
+                    key={finding.id}
+                    className={`p-4 rounded-xl border ${selectedFinding?.id === finding.id ? 'border-sky-500 bg-sky-50/40' : 'border-slate-200'}`}
                   >
-                    {/* Criterion Title & Level */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-bold text-slate-800 text-xs">
-                            {res.criterionName}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-500">Trọng số: {res.weight}%</span>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <div className="text-right">
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs font-bold font-mono text-slate-900">
-                              Mức {res.confirmedLevel}/4
-                            </span>
-                            {isOverridden && (
-                              <span className="text-[10px] text-amber-600 font-mono font-semibold">
-                                (Sửa từ {res.proposedLevel})
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-slate-400">
-                            {((res.confirmedLevel / 4) * res.weight).toFixed(1)}%
-                          </span>
-                        </div>
-
+                    <button type="button" onClick={() => setSelectedFindingId(finding.id)} className="w-full text-left">
+                      <span className="font-mono text-[11px] text-slate-500">{finding.severity} · Criterion {finding.criterion_version_id}</span>
+                      <p className="mt-1 text-sm text-slate-800">{finding.description}</p>
+                      <span className="block mt-1 text-xs text-slate-500">Proposed score: {finding.proposed_score ?? 'none'} · Evidence: {finding.evidence.length}</span>
+                    </button>
+                    <div className="flex gap-2 mt-3">
+                      {(['ACCEPT', 'EDIT', 'REJECT'] as const).map((value) => (
                         <button
+                          key={value}
                           type="button"
-                          onClick={() => openOverrideDialog(res)}
-                          className="p-1 rounded-md hover:bg-slate-200 text-slate-600"
-                          title="Điều chỉnh điểm"
+                          disabled={!editable}
+                          onClick={() => changeDecision(finding, value)}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold disabled:opacity-40 ${decision?.decision === value ? 'bg-slate-900 border-slate-900 text-white' : 'border-slate-300 bg-white text-slate-700'}`}
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
+                          {value}
                         </button>
-                      </div>
+                      ))}
                     </div>
-
-                    {/* Override reason badge if exists */}
-                    {res.overrideReason && (
-                      <div className="p-2 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-[11px]">
-                        <strong>Lý do điều chỉnh:</strong> {res.overrideReason}
+                    {decision?.decision === 'EDIT' && (
+                      <div className="grid gap-2 mt-3">
+                        <label className="text-xs text-slate-600">Edited description
+                          <textarea
+                            maxLength={10_000}
+                            rows={3}
+                            disabled={!editable}
+                            value={decision.edited_description ?? ''}
+                            onChange={(event) => updateDecision(finding.id, { edited_description: event.target.value || null })}
+                            className="block w-full mt-1 p-2 border border-slate-300 rounded-lg"
+                          />
+                        </label>
+                        <label className="text-xs text-slate-600">Final score
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={0.01}
+                            disabled={!editable}
+                            value={decision.final_score ?? ''}
+                            onChange={(event) => updateDecision(finding.id, { final_score: event.target.value || null })}
+                            className="block w-full mt-1 p-2 border border-slate-300 rounded-lg"
+                          />
+                        </label>
                       </div>
                     )}
-
-                    {/* Findings list under this criterion */}
-                    {res.findings.length > 0 && (
-                      <div className="space-y-2 pt-1 border-t border-slate-200/80">
-                        {res.findings.map((finding) => {
-                          const isSelected = selectedFindingId === finding.id;
-                          const isRejected = finding.status === 'rejected';
-
-                          return (
-                            <div
-                              key={finding.id}
-                              onClick={() => handleSelectFinding(finding)}
-                              className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-all ${
-                                isSelected
-                                  ? 'border-sky-500 bg-sky-50/70 shadow-xs'
-                                  : isRejected
-                                  ? 'border-slate-200 bg-slate-100 opacity-60'
-                                  : 'border-slate-200 bg-white hover:border-slate-300'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-1 mb-1">
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase ${
-                                      finding.severity === 'critical'
-                                        ? 'bg-rose-100 text-rose-700'
-                                        : finding.severity === 'major'
-                                        ? 'bg-amber-100 text-amber-700'
-                                        : 'bg-blue-100 text-blue-700'
-                                    }`}
-                                  >
-                                    {finding.severity}
-                                  </span>
-                                  <span className="font-semibold text-slate-900 text-xs">
-                                    {finding.title}
-                                  </span>
-                                </div>
-                                <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                                  P.{finding.pageNumber}
-                                </span>
-                              </div>
-
-                              <p className="text-[11px] text-slate-600 leading-relaxed mb-1.5">
-                                {finding.description}
-                              </p>
-
-                              <div className="p-1.5 bg-slate-50 rounded border border-slate-200/60 text-[11px] text-sky-800">
-                                <span className="font-semibold">Gợi ý sửa:</span> {finding.suggestion}
-                              </div>
-
-                              {/* Action: Accept / Reject finding */}
-                              <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                                <span className="text-slate-400 font-mono">
-                                  {(finding.confidence * 100).toFixed(0)}% tin cậy
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleToggleFindingStatus(finding.id, 'accepted');
-                                    }}
-                                    className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                                      finding.status === 'accepted'
-                                        ? 'bg-emerald-100 text-emerald-800 font-bold'
-                                        : 'hover:bg-slate-100 text-slate-600'
-                                    }`}
-                                  >
-                                    Chấp nhận
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleToggleFindingStatus(finding.id, 'rejected');
-                                    }}
-                                    className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                                      finding.status === 'rejected'
-                                        ? 'bg-rose-100 text-rose-800 font-bold'
-                                        : 'hover:bg-slate-100 text-slate-600'
-                                    }`}
-                                  >
-                                    Bác bỏ
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                    {decision && decision.decision !== 'ACCEPT' && (
+                      <label className="block mt-3 text-xs text-slate-600">Override reason {decision.decision === 'REJECT' ? '(required)' : '(required when score changes)'}
+                        <textarea
+                          rows={2}
+                          maxLength={2_000}
+                          disabled={!editable}
+                          value={decision.reason ?? ''}
+                          onChange={(event) => updateDecision(finding.id, { reason: event.target.value || null })}
+                          className="block w-full mt-1 p-2 border border-slate-300 rounded-lg"
+                        />
+                      </label>
                     )}
-
-                    {/* Teacher Notes / Comments */}
-                    {res.teacherNotes && (
-                      <div className="p-2 rounded bg-white border border-slate-200 text-[11px] text-slate-700 whitespace-pre-line">
-                        <strong className="text-slate-900 block mb-0.5">Nhận xét của giảng viên:</strong>
-                        {res.teacherNotes}
-                      </div>
-                    )}
-
-                    {/* Reusable Comment Library Trigger */}
-                    <div className="pt-1 flex items-center justify-between text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setActiveCommentCriterionId(
-                            activeCommentCriterionId === res.criterionId ? null : res.criterionId
-                          )
-                        }
-                        className="text-sky-600 hover:text-sky-700 font-medium inline-flex items-center gap-1"
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        <span>Thêm nhận xét mẫu</span>
-                      </button>
-                    </div>
-
-                    {/* Reusable comment drawer */}
-                    {activeCommentCriterionId === res.criterionId && (
-                      <div className="p-2 bg-white rounded-lg border border-slate-200 space-y-1.5">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                          Thư viện mẫu nhận xét nhanh:
-                        </span>
-                        {commentBank.map((c, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => handleAddComment(res.criterionId, c)}
-                            className="w-full text-left p-1.5 rounded hover:bg-slate-50 text-[11px] text-slate-700 border border-slate-100 block"
-                          >
-                            + {c}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  </article>
                 );
               })}
             </div>
-          </div>
+          </section>
         </div>
-      </div>
+      )}
 
-      {/* Override Score Dialog */}
-      {showOverrideModal && editingCriterion && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4 text-xs">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-sky-600" />
-                <h3 className="font-bold text-sm text-slate-900">
-                  Điều chỉnh điểm tiêu chí: {editingCriterion.criterionName}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowOverrideModal(false)}
-                className="text-slate-400 hover:text-slate-700 text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3">
+      {showPublish && (
+        <dialog
+          ref={publishDialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="publish-title"
+          tabIndex={-1}
+          onKeyDown={trapFocus}
+          onCancel={(event) => {
+            event.preventDefault();
+            setShowPublish(false);
+          }}
+          className="m-auto w-[calc(100%-2rem)] max-w-md space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xl backdrop:bg-slate-900/60"
+        >
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <label className="block text-slate-700 font-medium mb-1">
-                  Chọn mức đánh giá (0 = Chưa đạt, 4 = Xuất sắc)
-                </label>
-                <div className="grid grid-cols-5 gap-2">
-                  {[0, 1, 2, 3, 4].map((lvl) => (
-                    <button
-                      key={lvl}
-                      type="button"
-                      onClick={() => setOverrideLevel(lvl)}
-                      className={`py-2 rounded-lg font-bold font-mono text-sm border transition-all ${
-                        overrideLevel === lvl
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      Mức {lvl}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
-                  <span>Mức đề xuất AI: {editingCriterion.proposedLevel}/4</span>
-                  <span>
-                    Điểm tính: {((overrideLevel / 4) * editingCriterion.weight).toFixed(1)} /{' '}
-                    {editingCriterion.weight}%
-                  </span>
-                </div>
+                <h2 id="publish-title" className="font-bold text-slate-900">Confirm publish</h2>
+                <p className="text-sm text-rose-700 mt-1">Students see result immediately. Reversal requires separate audited unpublish.</p>
               </div>
-
-              <div>
-                <label className="block text-slate-700 font-medium mb-1">
-                  Lý do điều chỉnh (Bắt buộc theo quy định kiểm toán) <span className="text-rose-500">*</span>
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="Ghi rõ căn cứ (VD: Sinh viên đã bổ sung đầy đủ chỉ số hiệu năng ở phần phụ lục)..."
-                  value={overrideReason}
-                  onChange={(e) => {
-                    setOverrideReason(e.target.value);
-                    if (overrideError) setOverrideError('');
-                  }}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-sky-500 leading-relaxed"
-                />
-                {overrideError && <p className="text-[11px] text-rose-600 mt-1">{overrideError}</p>}
-              </div>
-
-              <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-amber-800 text-[11px]">
-                Hệ thống sẽ lưu vết hành động này vào <strong>Audit Log</strong> với mã giảng viên và thời điểm can thiệp.
-              </div>
+              <button type="button" onClick={() => setShowPublish(false)} aria-label="Close publish dialog"><XCircle className="w-5 h-5" /></button>
             </div>
-
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <label className="block text-sm font-semibold text-slate-700">Publish reason
+              <textarea
+                ref={publishReasonRef}
+                required
+                maxLength={2_000}
+                rows={3}
+                disabled={Boolean(publishAttemptRef.current) || action === 'publish'}
+                value={publishReason}
+                onChange={(event) => setPublishReason(event.target.value)}
+                className="block w-full mt-2 p-3 border border-slate-300 rounded-lg font-normal"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowPublish(false)} className="px-3 py-2 border border-slate-300 rounded-lg text-sm">Cancel</button>
               <button
                 type="button"
-                onClick={() => setShowOverrideModal(false)}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                disabled={!publishReason.trim() || action === 'publish'}
+                onClick={() => void publish()}
+                className="px-3 py-2 bg-emerald-700 text-white rounded-lg text-sm font-semibold disabled:opacity-40"
               >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveOverride}
-                className="px-4 py-1.5 rounded-lg bg-slate-900 text-white font-medium hover:bg-slate-800"
-              >
-                Lưu điều chỉnh
+                {action === 'publish' ? 'Publishing...' : 'Confirm publish'}
               </button>
             </div>
-          </div>
-        </div>
+        </dialog>
       )}
     </div>
   );
