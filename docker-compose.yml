@@ -148,6 +148,18 @@ services:
       retries: 5
     networks: [backend]
 
+  frontend:
+    build:
+      context: frontend
+    environment:
+      API_PROXY_TARGET: http://api:8000
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [backend]
+
   load-smoke:
     image: ghcr.io/astral-sh/uv:0.11.19-python3.13-trixie-slim
     profiles: [smoke]
