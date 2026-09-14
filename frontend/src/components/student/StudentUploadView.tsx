@@ -114,7 +114,7 @@ export const StudentUploadView: React.FC = () => {
       }));
 
       if (presign.analysis_job_id) {
-        navigate(`/jobs/${presign.analysis_job_id}`);
+        navigate(`/jobs/${presign.analysis_job_id}?submissionId=${presign.submission_id}`);
         return;
       }
       if (presign.upload_url && presign.fields) {
@@ -126,7 +126,7 @@ export const StudentUploadView: React.FC = () => {
       const completion = await apiData(api.POST('/api/v1/document-versions/{version_id}/complete', {
         params: { path: { version_id: presign.document_version_id } },
       }));
-      navigate(`/jobs/${completion.analysis_job_id}`);
+      navigate(`/jobs/${completion.analysis_job_id}?submissionId=${completion.submission_id}`);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
       setPhase('Failed');

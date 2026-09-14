@@ -56,6 +56,18 @@ class S3Storage:
             ExpiresIn=self.expiry_seconds,
         )
 
+    def create_presigned_get(self, key: str) -> str:
+        return self._public.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": self.bucket,
+                "Key": key,
+                "ResponseContentType": "application/pdf",
+                "ResponseContentDisposition": "inline",
+            },
+            ExpiresIn=self.expiry_seconds,
+        )
+
     def head(self, key: str) -> ObjectHead:
         try:
             result = self._internal.head_object(Bucket=self.bucket, Key=key)

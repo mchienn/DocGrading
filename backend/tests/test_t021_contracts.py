@@ -73,6 +73,7 @@ PRESIGN_FIELDS = {
     "reused",
     "analysis_job_id",
 }
+DOWNLOAD_FIELDS = {"url", "expires_in"}
 COMPLETION_FIELDS = {
     "submission_id",
     "document_version_id",
@@ -349,6 +350,12 @@ def test_step_2_student_upload_and_analysis_contracts() -> None:
             COMPLETION_FIELDS,
         ),
         ("/api/v1/analysis-jobs/{job_id}", "get", 200, ANALYSIS_JOB_FIELDS),
+        (
+            "/api/v1/document-versions/{version_id}/download",
+            "get",
+            200,
+            DOWNLOAD_FIELDS,
+        ),
     )
     for contract in contracts:
         _assert_contract(*contract)

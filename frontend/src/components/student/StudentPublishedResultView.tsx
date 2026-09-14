@@ -1,174 +1,119 @@
-import React from 'react';
-import {
-  ArrowLeft,
-  Award,
-  CheckCircle2,
-  FileText,
-  AlertCircle,
-  HelpCircle,
-  MessageSquare,
-  GitCompare,
-  Download,
-  ShieldCheck,
-  ChevronRight,
-} from 'lucide-react';
-import { Submission } from '../../types/docgrading';
+import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, FileText, MessageSquare, RefreshCw, ShieldCheck } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { api, apiData, getErrorMessage } from '../../api/client';
+import { AppealModal } from './AppealModal';
 
-interface StudentPublishedResultViewProps {
-  submission: Submission;
-  onBack: () => void;
-  onOpenAppeal: (submission: Submission) => void;
-  onOpenCompare: (submission: Submission) => void;
-}
-
-export const StudentPublishedResultView: React.FC<StudentPublishedResultViewProps> = ({
-  submission,
-  onBack,
-  onOpenAppeal,
-  onOpenCompare,
-}) => {
-
-  const finalScore100 = submission.finalScore ?? submission.proposedScore;
-  const finalScore10 = (finalScore100 / 10).toFixed(1);
+export const StudentPublishedResultView: React.FC = () => {
+  const { submissionId = '' } = useParams();
+  const navigate = useNavigate();
+  const [showReviewRequest, setShowReviewRequest] = useState(false);
+  const [requestStatus, setRequestStatus] = useState<string>();
+  const resultQuery = useQuery({
+    queryKey: ['published-result', submissionId],
+    queryFn: () => apiData(api.GET('/api/v1/submissions/{submission_id}/published-result', {
+      params: { path: { submission_id: submissionId } },
+    })),
+    enabled: Boolean(submissionId),
+    retry: false,
+  });
+  const result = resultQuery.data;
+  const criterionGroups = useMemo(() => {
+    const groups = new Map<string, NonNullable<typeof result>['findings']>();
+    for (const finding of result?.findings ?? []) {
+      const group = groups.get(finding.criterion_version_id) ?? [];
+      group.push(finding);
+      groups.set(finding.criterion_version_id, group);
+    }
+    return [...groups.entries()];
+  }, [result]);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      {/* Top action / back */}
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Quay lại danh sách đợt nộp</span>
-        </button>
+    <div className="p-6 sm:p-8 max-w-5xl mx-auto space-y-6">
+      <button type="button" onClick={() => navigate('/student/assignments')} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
+        <ArrowLeft className="w-4 h-4" /> Back to assignments
+      </button>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onOpenCompare(submission)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-medium"
-          >
-            <GitCompare className="w-3.5 h-3.5 text-slate-500" />
-            <span>So sánh phiên bản</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onOpenAppeal(submission)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800 text-xs font-medium"
-          >
-            <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
-            <span>Gửi yêu cầu phúc khảo</span>
-          </button>
-        </div>
+      <div className="border-b border-slate-200 pb-5">
+        <h1 className="text-2xl font-bold text-slate-900">Published Result</h1>
+        <p className="font-mono text-xs text-slate-500 mt-1 break-all">Submission {submissionId}</p>
       </div>
 
-      {/* Official Score Hero Banner */}
-      <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">
-              Kết quả chính thức đã công bố
-            </span>
-            <span className="text-xs text-slate-400 font-mono">Phiên bản v{submission.version}</span>
-          </div>
-          <h1 className="text-xl font-bold text-white">{submission.assignmentTitle}</h1>
-          <p className="text-xs text-slate-300">
-            Giảng viên duyệt: <strong>{submission.reviewerName || 'TS. Lê Hoàng Nam'}</strong> • Công bố:{' '}
-            {submission.publishedAt || '02/09/2026 14:30'}
-          </p>
+      {resultQuery.error && (
+        <div role="alert" className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+          <p>{getErrorMessage(resultQuery.error)}</p>
+          <p className="mt-1">Result may not be published yet, may have been unpublished, or may not belong to this account.</p>
+          <button type="button" onClick={() => void resultQuery.refetch()} className="inline-flex items-center gap-2 mt-3 font-semibold underline">
+            <RefreshCw className="w-4 h-4" /> Retry
+          </button>
         </div>
+      )}
 
-        <div className="flex items-center gap-6 bg-slate-800/80 p-4 rounded-xl border border-slate-700/80 shrink-0">
-          <div>
-            <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-medium">
-              Thang 100
-            </span>
-            <span className="text-3xl font-black font-mono text-white tracking-tight">
-              {finalScore100.toFixed(1)}
-            </span>
-            <span className="text-xs text-slate-400">/100</span>
-          </div>
-          <div className="w-px h-10 bg-slate-700"></div>
-          <div>
-            <span className="text-[10px] uppercase tracking-wider text-emerald-400 block font-medium">
-              Thang 10
-            </span>
-            <span className="text-3xl font-black font-mono text-emerald-400 tracking-tight">
-              {finalScore10}
-            </span>
-            <span className="text-xs text-emerald-300">/10.0</span>
-          </div>
-        </div>
-      </div>
+      {requestStatus && <div role="status" className="p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm">{requestStatus}</div>}
 
-      {/* Criteria Breakdown List */}
-      <div className="space-y-3">
-        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-          Bảng điểm chi tiết theo 12 tiêu chí Rubric IEEE 830
-        </h2>
-
-        <div className="space-y-3">
-          {submission.criteriaResults.map((res) => {
-            const scorePercent = ((res.confirmedLevel / 4) * res.weight).toFixed(1);
-            const publishedFindings = res.findings.filter((finding) => finding.status !== 'rejected');
-            return (
-              <div
-                key={res.criterionId}
-                className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3"
+      {resultQuery.isLoading ? (
+        <p className="p-8 text-center text-slate-500">Loading published result...</p>
+      ) : result ? (
+        <>
+          <section className="bg-slate-900 text-white rounded-2xl p-6 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-300"><ShieldCheck className="w-5 h-5" /> PUBLISHED</span>
+              <button
+                type="button"
+                disabled={criterionGroups.length === 0}
+                onClick={() => setShowReviewRequest(true)}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-white text-slate-900 rounded-lg text-sm font-semibold disabled:opacity-40"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-bold text-xs text-slate-900">{res.criterionName}</h3>
-                    <span className="text-[11px] text-slate-500">Trọng số: {res.weight}%</span>
-                  </div>
+                <MessageSquare className="w-4 h-4" /> Request criterion review
+              </button>
+            </div>
+            <dl className="grid sm:grid-cols-2 gap-3 text-sm">
+              <div><dt className="text-slate-400">Published version</dt><dd>v{result.version_number}</dd></div>
+              <div><dt className="text-slate-400">Published at</dt><dd>{new Date(result.published_at).toLocaleString()}</dd></div>
+              <div className="sm:col-span-2"><dt className="text-slate-400">Result ID</dt><dd className="font-mono break-all">{result.published_result_id}</dd></div>
+            </dl>
+            {result.comment && <div className="p-3 rounded-lg bg-slate-800 text-sm whitespace-pre-wrap"><span className="text-slate-400">Teacher comment</span><p className="mt-1">{result.comment}</p></div>}
+          </section>
 
-                  <div className="text-right">
-                    <span className="text-xs font-bold font-mono text-slate-900">
-                      Mức {res.confirmedLevel}/4
-                    </span>
-                    <div className="text-[11px] font-mono text-emerald-700 font-semibold">
-                      +{scorePercent}%
+          <section className="space-y-3">
+            <h2 className="font-bold text-slate-900">Criteria and accepted findings</h2>
+            {criterionGroups.length === 0 ? (
+              <p className="p-6 bg-white border border-slate-200 rounded-xl text-sm text-slate-500">No published findings.</p>
+            ) : criterionGroups.map(([criterionVersionId, findings]) => (
+              <article key={criterionVersionId} className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+                <h3 className="font-mono text-xs font-bold text-slate-700 break-all">Criterion {criterionVersionId}</h3>
+                {findings.map((finding) => (
+                  <div key={finding.finding_id} className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-mono text-xs text-slate-500 break-all">Finding {finding.finding_id}</span>
+                      <span className="text-sm font-semibold text-slate-800">Score: {finding.score ?? 'none'}</span>
+                    </div>
+                    <p className="text-sm text-slate-800 whitespace-pre-wrap">{finding.description}</p>
+                    {finding.suggestion && <p className="text-sm text-sky-800">Suggestion: {finding.suggestion}</p>}
+                    <div className="space-y-1">
+                      {finding.evidence.map((evidence) => (
+                        <div key={`${evidence.document_ir_id}:${evidence.element_id}:${evidence.page_number}`} className="flex items-start gap-2 text-xs text-slate-600">
+                          <FileText className="w-3.5 h-3.5 shrink-0" />
+                          <span>Page {evidence.page_number}; bbox ({evidence.bbox.x0}, {evidence.bbox.top}, {evidence.bbox.x1}, {evidence.bbox.bottom}); element <span className="font-mono break-all">{evidence.element_id}</span></span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
+                ))}
+              </article>
+            ))}
+          </section>
+        </>
+      ) : null}
 
-                {/* Teacher comments if any */}
-                {res.teacherNotes && (
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100 text-xs text-slate-700 whitespace-pre-line">
-                    <strong className="text-slate-900 block mb-0.5">Nhận xét của giảng viên:</strong>
-                    {res.teacherNotes}
-                  </div>
-                )}
-
-                {/* Published findings & evidence */}
-                {publishedFindings.length > 0 && (
-                  <div className="space-y-2 pt-1 border-t border-slate-100 text-xs">
-                    {publishedFindings.map((f) => (
-                      <div
-                        key={f.id}
-                        className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-slate-900">{f.title}</span>
-                          <span className="text-[10px] font-mono bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-600">
-                            Trang {f.pageNumber} — {f.section}
-                          </span>
-                        </div>
-                        <p className="text-slate-600 leading-relaxed text-[11px]">{f.description}</p>
-                        <div className="p-2 bg-white rounded border border-slate-200/80 text-[11px] text-sky-800">
-                          <span className="font-semibold">Chỉ dẫn khắc phục:</span> {f.suggestion}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {showReviewRequest && result && (
+        <AppealModal
+          result={result}
+          onClose={() => setShowReviewRequest(false)}
+          onCreated={(request) => setRequestStatus(`Review request ${request.id} created with status ${request.status}.`)}
+        />
+      )}
     </div>
   );
 };

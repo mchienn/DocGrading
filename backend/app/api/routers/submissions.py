@@ -13,6 +13,7 @@ from app.api.schemas_submission import (
     BulkPublishRequest,
     BulkPublishResponse,
     CompletionResponse,
+    DocumentDownloadResponse,
     EvidenceWorkspaceResponse,
     PresignRequest,
     PresignResponse,
@@ -93,6 +94,22 @@ async def complete_upload(
         document_version_id=version.id,
         analysis_job_id=job.id,
         status=job.status.value,
+    )
+
+
+@router.get(
+    "/document-versions/{version_id}/download",
+    response_model=DocumentDownloadResponse,
+)
+async def download_document_version(
+    version_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> DocumentDownloadResponse:
+    return await review_svc.get_document_download(
+        db,
+        version_id=version_id,
+        user=user,
     )
 
 

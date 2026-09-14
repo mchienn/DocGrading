@@ -45,6 +45,11 @@ class CompletionResponse(BaseModel):
     status: str
 
 
+class DocumentDownloadResponse(BaseModel):
+    url: str = Field(min_length=1)
+    expires_in: int = Field(ge=1, le=300)
+
+
 class AnalysisJobResponse(BaseModel):
     id: uuid.UUID
     document_version_id: uuid.UUID

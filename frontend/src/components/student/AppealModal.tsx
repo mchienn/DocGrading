@@ -1,120 +1,100 @@
-import React, { useState } from 'react';
-import { MessageSquare, X, Send, AlertCircle } from 'lucide-react';
-import { Submission, ReviewAppeal } from '../../types/docgrading';
+import React, { useMemo, useState } from 'react';
+import { MessageSquare, Send, X } from 'lucide-react';
+import type { components } from '../../api/schema';
+import { api, apiData, getErrorMessage } from '../../api/client';
+
+type PublishedResult = components['schemas']['PublishedResultResponse'];
+type ReviewRequest = components['schemas']['ReviewRequestResponse'];
 
 interface AppealModalProps {
-  submission: Submission;
+  result: PublishedResult;
   onClose: () => void;
-  onSubmitAppeal: (appeal: Partial<ReviewAppeal>) => void;
+  onCreated: (request: ReviewRequest) => void;
 }
 
-export const AppealModal: React.FC<AppealModalProps> = ({
-  submission,
-  onClose,
-  onSubmitAppeal,
-}) => {
-  const [selectedCriterionId, setSelectedCriterionId] = useState(
-    submission.criteriaResults[0]?.criterionId || 'CRT-01'
-  );
-  const [reason, setReason] = useState('');
-  const [error, setError] = useState('');
-
-  const selectedCriterion = submission.criteriaResults.find(
-    (c) => c.criterionId === selectedCriterionId
-  );
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reason.trim()) {
-      setError('Vui lòng nêu rõ lý do và căn cứ trong tài liệu cần xem lại.');
-      return;
+export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCreated }) => {
+  const criteria = useMemo(() => {
+    const firstFindingByCriterion = new Map<string, string>();
+    for (const finding of result.findings) {
+      if (!firstFindingByCriterion.has(finding.criterion_version_id)) {
+        firstFindingByCriterion.set(finding.criterion_version_id, finding.finding_id);
+      }
     }
+    return [...firstFindingByCriterion.entries()];
+  }, [result.findings]);
+  const [findingId, setFindingId] = useState(criteria[0]?.[1] ?? '');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string>();
+  const [sending, setSending] = useState(false);
 
-    onSubmitAppeal({
-      id: `APL-${Date.now()}`,
-      submissionId: submission.id,
-      studentName: submission.studentName,
-      studentCode: submission.studentCode,
-      criterionId: selectedCriterionId,
-      criterionName: selectedCriterion?.criterionName || 'Tiêu chí đánh giá',
-      reason: reason.trim(),
-      status: 'pending',
-      createdAt: 'Vừa xong',
-    });
-    onClose();
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!findingId || !reason.trim()) return;
+    setSending(true);
+    setError(undefined);
+    try {
+      const request = await apiData(api.POST('/api/v1/published-results/{published_result_id}/review-requests', {
+        params: { path: { published_result_id: result.published_result_id } },
+        body: {
+          submission_id: result.submission_id,
+          finding_id: findingId,
+          reason: reason.trim(),
+        },
+      }));
+      onCreated(request);
+      onClose();
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4 text-xs">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-sky-600" />
-            <h3 className="font-bold text-sm text-slate-900">Gửi yêu cầu phúc khảo / Xem lại</h3>
+    <div className="fixed inset-0 z-50 bg-slate-900/60 grid place-items-center p-4" role="presentation">
+      <div role="dialog" aria-modal="true" aria-labelledby="review-request-title" className="bg-white rounded-xl border border-slate-200 shadow-xl p-5 w-full max-w-md space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="review-request-title" className="font-bold text-slate-900 inline-flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Request criterion review</h2>
+            <p className="text-xs text-slate-500 mt-1">One OPEN request allowed per criterion and published result.</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <button type="button" onClick={onClose} aria-label="Close review request dialog"><X className="w-5 h-5" /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-slate-700 font-medium mb-1">
-              Chọn tiêu chí cần xem xét lại:
-            </label>
+        {error && <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">{error}</div>}
+
+        <form onSubmit={submit} className="space-y-4">
+          <label className="block text-sm font-semibold text-slate-700">Criterion
             <select
-              value={selectedCriterionId}
-              onChange={(e) => setSelectedCriterionId(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-sky-500"
+              required
+              value={findingId}
+              onChange={(event) => setFindingId(event.target.value)}
+              className="block w-full mt-2 p-3 border border-slate-300 rounded-lg bg-white font-mono text-xs"
             >
-              {submission.criteriaResults.map((c) => (
-                <option key={c.criterionId} value={c.criterionId}>
-                  {c.criterionName} (Mức {c.confirmedLevel}/4)
-                </option>
+              {criteria.map(([criterionVersionId, firstFindingId]) => (
+                <option key={criterionVersionId} value={firstFindingId}>{criterionVersionId}</option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <label className="block text-slate-700 font-medium mb-1">
-              Lý do và vị trí bằng chứng trong tài liệu PDF:
-            </label>
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">Reason
             <textarea
-              rows={4}
               required
-              placeholder="VD: Em đã bổ sung sơ đồ sequence diagram tại phụ lục trang 36, xin thầy xem xét lại điểm tiêu chí này..."
+              maxLength={4_000}
+              rows={5}
               value={reason}
-              onChange={(e) => {
-                setReason(e.target.value);
-                if (error) setError('');
-              }}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-sky-500 leading-relaxed"
+              onChange={(event) => setReason(event.target.value)}
+              className="block w-full mt-2 p-3 border border-slate-300 rounded-lg font-normal"
             />
-            {error && <p className="text-[11px] text-rose-600 mt-1">{error}</p>}
-          </div>
-
-          <div className="p-3 bg-sky-50 rounded-xl border border-sky-200 text-sky-900 leading-relaxed">
-            Mỗi bài nộp chỉ được gửi <strong>01 yêu cầu phúc khảo</strong>. Giảng viên sẽ nhận được thông báo trực tiếp trong hộp thư review.
-          </div>
-
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-            >
-              Hủy
-            </button>
+          </label>
+          {criteria.length === 0 && <p className="text-sm text-amber-700">Published result has no criterion finding available for review request.</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="px-3 py-2 border border-slate-300 rounded-lg text-sm">Cancel</button>
             <button
               type="submit"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-slate-900 text-white font-medium hover:bg-slate-800"
+              disabled={sending || !findingId || !reason.trim()}
+              className="inline-flex items-center gap-2 px-3 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold disabled:opacity-40"
             >
-              <Send className="w-3.5 h-3.5" />
-              <span>Gửi yêu cầu phúc khảo</span>
+              <Send className="w-4 h-4" /> {sending ? 'Sending...' : 'Send request'}
             </button>
           </div>
         </form>

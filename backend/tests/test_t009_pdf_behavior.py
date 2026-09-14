@@ -110,6 +110,40 @@ def test_presign_uses_five_minute_expiry_and_exact_object_key() -> None:
     ]
 
 
+def test_download_presign_is_inline_pdf_and_short_lived() -> None:
+    calls: list[tuple[str, dict[str, object], int]] = []
+
+    class PublicClient:
+        def generate_presigned_url(
+            self,
+            method: str,
+            *,
+            Params: dict[str, object],
+            ExpiresIn: int,
+        ) -> str:
+            calls.append((method, Params, ExpiresIn))
+            return "http://localhost:9000/docgrading/uploads/random.pdf"
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage.expiry_seconds = 300
+    storage._public = PublicClient()
+
+    assert storage.create_presigned_get("uploads/random.pdf").endswith("random.pdf")
+    assert calls == [
+        (
+            "get_object",
+            {
+                "Bucket": "docgrading",
+                "Key": "uploads/random.pdf",
+                "ResponseContentType": "application/pdf",
+                "ResponseContentDisposition": "inline",
+            },
+            300,
+        )
+    ]
+
+
 def test_duplicate_sha_reuses_active_upload_instead_of_inserting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
