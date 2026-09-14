@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.enums import ReviewDecisionType, ReviewRequestStatus
+from app.models.enums import AnalysisJobStatus, ReviewDecisionType, ReviewRequestStatus
 
 
 class PresignRequest(BaseModel):
@@ -54,7 +54,7 @@ class AnalysisJobResponse(BaseModel):
     id: uuid.UUID
     document_version_id: uuid.UUID
     rubric_version_id: uuid.UUID
-    status: str
+    status: AnalysisJobStatus
     attempt_count: int
     max_attempts: int
     error_code: str | None

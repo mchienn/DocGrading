@@ -96,8 +96,16 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({ role }
       </section>
 
       {queueQuery.error && (
-        <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
-          {getErrorMessage(queueQuery.error)}
+        <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm flex items-center justify-between gap-3">
+          <span>{getErrorMessage(queueQuery.error)}</span>
+          <button
+            type="button"
+            disabled={queueQuery.isFetching}
+            onClick={() => void queueQuery.refetch()}
+            className="font-semibold underline disabled:opacity-40"
+          >
+            {queueQuery.isFetching ? 'Retrying...' : 'Retry'}
+          </button>
         </div>
       )}
 
@@ -115,7 +123,9 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({ role }
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {queueQuery.isLoading ? (
+              {queueQuery.error && !queue ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">Queue unavailable.</td></tr>
+              ) : queueQuery.isLoading ? (
                 <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">Loading queue...</td></tr>
               ) : !queue?.items.length ? (
                 <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No submissions match this API filter.</td></tr>

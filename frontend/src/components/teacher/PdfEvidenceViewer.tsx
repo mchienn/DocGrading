@@ -410,7 +410,7 @@ export function PdfEvidenceViewer({
     if (!url) return
 
     let cancelled = false
-    const loadingTask = getDocument({ url })
+    const loadingTask = getDocument({ url, disableRange: true, disableStream: true })
     setPdf(undefined)
     setLoadError(undefined)
 

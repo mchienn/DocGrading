@@ -16,6 +16,21 @@ type SaveStatus = 'saved' | 'saving' | 'conflict' | 'error';
 interface ReviewWorkspaceViewProps {
   role: 'teacher' | 'admin';
 }
+function trapFocus(event: React.KeyboardEvent<HTMLDialogElement>) {
+  if (event.key !== 'Tab') return;
+  const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+    'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+  ));
+  const first = elements[0];
+  const last = elements.at(-1);
+  const wrap = event.shiftKey
+    ? document.activeElement === first || document.activeElement === event.currentTarget
+    : document.activeElement === last;
+  if (!wrap) return;
+  event.preventDefault();
+  (event.shiftKey ? last : first)?.focus();
+}
+
 
 function serializeDraft(draft: DraftContent): string {
   return JSON.stringify(draft);
@@ -66,6 +81,21 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
   const hydratedDocumentRef = useRef<string>();
   const navigationBypassRef = useRef(false);
   const exitPromiseRef = useRef<Promise<boolean>>();
+  const publishButtonRef = useRef<HTMLButtonElement>(null);
+  const publishDialogRef = useRef<HTMLDialogElement>(null);
+  const publishReasonRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!showPublish) return;
+    const dialog = publishDialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    publishReasonRef.current?.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      publishButtonRef.current?.focus();
+    };
+  }, [showPublish]);
 
   const hydrateDraft = useCallback((evidence: EvidenceWorkspace, stored: ReviewDraft) => {
     const loaded: DraftContent = {
@@ -75,11 +105,11 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
     };
     hydratedDocumentRef.current = evidence.document_version_id;
     revisionRef.current = stored.revision;
-    lastSavedRef.current = stored.id ? serializeDraft(loaded) : '';
+    lastSavedRef.current = serializeDraft(loaded);
     queuedRef.current = undefined;
     draftRef.current = loaded;
     setDraft(loaded);
-    setSaveStatus(stored.id ? 'saved' : 'saving');
+    setSaveStatus('saved');
     setSaveError(undefined);
     setSelectedFindingId(evidence.findings[0]?.id);
   }, []);
@@ -412,6 +442,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
             <CheckCircle2 className="w-4 h-4" /> {action === 'approve' ? 'Approving...' : 'Approve'}
           </button>
           <button
+            ref={publishButtonRef}
             type="button"
             disabled={documentStatus !== 'APPROVED' || action !== undefined}
             onClick={() => setShowPublish(true)}
@@ -550,8 +581,19 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
       )}
 
       {showPublish && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 grid place-items-center p-4" role="presentation">
-          <div role="dialog" aria-modal="true" aria-labelledby="publish-title" className="bg-white rounded-xl border border-slate-200 shadow-xl p-5 w-full max-w-md space-y-4">
+        <dialog
+          ref={publishDialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="publish-title"
+          tabIndex={-1}
+          onKeyDown={trapFocus}
+          onCancel={(event) => {
+            event.preventDefault();
+            setShowPublish(false);
+          }}
+          className="m-auto w-[calc(100%-2rem)] max-w-md space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xl backdrop:bg-slate-900/60"
+        >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 id="publish-title" className="font-bold text-slate-900">Confirm publish</h2>
@@ -561,6 +603,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
             </div>
             <label className="block text-sm font-semibold text-slate-700">Publish reason
               <textarea
+                ref={publishReasonRef}
                 required
                 maxLength={2_000}
                 rows={3}
@@ -581,8 +624,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
                 {action === 'publish' ? 'Publishing...' : 'Confirm publish'}
               </button>
             </div>
-          </div>
-        </div>
+        </dialog>
       )}
     </div>
   );

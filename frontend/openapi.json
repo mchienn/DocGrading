@@ -568,7 +568,7 @@
           "assignments"
         ],
         "summary": "Publish Assignment",
-        "description": "Publish a DRAFT assignment (DRAFT → OPEN).",
+        "description": "Publish a DRAFT assignment (DRAFT \u2192 OPEN).",
         "operationId": "publish_assignment_api_v1_courses__course_id__assignments__assignment_id__publish_post",
         "parameters": [
           {
@@ -622,7 +622,7 @@
           "assignments"
         ],
         "summary": "Close Assignment",
-        "description": "Close an OPEN assignment (OPEN → CLOSED).",
+        "description": "Close an OPEN assignment (OPEN \u2192 CLOSED).",
         "operationId": "close_assignment_api_v1_courses__course_id__assignments__assignment_id__close_post",
         "parameters": [
           {
@@ -3648,8 +3648,7 @@
             "title": "Rubric Version Id"
           },
           "status": {
-            "type": "string",
-            "title": "Status"
+            "$ref": "#/components/schemas/AnalysisJobStatus"
           },
           "attempt_count": {
             "type": "integer",

@@ -1171,8 +1171,7 @@ export interface components {
              * Format: uuid
              */
             rubric_version_id: string;
-            /** Status */
-            status: string;
+            status: components["schemas"]["AnalysisJobStatus"];
             /** Attempt Count */
             attempt_count: number;
             /** Max Attempts */

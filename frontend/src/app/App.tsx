@@ -256,7 +256,7 @@ export const App: React.FC = () => {
       broadcastAuthChange('signed-out');
       setAuthExpired(true);
       clearUserData(queryClient);
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (error) {
       setLogoutError(`Logout failed; session may still be active. ${getErrorMessage(error)}`);
     } finally {
@@ -271,7 +271,7 @@ export const App: React.FC = () => {
         displayName={user.display_name}
         currentPath={location.pathname}
         onNavigate={navigate}
-        onLogout={() => navigate('/logout')}
+        onLogout={() => navigate('/logout', { replace: true })}
       />
       <div className="flex-1 min-w-0">
         <AppHeader activeRole={activeRole} title={title} />

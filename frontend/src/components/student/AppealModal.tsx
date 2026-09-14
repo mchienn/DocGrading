@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquare, Send, X } from 'lucide-react';
 import type { components } from '../../api/schema';
 import { api, apiData, getErrorMessage } from '../../api/client';
@@ -11,6 +11,21 @@ interface AppealModalProps {
   onClose: () => void;
   onCreated: (request: ReviewRequest) => void;
 }
+function trapFocus(event: React.KeyboardEvent<HTMLDialogElement>) {
+  if (event.key !== 'Tab') return;
+  const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+    'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+  ));
+  const first = elements[0];
+  const last = elements.at(-1);
+  const wrap = event.shiftKey
+    ? document.activeElement === first || document.activeElement === event.currentTarget
+    : document.activeElement === last;
+  if (!wrap) return;
+  event.preventDefault();
+  (event.shiftKey ? last : first)?.focus();
+}
+
 
 export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCreated }) => {
   const criteria = useMemo(() => {
@@ -26,6 +41,22 @@ export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCre
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    dialog.showModal();
+    dialog.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      restoreFocusRef.current?.focus();
+    };
+  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -51,8 +82,19 @@ export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCre
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 grid place-items-center p-4" role="presentation">
-      <div role="dialog" aria-modal="true" aria-labelledby="review-request-title" className="bg-white rounded-xl border border-slate-200 shadow-xl p-5 w-full max-w-md space-y-4">
+    <dialog
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="review-request-title"
+      tabIndex={-1}
+      onKeyDown={trapFocus}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      className="m-auto w-[calc(100%-2rem)] max-w-md space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xl backdrop:bg-slate-900/60"
+    >
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 id="review-request-title" className="font-bold text-slate-900 inline-flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Request criterion review</h2>
@@ -98,7 +140,6 @@ export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCre
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </dialog>
   );
 };
