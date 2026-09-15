@@ -477,13 +477,21 @@ export const AppealsInboxView: React.FC = () => {
   const handleCloseModal = () => {
     const next = new URLSearchParams(searchParams);
     next.delete('requestId');
-    setSearchParams(next);
+    setSearchParams(next, { replace: true });
   };
 
   const totalItems = appealsQuery.data?.total ?? 0;
   const pageSize = appealsQuery.data?.page_size ?? 20;
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
   const requests = appealsQuery.data?.items ?? [];
+
+  useEffect(() => {
+    if (appealsQuery.data && page > totalPages) {
+      const next = new URLSearchParams(searchParams);
+      next.set('page', String(totalPages));
+      setSearchParams(next, { replace: true });
+    }
+  }, [appealsQuery.data, page, searchParams, setSearchParams, totalPages]);
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -506,6 +514,7 @@ export const AppealsInboxView: React.FC = () => {
           <span>{feedbackBanner}</span>
           <button
             type="button"
+            aria-label="Dismiss success message"
             onClick={() => setFeedbackBanner(undefined)}
             className="text-emerald-600 hover:text-emerald-800 font-bold"
           >
@@ -548,6 +557,7 @@ export const AppealsInboxView: React.FC = () => {
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
           <button
             type="button"
+            aria-pressed={!statusParam || statusParam === 'ALL'}
             onClick={() => handleStatusFilter('ALL')}
             className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
               !statusParam || statusParam === 'ALL'
@@ -559,6 +569,7 @@ export const AppealsInboxView: React.FC = () => {
           </button>
           <button
             type="button"
+            aria-pressed={statusParam === 'OPEN'}
             onClick={() => handleStatusFilter('OPEN')}
             className={`px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1 ${
               statusParam === 'OPEN'
@@ -571,6 +582,7 @@ export const AppealsInboxView: React.FC = () => {
           </button>
           <button
             type="button"
+            aria-pressed={statusParam === 'RESOLVED'}
             onClick={() => handleStatusFilter('RESOLVED')}
             className={`px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1 ${
               statusParam === 'RESOLVED'
@@ -583,6 +595,7 @@ export const AppealsInboxView: React.FC = () => {
           </button>
           <button
             type="button"
+            aria-pressed={statusParam === 'REJECTED'}
             onClick={() => handleStatusFilter('REJECTED')}
             className={`px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1 ${
               statusParam === 'REJECTED'

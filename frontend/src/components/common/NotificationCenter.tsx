@@ -90,6 +90,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const navigationLockRef = useRef(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -201,11 +202,12 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
   };
 
   const handleNotificationClick = async (notification: NotificationItem) => {
+    if (navigationLockRef.current) return;
+    navigationLockRef.current = true;
     setActionError(null);
     setNavigatingId(notification.id);
 
     try {
-      // 1. Await individual mark-read before navigation if unread
       if (!notification.read_at) {
         await apiData(
           api.PATCH('/api/v1/notifications/{notification_id}/read', {
@@ -215,7 +217,6 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
         void queryClient.invalidateQueries({ queryKey: ['notifications'] });
       }
 
-      // 2. Safe typed routing based strictly on notification type and activeRole
       const { type, payload } = notification;
       if (type === 'REVIEW_REQUEST_CREATED') {
         const requestId = payload?.review_request_id;
@@ -250,9 +251,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
         }
       }
     } catch (err) {
-      // On failure, display error and stay on current surface
       setActionError(getErrorMessage(err));
     } finally {
+      navigationLockRef.current = false;
       setNavigatingId(null);
     }
   };
@@ -371,7 +372,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
                     <button
                       type="button"
                       onClick={() => void handleNotificationClick(item)}
-                      disabled={isNavigating || isMarking}
+                      disabled={navigatingId !== null || isMarking}
                       className="flex-1 min-w-0 flex items-start gap-3 text-left focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[#1F4B7A] rounded-lg p-0.5 group"
                     >
                       <div
@@ -418,7 +419,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
                         type="button"
                         aria-label="Mark as read"
                         title="Mark as read"
-                        disabled={isMarking || isNavigating}
+                        disabled={navigatingId !== null || isMarking}
                         onClick={() => void markSingleRead(item.id)}
                         className="shrink-0 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[#1F4B7A] disabled:opacity-40"
                       >
