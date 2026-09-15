@@ -121,4 +121,3 @@ export interface Assignment {
   requirements: AssignmentRequirements;
   criteria: RubricCriterion[];
 }
-

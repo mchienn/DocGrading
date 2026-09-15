@@ -48,9 +48,7 @@ export const AppSidebar: React.FC<SidebarProps> = ({
             : []),
           { path: `/${activeRole}/courses`, label: 'Courses', icon: BookOpen },
           { path: `/${activeRole}/rubrics`, label: 'Rubrics', icon: Settings2 },
-          ...(activeRole === 'teacher'
-            ? [{ path: '/teacher/appeals', label: 'Appeals', icon: MessageSquare }]
-            : []),
+          { path: `/${activeRole}/appeals`, label: 'Appeals', icon: MessageSquare },
         ];
 
   return (

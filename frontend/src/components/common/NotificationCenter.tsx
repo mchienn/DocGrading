@@ -14,8 +14,13 @@ import {
 } from 'lucide-react';
 import { api, apiData, getErrorMessage } from '../../api/client';
 import type { components } from '../../api/schema';
+import type { WorkspaceRole } from '../../types/api';
 
 type NotificationItem = components['schemas']['NotificationResponse'];
+
+interface NotificationCenterProps {
+  activeRole: WorkspaceRole;
+}
 
 function getNotificationMeta(type: string): {
   title: string;
@@ -76,9 +81,10 @@ function getNotificationMeta(type: string): {
   }
 }
 
-export const NotificationCenter: React.FC = () => {
+export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRole }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [navigatingId, setNavigatingId] = useState<string | null>(null);
+  const [markingReadId, setMarkingReadId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
 
@@ -92,15 +98,14 @@ export const NotificationCenter: React.FC = () => {
     queryFn: () =>
       apiData(
         api.GET('/api/v1/notifications', {
-          params: { query: { page: 1, page_size: 50 } },
+          params: { query: { unread: true, page: 1, page_size: 100 } },
         }),
       ),
     refetchInterval: 10_000,
   });
 
+  const unreadCount = notificationsQuery.data?.total ?? 0;
   const items = notificationsQuery.data?.items ?? [];
-  const unreadItems = items.filter((item) => !item.read_at);
-  const unreadCount = unreadItems.length;
 
   // Handle outside click & Escape key
   useEffect(() => {
@@ -133,6 +138,8 @@ export const NotificationCenter: React.FC = () => {
   }, [isOpen]);
 
   const markSingleRead = async (notificationId: string) => {
+    setMarkingReadId(notificationId);
+    setActionError(null);
     try {
       await apiData(
         api.PATCH('/api/v1/notifications/{notification_id}/read', {
@@ -142,19 +149,42 @@ export const NotificationCenter: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['notifications'] });
     } catch (err) {
       setActionError(getErrorMessage(err));
+    } finally {
+      setMarkingReadId(null);
     }
   };
 
   const markAllRead = async () => {
-    if (unreadItems.length === 0 || isMarkingAll) return;
+    if (unreadCount === 0 || isMarkingAll) return;
     setIsMarkingAll(true);
     setActionError(null);
+
     try {
-      await apiData(
-        api.PATCH('/api/v1/notifications/read', {
-          body: { notification_ids: unreadItems.map((n) => n.id) },
-        }),
-      );
+      // Clear server unread pages in batches of <= 100 IDs until no unread remain
+      while (true) {
+        const res = await apiData(
+          api.GET('/api/v1/notifications', {
+            params: { query: { unread: true, page: 1, page_size: 100 } },
+          }),
+        );
+
+        const unreadIds = res.items.map((n) => n.id);
+        if (unreadIds.length === 0) {
+          break;
+        }
+
+        await apiData(
+          api.PATCH('/api/v1/notifications/read', {
+            body: { notification_ids: unreadIds },
+          }),
+        );
+
+        // If batch was smaller than requested page size or all marked, we are done
+        if (res.items.length < 100 && res.total <= res.items.length) {
+          break;
+        }
+      }
+
       await queryClient.invalidateQueries({ queryKey: ['notifications'] });
     } catch (err) {
       setActionError(getErrorMessage(err));
@@ -165,20 +195,27 @@ export const NotificationCenter: React.FC = () => {
 
   const handleNotificationClick = async (notification: NotificationItem) => {
     setActionError(null);
+    setNavigatingId(notification.id);
 
-    // 1. Mark read if unread
-    if (!notification.read_at) {
-      void markSingleRead(notification.id);
-    }
-
-    // 2. Safe deep linking based strictly on type and typed payload
     try {
+      // 1. Await individual mark-read before navigation if unread
+      if (!notification.read_at) {
+        await apiData(
+          api.PATCH('/api/v1/notifications/{notification_id}/read', {
+            params: { path: { notification_id: notification.id } },
+          }),
+        );
+        await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      }
+
+      // 2. Safe typed routing based strictly on notification type and activeRole
       const { type, payload } = notification;
       if (type === 'REVIEW_REQUEST_CREATED') {
         const requestId = payload?.review_request_id;
         if (requestId && typeof requestId === 'string') {
           setIsOpen(false);
-          navigate(`/teacher/appeals?requestId=${encodeURIComponent(requestId)}`);
+          const basePath = activeRole === 'admin' ? '/admin/appeals' : '/teacher/appeals';
+          navigate(`${basePath}?requestId=${encodeURIComponent(requestId)}`);
         }
       } else if (type === 'RESULT_PUBLISHED') {
         const submissionId = payload?.submission_id;
@@ -189,16 +226,8 @@ export const NotificationCenter: React.FC = () => {
       } else if (type === 'REVIEW_REQUEST_RESOLVED' || type === 'REVIEW_REQUEST_REJECTED') {
         const requestId = payload?.review_request_id;
         if (requestId && typeof requestId === 'string') {
-          setNavigatingId(notification.id);
-          const requestDetail = await apiData(
-            api.GET('/api/v1/review-requests/{review_request_id}', {
-              params: { path: { review_request_id: requestId } },
-            }),
-          );
           setIsOpen(false);
-          if (requestDetail.submission_id) {
-            navigate(`/student/submissions/${encodeURIComponent(requestDetail.submission_id)}/result`);
-          }
+          navigate(`/student/appeals/${encodeURIComponent(requestId)}`);
         }
       } else if (type === 'ANALYSIS_JOB_ERROR') {
         const jobId = payload?.analysis_job_id;
@@ -208,6 +237,7 @@ export const NotificationCenter: React.FC = () => {
         }
       }
     } catch (err) {
+      // On failure, display error and stay on current surface
       setActionError(getErrorMessage(err));
     } finally {
       setNavigatingId(null);
@@ -260,9 +290,9 @@ export const NotificationCenter: React.FC = () => {
             {unreadCount > 0 && (
               <button
                 type="button"
-                onClick={markAllRead}
+                onClick={() => void markAllRead()}
                 disabled={isMarkingAll}
-                className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1F4B7A] hover:text-[#163657] disabled:opacity-50"
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1F4B7A] hover:text-[#163657] disabled:opacity-50 transition-colors"
               >
                 {isMarkingAll ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -271,7 +301,7 @@ export const NotificationCenter: React.FC = () => {
                 )}
                 <span>Mark all as read</span>
               </button>
-)}
+            )}
           </div>
 
           {/* Error Message */}
@@ -288,7 +318,7 @@ export const NotificationCenter: React.FC = () => {
           <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
             {notificationsQuery.isLoading ? (
               <div className="p-8 text-center text-slate-400 flex flex-col items-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <Loader2 className="w-5 h-5 animate-spin text-[#1F4B7A]" />
                 <span>Loading notifications...</span>
               </div>
             ) : notificationsQuery.isError ? (
@@ -305,7 +335,7 @@ export const NotificationCenter: React.FC = () => {
             ) : items.length === 0 ? (
               <div className="p-8 text-center text-slate-400">
                 <Bell className="w-8 h-8 mx-auto mb-2 text-slate-300 stroke-1" />
-                <p className="font-medium text-slate-600">No notifications</p>
+                <p className="font-medium text-slate-600">No unread notifications</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">You're all caught up!</p>
               </div>
             ) : (
@@ -313,66 +343,77 @@ export const NotificationCenter: React.FC = () => {
                 const meta = getNotificationMeta(item.type);
                 const isUnread = !item.read_at;
                 const isNavigating = navigatingId === item.id;
+                const isMarking = markingReadId === item.id;
                 const IconComponent = meta.Icon;
 
                 return (
                   <div
                     key={item.id}
                     data-testid="notification-item"
-                    className={`relative p-3 transition-colors flex items-start gap-3 cursor-pointer ${
+                    className={`relative p-3 transition-colors flex items-start gap-2.5 ${
                       isUnread ? 'bg-sky-50/40 hover:bg-sky-50/70' : 'bg-white hover:bg-slate-50'
                     }`}
-                    onClick={() => void handleNotificationClick(item)}
                   >
-                    <div
-                      className={`p-2 rounded-lg border shrink-0 mt-0.5 ${meta.badgeBg} ${meta.iconColor}`}
+                    {/* Keyboard-activatable navigation action button */}
+                    <button
+                      type="button"
+                      onClick={() => void handleNotificationClick(item)}
+                      disabled={isNavigating || isMarking}
+                      className="flex-1 min-w-0 flex items-start gap-3 text-left focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[#1F4B7A] rounded-lg p-0.5 group"
                     >
-                      {isNavigating ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-[#1F4B7A]" />
-                      ) : (
-                        <IconComponent className="w-4 h-4" />
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0 pr-6">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={`font-semibold truncate ${
-                            isUnread ? 'text-slate-900 font-bold' : 'text-slate-700'
-                          }`}
-                        >
-                          {meta.title}
-                        </span>
-                        {isUnread && (
-                          <span
-                            className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0"
-                            aria-label="Unread"
-                          />
+                      <div
+                        className={`p-2 rounded-lg border shrink-0 mt-0.5 ${meta.badgeBg} ${meta.iconColor}`}
+                      >
+                        {isNavigating ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-[#1F4B7A]" />
+                        ) : (
+                          <IconComponent className="w-4 h-4" />
                         )}
                       </div>
-                      <p className="text-slate-500 text-[11px] mt-0.5 leading-relaxed">
-                        {meta.description}
-                      </p>
-                      <time
-                        dateTime={item.created_at}
-                        className="text-[10px] text-slate-400 block mt-1"
-                      >
-                        {new Date(item.created_at).toLocaleString()}
-                      </time>
-                    </div>
 
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`truncate ${
+                              isUnread ? 'text-slate-900 font-bold' : 'text-slate-700 font-medium'
+                            }`}
+                          >
+                            {meta.title}
+                          </span>
+                          {isUnread && (
+                            <span
+                              className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0"
+                              aria-label="Unread"
+                            />
+                          )}
+                        </div>
+                        <p className="text-slate-500 text-[11px] mt-0.5 leading-relaxed">
+                          {meta.description}
+                        </p>
+                        <time
+                          dateTime={item.created_at}
+                          className="text-[10px] text-slate-400 block mt-1"
+                        >
+                          {new Date(item.created_at).toLocaleString()}
+                        </time>
+                      </div>
+                    </button>
+
+                    {/* Sibling mark-as-read button (NOT nested inside the navigation button) */}
                     {isUnread && (
                       <button
                         type="button"
                         aria-label="Mark as read"
                         title="Mark as read"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void markSingleRead(item.id);
-                        }}
-                        className="absolute right-2.5 top-3 p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+                        disabled={isMarking || isNavigating}
+                        onClick={() => void markSingleRead(item.id)}
+                        className="shrink-0 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[#1F4B7A] disabled:opacity-40"
                       >
-                        <Check className="w-3.5 h-3.5" />
+                        {isMarking ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1F4B7A]" />
+                        ) : (
+                          <Check className="w-3.5 h-3.5" />
+                        )}
                       </button>
                     )}
                   </div>

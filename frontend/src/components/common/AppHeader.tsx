@@ -22,7 +22,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ activeRole, title }) => (
       <span className="text-[#172033] font-semibold">{title}</span>
     </div>
     <div className="flex items-center gap-3">
-      <NotificationCenter />
+      <NotificationCenter activeRole={activeRole} />
     </div>
   </header>
 );

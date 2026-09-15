@@ -527,4 +527,3 @@ export const INITIAL_SUBMISSIONS: Submission[] = [
     pages: [],
   },
 ];
-
