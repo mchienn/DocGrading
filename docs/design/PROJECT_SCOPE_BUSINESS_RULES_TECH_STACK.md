@@ -21,7 +21,7 @@ Kiến trúc được chọn là **modular monolith có worker riêng**:
 - PDF: PDF.js ở trình duyệt; pypdf và pdfplumber ở worker.
 - Triển khai MVP: Docker Compose trên một máy chủ, không dùng Kubernetes hoặc microservice.
 
-Repository hiện có frontend React/Vite nối trực tiếp session auth, Course, Assignment, Rubric, upload PDF, trạng thái job, Submission Queue, PDF.js review viewer với evidence hai chiều, review draft/evidence, approve/publish, kết quả đã công bố, yêu cầu xem lại theo criterion và Admin dashboard/user/job/audit/force-release; backend đã triển khai domain, authorization và API nghiệp vụ tương ứng đến T-025 cùng API tạo tài khoản Admin. Product UI chưa nối phản hồi review request, notification và luồng nộp lại/so sánh version; các luồng đó tiếp tục ẩn cho đến khi frontend tương ứng hoàn tất.
+Repository hiện có frontend React/Vite nối trực tiếp session auth, Course, Assignment, Rubric, upload PDF, trạng thái job, Submission Queue, PDF.js review viewer với evidence hai chiều, review draft/evidence, approve/publish, kết quả đã công bố, yêu cầu xem lại theo criterion, Teacher/Admin xử lý yêu cầu, notification center và Admin dashboard/user/job/audit/force-release; backend đã triển khai domain, authorization và API nghiệp vụ tương ứng đến T-025 cùng API tạo tài khoản Admin. Product UI chưa nối luồng nộp lại/so sánh version; luồng đó tiếp tục ẩn cho đến khi frontend tương ứng hoàn tất.
 
 ## 2. Mục tiêu sản phẩm
 
