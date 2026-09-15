@@ -28,7 +28,11 @@ from app.models.enums import (
 )
 from app.models.review import PublishedResultVersion
 from app.models.submission import DocumentVersion
-from app.services.review import compare_submission_versions, list_submission_versions
+from app.services.review import (
+    compare_submission_versions,
+    get_student_published_result,
+    list_submission_versions,
+)
 from app.services.submission import initiate_upload
 from tests.test_t011_review_workspace import _actor, _cleanup_graph, _ids, _seed_graph
 
@@ -220,6 +224,12 @@ async def _version_history_scenario() -> None:
         assert second.version_number == 2
         assert second.previous_version_id == first.id
         await session.flush()
+        visible_during_resubmit = await get_student_published_result(
+            session,
+            submission_id=ids["submission_1"],
+            user=student,
+        )
+        assert visible_during_resubmit.document_version_id == first.id
 
         stored_first = (
             await session.execute(
