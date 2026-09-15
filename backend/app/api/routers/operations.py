@@ -4,7 +4,9 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import PlainTextResponse
+from fastapi.routing import APIRoute
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,7 @@ from app.api.schemas_operations import (
     AdminAnalysisJobListResponse,
     AdminAuditEventListResponse,
     AdminDashboardResponse,
+    AdminUserCreateRequest,
     AdminUserListResponse,
     AdminUserResponse,
     AdminUserUpdateRequest,
@@ -48,6 +51,56 @@ async def list_users(
         page=page,
         page_size=page_size,
     )
+
+
+class _CreateUserRoute(APIRoute):
+    def get_route_handler(self):  # noqa: ANN202
+        handler = super().get_route_handler()
+
+        async def safe_handler(request):  # noqa: ANN001, ANN202
+            try:
+                return await handler(request)
+            except RequestValidationError as exc:
+                # FastAPI validation inputs may contain the plaintext password.
+                raise HTTPException(
+                    status_code=422,
+                    detail=[
+                        {key: error[key] for key in ("loc", "msg", "type")}
+                        for error in exc.errors()
+                    ],
+                ) from None
+
+        return safe_handler
+
+
+async def create_user(
+    body: AdminUserCreateRequest,
+    admin: User = Depends(admin_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> AdminUserResponse:
+    try:
+        response = await operations_svc.create_user(
+            db, body=body, actor_user_id=admin.id
+        )
+        await db.commit()
+        return response
+    except IntegrityError as exc:
+        await db.rollback()
+        if getattr(exc.orig, "sqlstate", None) != "23505":
+            raise
+        raise HTTPException(
+            status_code=409, detail="Email is already registered"
+        ) from None
+
+
+router.add_api_route(
+    "/users",
+    create_user,
+    methods=["POST"],
+    status_code=201,
+    response_model=AdminUserResponse,
+    route_class_override=_CreateUserRoute,
+)
 
 
 @router.get("/users/{user_id}", response_model=AdminUserResponse)

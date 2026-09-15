@@ -13,6 +13,10 @@ import {
   type AuthChangeKind,
 } from '../api/client';
 import { AppHeader } from '../components/common/AppHeader';
+import { AdminDashboardView } from '../components/admin/AdminDashboardView';
+import { UserManagementView } from '../components/admin/UserManagementView';
+import { JobMonitoringView } from '../components/admin/JobMonitoringView';
+import { AuditLogView } from '../components/admin/AuditLogView';
 import { AppSidebar } from '../components/common/AppSidebar';
 import { AuthShell } from '../components/auth/AuthShell';
 import { CourseListView } from '../components/teacher/CourseListView';
@@ -32,7 +36,8 @@ import { strongestRole, type WorkspaceRole } from '../types/api';
 type AssignmentInput = components['schemas']['AssignmentCreate'];
 
 function defaultPath(role: WorkspaceRole): string {
-  return role === 'student' ? '/student/assignments' : `/${role}/courses`;
+  if (role === 'admin') return '/admin/dashboard';
+  return role === 'student' ? '/student/assignments' : '/teacher/courses';
 }
 
 function clearUserData(queryClient: QueryClient): void {
@@ -237,7 +242,13 @@ export const App: React.FC = () => {
   const user = sessionQuery.data;
   const activeRole = strongestRole(user.roles);
   const home = defaultPath(activeRole);
-  const title = location.pathname.includes('/rubrics')
+  const adminTitles: Record<string, string> = {
+    '/admin/dashboard': 'Admin dashboard',
+    '/admin/users': 'Users',
+    '/admin/jobs': 'Analysis jobs',
+    '/admin/audit': 'Audit trail',
+  };
+  const title = adminTitles[location.pathname] ?? (location.pathname.includes('/rubrics')
     ? 'Rubrics'
     : location.pathname.includes('/upload')
       ? 'Upload'
@@ -245,7 +256,7 @@ export const App: React.FC = () => {
         ? 'Processing status'
         : activeRole === 'student'
           ? 'Assignments'
-          : 'Courses';
+          : 'Courses');
 
   const logout = async () => {
     if (loggingOut) return;
@@ -285,6 +296,10 @@ export const App: React.FC = () => {
             <Route path="/teacher/courses/:courseId/submissions" element={activeRole === 'teacher' ? <SubmissionQueueView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions/:submissionId" element={activeRole === 'teacher' ? <ReviewWorkspaceView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses" element={activeRole === 'admin' ? <CoursesPage role="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/dashboard" element={activeRole === 'admin' ? <AdminDashboardView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/users" element={activeRole === 'admin' ? <UserManagementView currentUserId={user.id} /> : <Navigate to={home} replace />} />
+            <Route path="/admin/jobs" element={activeRole === 'admin' ? <JobMonitoringView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/audit" element={activeRole === 'admin' ? <AuditLogView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId" element={activeRole === 'admin' ? <CoursePage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/rubrics" element={activeRole === 'admin' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions" element={activeRole === 'admin' ? <SubmissionQueueView role="admin" /> : <Navigate to={home} replace />} />

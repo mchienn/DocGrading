@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from app.api.schemas_operations import (
     AdminAuditEventListResponse,
     AdminAuditEventResponse,
     AdminDashboardResponse,
+    AdminUserCreateRequest,
     AdminUserListResponse,
     AdminUserResponse,
     AdminUserUpdateRequest,
@@ -35,6 +37,7 @@ from app.models.identity import User
 from app.models.review import ReviewRequest
 from app.models.submission import DocumentVersion, Submission
 from app.services.audit import record_audit
+from app.services.auth import hash_password
 
 _SENSITIVE_KEY_PARTS = (
     "password",
@@ -278,6 +281,46 @@ async def get_user(db: AsyncSession, user_id: uuid.UUID) -> AdminUserResponse:
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    return AdminUserResponse.model_validate(user)
+
+
+async def create_user(
+    db: AsyncSession,
+    *,
+    body: AdminUserCreateRequest,
+    actor_user_id: uuid.UUID,
+) -> AdminUserResponse:
+    await db.execute(
+        sa.select(sa.func.pg_advisory_xact_lock(_USER_ADMIN_MUTATION_LOCK_ID))
+    )
+    if await db.scalar(
+        sa.select(sa.exists().where(sa.func.lower(User.email) == body.email))
+    ):
+        raise HTTPException(status_code=409, detail="Email is already registered")
+    user = User(
+        email=body.email,
+        display_name=body.display_name,
+        password_hash=await asyncio.to_thread(hash_password, body.password),
+        roles=[role for role in UserRole if role in body.roles],
+        status=UserStatus.ACTIVE,
+    )
+    db.add(user)
+    await db.flush()
+    await record_audit(
+        db,
+        actor_user_id=actor_user_id,
+        resource_type="User",
+        resource_id=user.id,
+        action="CREATE",
+        before=None,
+        after={
+            "roles": [role.value for role in user.roles],
+            "status": user.status.value,
+        },
+        reason="Administrator created account",
+    )
+    await db.flush()
+    await db.refresh(user)
     return AdminUserResponse.model_validate(user)
 
 

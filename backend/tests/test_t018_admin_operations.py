@@ -46,7 +46,7 @@ def test_admin_operation_contracts_are_explicit_and_admin_only() -> None:
     schema = app.openapi()
     methods = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
     expected = {
-        "/api/v1/users": {"get"},
+        "/api/v1/users": {"get", "post"},
         "/api/v1/users/{user_id}": {"get", "patch"},
         "/api/v1/operations/analysis-jobs": {"get"},
         "/api/v1/operations/analysis-jobs/{job_id}": {"get"},

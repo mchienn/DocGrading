@@ -1,43 +1,10 @@
 import {
-  AppUser,
   Course,
   Assignment,
   RubricCriterion,
   Submission,
-  EvaluationJob,
-  AuditLogItem,
   ReviewAppeal,
 } from '../types/docgrading';
-
-export const CURRENT_USERS: Record<string, AppUser> = {
-  teacher: {
-    id: 'USR-TEACHER-01',
-    fullName: 'TS. Lê Hoàng Nam',
-    email: 'nam.lehoang@hust.edu.vn',
-    role: 'teacher',
-    department: 'Bộ môn Kỹ thuật Phần mềm',
-    status: 'active',
-    avatarInitials: 'LN',
-  },
-  student: {
-    id: 'USR-STUDENT-01',
-    fullName: 'Đỗ Minh Trí',
-    email: 'tri.dm214567@sis.hust.edu.vn',
-    role: 'student',
-    department: 'Kỹ thuật Phần mềm K66',
-    status: 'active',
-    avatarInitials: 'MT',
-  },
-  admin: {
-    id: 'USR-ADMIN-01',
-    fullName: 'Quản trị viên Hệ thống',
-    email: 'admin.docgrading@hust.edu.vn',
-    role: 'admin',
-    department: 'Ban Đào tạo & Khảo thí',
-    status: 'active',
-    avatarInitials: 'AD',
-  },
-};
 
 export const DEFAULT_SRS_CRITERIA: RubricCriterion[] = [
   {
@@ -559,89 +526,6 @@ export const INITIAL_SUBMISSIONS: Submission[] = [
     confidence: 0,
     criteriaResults: [],
     pages: [],
-  },
-];
-
-export const INITIAL_JOBS: EvaluationJob[] = [
-  {
-    id: 'JOB-9021',
-    correlationId: 'c7a8b9-1029-4d2e',
-    submissionId: 'SUB-001',
-    studentName: 'Đỗ Minh Trí',
-    assignmentTitle: 'Đặc tả Yêu cầu Phần mềm (SRS) - Đợt 1',
-    status: 'completed',
-    progress: 100,
-    evaluator: 'Hybrid: Rule-Engine + LLM-Evaluator v2.4',
-    duration: '42.6s',
-    createdAt: '2026-09-05 10:15:32',
-  },
-  {
-    id: 'JOB-9022',
-    correlationId: 'd8b9c0-2130-5e3f',
-    submissionId: 'SUB-002',
-    studentName: 'Trần Thị Thảo',
-    assignmentTitle: 'Đặc tả Yêu cầu Phần mềm (SRS) - Đợt 1',
-    status: 'completed',
-    progress: 100,
-    evaluator: 'Hybrid: Rule-Engine + LLM-Evaluator v2.4',
-    duration: '38.1s',
-    createdAt: '2026-09-04 16:20:10',
-  },
-  {
-    id: 'JOB-9023',
-    correlationId: 'e9c0d1-3241-6f4a',
-    submissionId: 'SUB-004',
-    studentName: 'Vũ Đức Cường',
-    assignmentTitle: 'Đặc tả Yêu cầu Phần mềm (SRS) - Đợt 1',
-    status: 'failed',
-    progress: 45,
-    evaluator: 'PDF-Text-Layer-Validator',
-    duration: '6.2s',
-    errorReason: 'Phát hiện trang 14, 15 được quét dưới dạng ảnh raster (Scanned image), thiếu text layer native.',
-    createdAt: '2026-09-05 14:00:15',
-  },
-];
-
-export const INITIAL_AUDIT_LOGS: AuditLogItem[] = [
-  {
-    id: 'LOG-001',
-    userId: 'USR-TEACHER-01',
-    userName: 'TS. Lê Hoàng Nam',
-    action: 'publish_result',
-    targetType: 'Submission',
-    targetId: 'SUB-003',
-    timestamp: '2026-09-02 14:30:12',
-    details: 'Công bố kết quả chính thức cho bài nộp của SV Lê Hoàng Long (Điểm: 92.0/100).',
-  },
-  {
-    id: 'LOG-002',
-    userId: 'USR-TEACHER-01',
-    userName: 'TS. Lê Hoàng Nam',
-    action: 'override_score',
-    targetType: 'CriterionResult',
-    targetId: 'CRT-06',
-    timestamp: '2026-09-02 11:15:40',
-    details: 'Điều chỉnh điểm tiêu chí Testability từ Mức 3 lên Mức 4 với lý do: "Sinh viên đã định lượng đủ các chỉ số độ trễ".',
-  },
-  {
-    id: 'LOG-003',
-    userId: 'USR-ADMIN-01',
-    userName: 'Admin System',
-    action: 'retry_job',
-    targetType: 'EvaluationJob',
-    targetId: 'JOB-9020',
-    timestamp: '2026-09-01 08:45:10',
-    details: 'Kích hoạt chạy lại tác vụ phân tích Celery sau khi máy chủ worker tái kết nối.',
-  },
-  {
-    id: 'LOG-004',
-    userId: 'USR-ADMIN-01',
-    userName: 'Admin System',
-    action: 'role_change',
-    targetType: 'User',
-    targetId: 'USR-TEACHER-02',
-    timestamp: '2026-08-30 09:12:00',
-    details: 'Gán quyền Giảng viên bộ môn (Teacher) cho ThS. Nguyễn Bích Ngọc.',
   },
 ];
 
