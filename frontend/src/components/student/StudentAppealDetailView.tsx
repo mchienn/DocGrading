@@ -219,7 +219,7 @@ export const StudentAppealDetailView: React.FC = () => {
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>View Published Result for this Submission</span>
+                  <span>View Latest Published Result</span>
                 </Link>
               </div>
             )}

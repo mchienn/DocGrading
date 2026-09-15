@@ -264,11 +264,10 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                   <label id="decision-label" className="block text-slate-700 font-semibold mb-1.5">
                     Resolution Decision
                   </label>
-                  <div className="grid grid-cols-2 gap-2.5" role="radiogroup" aria-labelledby="decision-label">
+                  <div className="grid grid-cols-2 gap-2.5" role="group" aria-labelledby="decision-label">
                     <button
                       type="button"
-                      role="radio"
-                      aria-checked={resolutionStatus === 'RESOLVED'}
+                      aria-pressed={resolutionStatus === 'RESOLVED'}
                       onClick={() => setResolutionStatus('RESOLVED')}
                       className={`py-2.5 px-3 rounded-xl font-semibold border text-center transition-all flex items-center justify-center gap-2 ${
                         resolutionStatus === 'RESOLVED'
@@ -281,8 +280,7 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      role="radio"
-                      aria-checked={resolutionStatus === 'REJECTED'}
+                      aria-pressed={resolutionStatus === 'REJECTED'}
                       onClick={() => setResolutionStatus('REJECTED')}
                       className={`py-2.5 px-3 rounded-xl font-semibold border text-center transition-all flex items-center justify-center gap-2 ${
                         resolutionStatus === 'REJECTED'

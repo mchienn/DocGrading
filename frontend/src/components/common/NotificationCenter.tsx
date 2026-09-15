@@ -94,18 +94,28 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
   const queryClient = useQueryClient();
 
   const notificationsQuery = useQuery({
-    queryKey: ['notifications'],
+    queryKey: ['notifications', 'recent'],
     queryFn: () =>
       apiData(
         api.GET('/api/v1/notifications', {
-          params: { query: { unread: true, page: 1, page_size: 100 } },
+          params: { query: { page: 1, page_size: 100 } },
+        }),
+      ),
+    refetchInterval: 10_000,
+  });
+  const unreadQuery = useQuery({
+    queryKey: ['notifications', 'unread'],
+    queryFn: () =>
+      apiData(
+        api.GET('/api/v1/notifications', {
+          params: { query: { unread: true, page: 1, page_size: 1 } },
         }),
       ),
     refetchInterval: 10_000,
   });
 
-  const unreadCount = notificationsQuery.data?.total ?? 0;
   const items = notificationsQuery.data?.items ?? [];
+  const unreadCount = unreadQuery.data?.total ?? items.filter((item) => !item.read_at).length;
 
   // Handle outside click & Escape key
   useEffect(() => {
@@ -146,7 +156,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
           params: { path: { notification_id: notificationId } },
         }),
       );
-      await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
     } catch (err) {
       setActionError(getErrorMessage(err));
     } finally {
@@ -179,13 +189,10 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
           }),
         );
 
-        // If batch was smaller than requested page size or all marked, we are done
-        if (res.items.length < 100 && res.total <= res.items.length) {
-          break;
-        }
+        // Fetch page 1 again until the server has no unread rows.
       }
 
-      await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
     } catch (err) {
       setActionError(getErrorMessage(err));
     } finally {
@@ -205,7 +212,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
             params: { path: { notification_id: notification.id } },
           }),
         );
-        await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        void queryClient.invalidateQueries({ queryKey: ['notifications'] });
       }
 
       // 2. Safe typed routing based strictly on notification type and activeRole
@@ -219,15 +226,21 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
         }
       } else if (type === 'RESULT_PUBLISHED') {
         const submissionId = payload?.submission_id;
-        if (submissionId && typeof submissionId === 'string') {
+        if (submissionId && typeof submissionId === 'string' && activeRole === 'student') {
           setIsOpen(false);
           navigate(`/student/submissions/${encodeURIComponent(submissionId)}/result`);
+        } else if (activeRole !== 'student') {
+          setActionError('Published results are available only in the Student workspace.');
         }
       } else if (type === 'REVIEW_REQUEST_RESOLVED' || type === 'REVIEW_REQUEST_REJECTED') {
         const requestId = payload?.review_request_id;
         if (requestId && typeof requestId === 'string') {
           setIsOpen(false);
-          navigate(`/student/appeals/${encodeURIComponent(requestId)}`);
+          if (activeRole === 'student') {
+            navigate(`/student/appeals/${encodeURIComponent(requestId)}`);
+          } else {
+            navigate(`/${activeRole}/appeals?requestId=${encodeURIComponent(requestId)}`);
+          }
         }
       } else if (type === 'ANALYSIS_JOB_ERROR') {
         const jobId = payload?.analysis_job_id;
@@ -335,7 +348,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
             ) : items.length === 0 ? (
               <div className="p-8 text-center text-slate-400">
                 <Bell className="w-8 h-8 mx-auto mb-2 text-slate-300 stroke-1" />
-                <p className="font-medium text-slate-600">No unread notifications</p>
+                <p className="font-medium text-slate-600">No notifications</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">You're all caught up!</p>
               </div>
             ) : (
