@@ -30,7 +30,7 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-API: `http://localhost:8000`; OpenAPI: `http://localhost:8000/api/v1/openapi.json`.
+Frontend: `http://localhost:5173`; API: `http://localhost:8000`; OpenAPI: `http://localhost:8000/api/v1/openapi.json`.
 
 Kiểm tra API:
 

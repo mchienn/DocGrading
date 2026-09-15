@@ -5,9 +5,17 @@ React/Vite client for Admin, Teacher, and Student workspaces. Active product rou
 
 Original design: [Figma — Follow Markdown Guide](https://www.figma.com/design/VNMmj3UUihw1Wp1duygxZl/Follow-Markdown-Guide).
 
-## Run locally
+## Run
 
-Start FastAPI on `http://127.0.0.1:8000`, then:
+From repository root, run the full stack:
+
+```bash
+docker compose up --build
+```
+
+Frontend: `http://localhost:5173`.
+
+For frontend-only development, start FastAPI on `http://127.0.0.1:8000`, then:
 
 ```bash
 pnpm install
