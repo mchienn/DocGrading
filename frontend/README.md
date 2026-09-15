@@ -1,7 +1,7 @@
 
 # DocGrading Frontend
 
-React/Vite client for Admin, Teacher, and Student workspaces. Active product routes use FastAPI session, Course, Assignment, Rubric, PDF upload, analysis-job, submission queue, PDF.js review with bidirectional evidence, review draft/evidence, approval/publication, published-result, and criterion review-request APIs. Notification, audit, administration, and resubmission/version-comparison screens remain outside product routing.
+React/Vite client for Admin, Teacher, and Student workspaces. Active product routes use FastAPI session, Course, Assignment, Rubric, PDF upload, analysis-job, submission queue, PDF.js review with bidirectional evidence, review draft/evidence, approval/publication, published-result, criterion review-request, and Admin dashboard/user/job/audit/force-release APIs. Notification, review-request response, and resubmission/version-comparison screens remain outside product routing.
 
 Original design: [Figma — Follow Markdown Guide](https://www.figma.com/design/VNMmj3UUihw1Wp1duygxZl/Follow-Markdown-Guide).
 
