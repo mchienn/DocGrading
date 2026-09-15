@@ -3,7 +3,6 @@ import {
   Assignment,
   RubricCriterion,
   Submission,
-  ReviewAppeal,
 } from '../types/docgrading';
 
 export const DEFAULT_SRS_CRITERIA: RubricCriterion[] = [
@@ -529,17 +528,3 @@ export const INITIAL_SUBMISSIONS: Submission[] = [
   },
 ];
 
-export const INITIAL_APPEALS: ReviewAppeal[] = [
-  {
-    id: 'APL-01',
-    submissionId: 'SUB-003',
-    studentName: 'Lê Hoàng Long',
-    studentCode: '20210344',
-    criterionId: 'CRT-10',
-    criterionName: 'Sơ đồ UML & Mô hình dữ liệu',
-    reason: 'Em đã bổ sung sơ đồ tương tác Sequence Diagram cho luồng thanh toán tại phụ lục trang 44 nhưng chưa thấy được tính điểm.',
-    status: 'resolved',
-    createdAt: '2026-09-03 09:30',
-    teacherResponse: 'Thầy đã kiểm tra lại phụ lục trang 44, sơ đồ đạt yêu cầu và đã cộng thêm điểm điều chỉnh.',
-  },
-];

@@ -24,6 +24,7 @@ import { CourseWorkspaceView } from '../components/teacher/CourseWorkspaceView';
 import { RubricTemplatesView } from '../components/teacher/RubricTemplatesView';
 import { SubmissionQueueView } from '../components/teacher/SubmissionQueueView';
 import { ReviewWorkspaceView } from '../components/teacher/ReviewWorkspaceView';
+import { AppealsInboxView } from '../components/teacher/AppealsInboxView';
 import { StudentPublishedResultView } from '../components/student/StudentPublishedResultView';
 import { StudentAssignmentsView } from '../components/student/StudentAssignmentsView';
 import { StudentUploadView } from '../components/student/StudentUploadView';
@@ -248,15 +249,19 @@ export const App: React.FC = () => {
     '/admin/jobs': 'Analysis jobs',
     '/admin/audit': 'Audit trail',
   };
-  const title = adminTitles[location.pathname] ?? (location.pathname.includes('/rubrics')
-    ? 'Rubrics'
-    : location.pathname.includes('/upload')
-      ? 'Upload'
-      : location.pathname.startsWith('/jobs/')
-        ? 'Processing status'
-        : activeRole === 'student'
-          ? 'Assignments'
-          : 'Courses');
+  const title = adminTitles[location.pathname] ?? (
+    location.pathname.startsWith('/teacher/appeals')
+      ? 'Appeals'
+      : location.pathname.includes('/rubrics')
+        ? 'Rubrics'
+        : location.pathname.includes('/upload')
+          ? 'Upload'
+          : location.pathname.startsWith('/jobs/')
+            ? 'Processing status'
+            : activeRole === 'student'
+              ? 'Assignments'
+              : 'Courses'
+  );
 
   const logout = async () => {
     if (loggingOut) return;
@@ -293,6 +298,7 @@ export const App: React.FC = () => {
             <Route path="/teacher/courses" element={activeRole === 'teacher' ? <CoursesPage role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId" element={activeRole === 'teacher' ? <CoursePage role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/rubrics" element={activeRole === 'teacher' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/appeals" element={activeRole === 'teacher' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions" element={activeRole === 'teacher' ? <SubmissionQueueView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions/:submissionId" element={activeRole === 'teacher' ? <ReviewWorkspaceView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses" element={activeRole === 'admin' ? <CoursesPage role="admin" /> : <Navigate to={home} replace />} />

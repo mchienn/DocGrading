@@ -122,15 +122,3 @@ export interface Assignment {
   criteria: RubricCriterion[];
 }
 
-export interface ReviewAppeal {
-  id: string;
-  submissionId: string;
-  studentName: string;
-  studentCode: string;
-  criterionId: string;
-  criterionName: string;
-  reason: string;
-  status: 'pending' | 'resolved' | 'rejected';
-  createdAt: string;
-  teacherResponse?: string;
-}
