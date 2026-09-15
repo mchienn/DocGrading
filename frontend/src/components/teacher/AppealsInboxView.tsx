@@ -471,7 +471,7 @@ export const AppealsInboxView: React.FC = () => {
   const handleOpenModal = (reqId: string) => {
     const next = new URLSearchParams(searchParams);
     next.set('requestId', reqId);
-    setSearchParams(next);
+    setSearchParams(next, { replace: true });
   };
 
   const handleCloseModal = () => {

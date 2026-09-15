@@ -87,6 +87,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
   const [markingReadId, setMarkingReadId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
+  const [notificationPage, setNotificationPage] = useState(1);
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -95,11 +96,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
   const queryClient = useQueryClient();
 
   const notificationsQuery = useQuery({
-    queryKey: ['notifications', 'recent'],
+    queryKey: ['notifications', 'recent', notificationPage],
     queryFn: () =>
       apiData(
         api.GET('/api/v1/notifications', {
-          params: { query: { page: 1, page_size: 100 } },
+          params: { query: { page: notificationPage, page_size: 50 } },
         }),
       ),
     refetchInterval: 10_000,
@@ -117,6 +118,10 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
 
   const items = notificationsQuery.data?.items ?? [];
   const unreadCount = unreadQuery.data?.total ?? items.filter((item) => !item.read_at).length;
+  const notificationTotalPages = Math.max(
+    1,
+    Math.ceil((notificationsQuery.data?.total ?? 0) / (notificationsQuery.data?.page_size ?? 50)),
+  );
 
   // Handle outside click & Escape key
   useEffect(() => {
@@ -221,6 +226,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
       if (type === 'REVIEW_REQUEST_CREATED') {
         const requestId = payload?.review_request_id;
         if (requestId && typeof requestId === 'string') {
+          void queryClient.invalidateQueries({ queryKey: ['review-requests'] });
           setIsOpen(false);
           const basePath = activeRole === 'admin' ? '/admin/appeals' : '/teacher/appeals';
           navigate(`${basePath}?requestId=${encodeURIComponent(requestId)}`);
@@ -433,6 +439,29 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
                   </div>
                 );
               })
+            )}
+            {!notificationsQuery.isLoading && !notificationsQuery.isError && notificationTotalPages > 1 && (
+              <div className="sticky bottom-0 flex items-center justify-between gap-3 bg-white px-3 py-2">
+                <button
+                  type="button"
+                  disabled={notificationPage <= 1}
+                  onClick={() => setNotificationPage((current) => current - 1)}
+                  className="font-semibold text-[#1F4B7A] disabled:opacity-40"
+                >
+                  Newer
+                </button>
+                <span className="text-slate-500">
+                  Page {notificationPage} of {notificationTotalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={notificationPage >= notificationTotalPages}
+                  onClick={() => setNotificationPage((current) => current + 1)}
+                  className="font-semibold text-[#1F4B7A] disabled:opacity-40"
+                >
+                  Older
+                </button>
+              </div>
             )}
           </div>
         </div>
