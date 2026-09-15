@@ -1,4 +1,4 @@
-name: Backend CI
+name: CI
 
 on:
   pull_request:
@@ -38,6 +38,31 @@ jobs:
         run: uv run black --check .
       - name: Pytest
         run: uv run pytest
+
+  frontend:
+    name: Typecheck and build frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        working-directory: frontend
+        run: pnpm typecheck
+      - name: Build application
+        working-directory: frontend
+        run: pnpm build
+      - name: Build frontend image
+        run: docker build --tag docgrading-frontend:ci frontend
 
   build:
     name: Build backend image
