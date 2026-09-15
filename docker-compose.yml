@@ -96,7 +96,7 @@ services:
       sh -c "alembic upgrade head &&
       exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -146,6 +146,18 @@ services:
       timeout: 8s
       start_period: 15s
       retries: 5
+    networks: [backend]
+
+  frontend:
+    build:
+      context: frontend
+    environment:
+      API_PROXY_TARGET: http://api:8000
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      api:
+        condition: service_healthy
     networks: [backend]
 
   load-smoke:

@@ -18,6 +18,14 @@ export const StudentPublishedResultView: React.FC = () => {
     enabled: Boolean(submissionId),
     retry: false,
   });
+  const versionsQuery = useQuery({
+    queryKey: ['submission-versions', submissionId],
+    queryFn: () => apiData(api.GET('/api/v1/submissions/{submission_id}/versions', {
+      params: { path: { submission_id: submissionId }, query: { page: 1, page_size: 100 } },
+    })),
+    enabled: Boolean(submissionId),
+    retry: false,
+  });
   const result = resultQuery.data;
   const criterionGroups = useMemo(() => {
     const groups = new Map<string, NonNullable<typeof result>['findings']>();
@@ -28,6 +36,11 @@ export const StudentPublishedResultView: React.FC = () => {
     }
     return [...groups.entries()];
   }, [result]);
+  const versions = versionsQuery.data?.items ?? [];
+  const latestDocumentVersion = versions[versions.length - 1];
+  const reviewEligible = Boolean(
+    result && versionsQuery.isSuccess && latestDocumentVersion?.document_version_id === result.document_version_id,
+  );
 
   return (
     <div className="p-6 sm:p-8 max-w-5xl mx-auto space-y-6">
@@ -51,6 +64,16 @@ export const StudentPublishedResultView: React.FC = () => {
       )}
 
       {requestStatus && <div role="status" className="p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm">{requestStatus}</div>}
+      {result && versionsQuery.isError && (
+        <div role="alert" className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+          Review request availability could not be verified.
+        </div>
+      )}
+      {result && versionsQuery.isSuccess && !reviewEligible && (
+        <div role="status" className="p-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-sm">
+          Review requests are unavailable for this result because a newer submission exists.
+        </div>
+      )}
 
       {resultQuery.isLoading ? (
         <p className="p-8 text-center text-slate-500">Loading published result...</p>
@@ -61,7 +84,8 @@ export const StudentPublishedResultView: React.FC = () => {
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-300"><ShieldCheck className="w-5 h-5" /> PUBLISHED</span>
               <button
                 type="button"
-                disabled={criterionGroups.length === 0}
+                disabled={criterionGroups.length === 0 || !reviewEligible}
+                title={!reviewEligible ? 'Review requests require the latest submitted document result.' : undefined}
                 onClick={() => setShowReviewRequest(true)}
                 className="inline-flex items-center gap-2 px-3 py-2 bg-white text-slate-900 rounded-lg text-sm font-semibold disabled:opacity-40"
               >
@@ -107,7 +131,7 @@ export const StudentPublishedResultView: React.FC = () => {
         </>
       ) : null}
 
-      {showReviewRequest && result && (
+      {showReviewRequest && result && reviewEligible && (
         <AppealModal
           result={result}
           onClose={() => setShowReviewRequest(false)}

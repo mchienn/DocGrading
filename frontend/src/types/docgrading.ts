@@ -1,15 +1,3 @@
-export type UserRole = 'teacher' | 'student' | 'admin';
-
-export interface AppUser {
-  id: string;
-  fullName: string;
-  email: string;
-  role: UserRole;
-  department: string;
-  status: 'active' | 'locked';
-  avatarInitials: string;
-}
-
 export interface Course {
   id: string;
   code: string;
@@ -132,42 +120,4 @@ export interface Assignment {
   rubricId: string;
   requirements: AssignmentRequirements;
   criteria: RubricCriterion[];
-}
-
-export interface EvaluationJob {
-  id: string;
-  correlationId: string;
-  submissionId: string;
-  studentName: string;
-  assignmentTitle: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  progress: number;
-  evaluator: string;
-  duration: string;
-  errorReason?: string;
-  createdAt: string;
-}
-
-export interface AuditLogItem {
-  id: string;
-  userId: string;
-  userName: string;
-  action: 'publish_result' | 'override_score' | 'retry_job' | 'role_change' | 'create_assignment';
-  targetType: string;
-  targetId: string;
-  timestamp: string;
-  details: string;
-}
-
-export interface ReviewAppeal {
-  id: string;
-  submissionId: string;
-  studentName: string;
-  studentCode: string;
-  criterionId: string;
-  criterionName: string;
-  reason: string;
-  status: 'pending' | 'resolved' | 'rejected';
-  createdAt: string;
-  teacherResponse?: string;
 }

@@ -438,7 +438,8 @@ export interface paths {
         /** List Users */
         get: operations["list_users_api_v1_users_get"];
         put?: never;
-        post?: never;
+        /** Create User */
+        post: operations["create_user_api_v1_users_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1107,6 +1108,17 @@ export interface components {
             submissions_by_course: components["schemas"]["CourseSubmissionCount"][];
             /** Open Review Requests */
             open_review_requests: number;
+        };
+        /** AdminUserCreateRequest */
+        AdminUserCreateRequest: {
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name: string;
+            /** Password */
+            password: string;
+            /** Roles */
+            roles: components["schemas"]["UserRole"][];
         };
         /** AdminUserListResponse */
         AdminUserListResponse: {
@@ -3078,6 +3090,41 @@ export interface operations {
             };
         };
     };
+    create_user_api_v1_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminUserCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    /** @description Canonical URL of the created user */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_user_api_v1_users__user_id__get: {
         parameters: {
             query?: never;
@@ -3112,7 +3159,9 @@ export interface operations {
     update_user_api_v1_users__user_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+            };
             path: {
                 user_id: string;
             };

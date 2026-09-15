@@ -1,5 +1,16 @@
 import React from 'react';
-import { BookOpen, GraduationCap, LogOut, Settings2, FolderKanban } from 'lucide-react';
+import {
+  BookOpen,
+  GraduationCap,
+  LogOut,
+  Settings2,
+  FolderKanban,
+  LayoutDashboard,
+  Users,
+  Activity,
+  History,
+  MessageSquare,
+} from 'lucide-react';
 import type { WorkspaceRole } from '../../types/api';
 
 interface SidebarProps {
@@ -23,12 +34,22 @@ export const AppSidebar: React.FC<SidebarProps> = ({
   onNavigate,
   onLogout,
 }) => {
-  const navItems = activeRole === 'student'
-    ? [{ path: '/student/assignments', label: 'Assignments', icon: FolderKanban }]
-    : [
-        { path: `/${activeRole}/courses`, label: 'Courses', icon: BookOpen },
-        { path: `/${activeRole}/rubrics`, label: 'Rubrics', icon: Settings2 },
-      ];
+  const navItems =
+    activeRole === 'student'
+      ? [{ path: '/student/assignments', label: 'Assignments', icon: FolderKanban }]
+      : [
+          ...(activeRole === 'admin'
+            ? [
+                { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                { path: '/admin/users', label: 'Users', icon: Users },
+                { path: '/admin/jobs', label: 'Analysis jobs', icon: Activity },
+                { path: '/admin/audit', label: 'Audit trail', icon: History },
+              ]
+            : []),
+          { path: `/${activeRole}/courses`, label: 'Courses', icon: BookOpen },
+          { path: `/${activeRole}/rubrics`, label: 'Rubrics', icon: Settings2 },
+          { path: `/${activeRole}/appeals`, label: 'Appeals', icon: MessageSquare },
+        ];
 
   return (
     <aside className="w-56 bg-white border-r border-[#DDE2E8] flex flex-col justify-between shrink-0 h-screen sticky top-0">

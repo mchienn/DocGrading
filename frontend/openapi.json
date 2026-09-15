@@ -1389,6 +1389,53 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Create User",
+        "operationId": "create_user_api_v1_users_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUserCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserResponse"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Canonical URL of the created user",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/users/{user_id}": {
@@ -1448,6 +1495,16 @@
               "type": "string",
               "format": "uuid",
               "title": "User Id"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"rev-[1-9]\\d*\"$",
+              "title": "If-Match"
             }
           }
         ],
@@ -3501,6 +3558,46 @@
           "open_review_requests"
         ],
         "title": "AdminDashboardResponse"
+      },
+      "AdminUserCreateRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 12,
+            "title": "Password"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/UserRole"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Roles"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "display_name",
+          "password",
+          "roles"
+        ],
+        "title": "AdminUserCreateRequest"
       },
       "AdminUserListResponse": {
         "properties": {

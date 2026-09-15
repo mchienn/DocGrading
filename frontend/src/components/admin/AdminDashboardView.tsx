@@ -1,172 +1,44 @@
 import React from 'react';
-import {
-  Users,
-  Layers,
-  Activity,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  Server,
-  ShieldAlert,
-  ArrowUpRight,
-  Database,
-} from 'lucide-react';
-import { EvaluationJob, AuditLogItem } from '../../types/docgrading';
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { api, apiData, getErrorMessage } from '../../api/client';
 
-interface AdminDashboardViewProps {
-  jobs: EvaluationJob[];
-  auditLogs: AuditLogItem[];
-  onOpenJobs: () => void;
-  onOpenUsers: () => void;
-  onOpenAudit: () => void;
-}
-
-export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
-  jobs,
-  auditLogs,
-  onOpenJobs,
-  onOpenUsers,
-  onOpenAudit,
-}) => {
-  const completedJobs = jobs.filter((j) => j.status === 'completed').length;
-  const failedJobs = jobs.filter((j) => j.status === 'failed').length;
-
+export const AdminDashboardView: React.FC = () => {
+  const dashboard = useQuery({
+    queryKey: ['admin-dashboard'],
+    queryFn: () => apiData(api.GET('/api/v1/operations/dashboard')),
+  });
+  const users = useQuery({
+    queryKey: ['admin-users', 'total'],
+    queryFn: () => apiData(api.GET('/api/v1/users', { params: { query: { page_size: 1 } } })),
+  });
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="border-b border-slate-200 pb-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Bảng điều khiển Quản trị Hệ thống (Admin)</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Giám sát vận hành cụm worker Celery, hàng đợi đánh giá PDF, người dùng và nhật ký kiểm toán.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="font-semibold text-slate-700">Production Node: Active</span>
-        </div>
+    <div className="p-6 sm:p-8 max-w-6xl mx-auto space-y-6">
+      <div className="flex justify-between border-b border-slate-200 pb-5">
+        <h1 className="text-2xl font-bold text-slate-900">Admin dashboard</h1>
+        <button type="button" disabled={dashboard.isFetching || users.isFetching} onClick={() => { void dashboard.refetch(); void users.refetch(); }} className="px-3 py-2 border border-slate-200 rounded-lg disabled:opacity-40">Refresh</button>
       </div>
-
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span>Tổng người dùng</span>
-            <Users className="w-4 h-4 text-slate-500" />
-          </div>
-          <p className="text-2xl font-bold text-slate-900 font-mono">138</p>
-          <span className="text-[11px] text-slate-500">12 Giảng viên • 124 Sinh viên • 2 Admin</span>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span>Hàng đợi Celery</span>
-            <Activity className="w-4 h-4 text-sky-500" />
-          </div>
-          <p className="text-2xl font-bold text-slate-900 font-mono">0 task</p>
-          <span className="text-[11px] text-emerald-600 font-medium">Hàng đợi thông suốt (Queue depth: 0)</span>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span>Thời gian xử lý TB</span>
-            <Clock className="w-4 h-4 text-slate-500" />
-          </div>
-          <p className="text-2xl font-bold text-slate-900 font-mono">38.2s</p>
-          <span className="text-[11px] text-slate-500">Bao gồm trích xuất IR & 12 tiêu chí</span>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span>Tỷ lệ phân tích thành công</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-          </div>
-          <p className="text-2xl font-bold text-emerald-600 font-mono">96.8%</p>
-          <span className="text-[11px] text-slate-500">Chỉ từ chối khi PDF scan không text</span>
-        </div>
+      <nav aria-label="Administration" className="flex gap-4 text-sm text-sky-700 underline">
+        <Link to="/admin/users">Users</Link><Link to="/admin/jobs">Analysis jobs</Link><Link to="/admin/audit">Audit trail</Link>
+      </nav>
+      {(dashboard.error || users.error) && <p role="alert" className="text-rose-700">{getErrorMessage(dashboard.error ?? users.error)}</p>}
+      {(dashboard.isLoading || users.isLoading) && <p role="status">Loading dashboard...</p>}
+      <div className="grid sm:grid-cols-3 gap-4">
+        <div className="p-5 bg-white border border-slate-200 rounded-xl"><h2>Total users</h2><p className="text-2xl font-bold">{users.data?.total ?? '—'}</p></div>
+        <div className="p-5 bg-white border border-slate-200 rounded-xl"><h2>Queued jobs</h2><p className="text-2xl font-bold">{dashboard.data?.jobs_by_status.QUEUED ?? '—'}</p></div>
+        <div className="p-5 bg-white border border-slate-200 rounded-xl"><h2>Open review requests</h2><p className="text-2xl font-bold">{dashboard.data?.open_review_requests ?? '—'}</p></div>
       </div>
-
-      {/* 2-column details */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Jobs */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-5 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 className="text-sm font-bold text-slate-900">Trạng thái các Job đánh giá gần đây</h2>
-            <button
-              type="button"
-              onClick={onOpenJobs}
-              className="text-xs text-sky-600 hover:underline flex items-center gap-1 font-medium"
-            >
-              <span>Xem tất cả</span>
-              <ArrowUpRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          <div className="space-y-2.5 text-xs">
-            {jobs.map((job) => (
-              <div
-                key={job.id}
-                className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between gap-3"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-slate-800">{job.id}</span>
-                    <span className="font-semibold text-slate-900 truncate max-w-xs">
-                      {job.studentName}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{job.evaluator}</p>
-                </div>
-
-                <div className="text-right shrink-0">
-                  {job.status === 'completed' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 font-mono">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {job.duration}
-                    </span>
-                  ) : job.status === 'failed' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-700">
-                      <AlertTriangle className="w-3 h-3" />
-                      Lỗi Scan PDF
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-700">
-                      Đang chạy
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Audit Log Highlights */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-5 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 className="text-sm font-bold text-slate-900">Lịch sử Audit Log gần nhất</h2>
-            <button
-              type="button"
-              onClick={onOpenAudit}
-              className="text-xs text-sky-600 hover:underline flex items-center gap-1 font-medium"
-            >
-              <span>Xem nhật ký</span>
-              <ArrowUpRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            {auditLogs.slice(0, 4).map((log) => (
-              <div key={log.id} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                  <span className="font-semibold text-slate-700">{log.userName}</span>
-                  <span className="font-mono">{log.timestamp}</span>
-                </div>
-                <p className="text-slate-800 text-xs leading-relaxed">{log.details}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      {dashboard.data && <>
+        <section className="p-5 bg-white border border-slate-200 rounded-xl space-y-3">
+          <h2 className="font-bold">Analysis jobs by status</h2>
+          <dl className="flex flex-wrap gap-6">{Object.entries(dashboard.data.jobs_by_status).map(([status, count]) => <div key={status}><dt className="text-xs text-slate-500">{status}</dt><dd className="text-xl font-semibold">{count}</dd></div>)}</dl>
+        </section>
+        <section className="p-5 bg-white border border-slate-200 rounded-xl space-y-3">
+          <h2 className="font-bold">Submissions by course</h2>
+          {!dashboard.data.submissions_by_course.length && <p>No courses available.</p>}
+          {dashboard.data.submissions_by_course.map((course) => <div key={course.course_id} className="flex justify-between border-b border-slate-200 py-2 gap-4"><Link className="text-sky-700 underline" to={`/admin/courses/${course.course_id}/submissions`}>{course.course_code} — {course.course_name}</Link><span>{course.submission_count}</span></div>)}
+        </section>
+      </>}
     </div>
   );
 };

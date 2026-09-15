@@ -1826,10 +1826,15 @@ async def get_student_published_result(
 ) -> PublishedResultResponse:
     if UserRole.STUDENT not in user.roles:
         raise HTTPException(status_code=404, detail="Published result not found")
-    latest_document = aliased(DocumentVersion)
-    latest_version_number = (
-        sa.select(sa.func.max(latest_document.version_number))
-        .where(latest_document.submission_id == submission_id)
+    latest_published_document = aliased(DocumentVersion)
+    latest_published_result = aliased(PublishedResultVersion)
+    latest_published_version_number = (
+        sa.select(sa.func.max(latest_published_document.version_number))
+        .join(
+            latest_published_result,
+            latest_published_result.document_version_id == latest_published_document.id,
+        )
+        .where(latest_published_document.submission_id == submission_id)
         .scalar_subquery()
     )
     row = (
@@ -1844,7 +1849,7 @@ async def get_student_published_result(
                 Submission.id == submission_id,
                 Submission.student_id == user.id,
                 DocumentVersion.status == DocumentStatus.PUBLISHED,
-                DocumentVersion.version_number == latest_version_number,
+                DocumentVersion.version_number == latest_published_version_number,
             )
             .order_by(
                 DocumentVersion.version_number.desc(),

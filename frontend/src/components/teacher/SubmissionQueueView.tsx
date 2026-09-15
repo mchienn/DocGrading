@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronLeft, ChevronRight, FileCheck2, LockKeyhole } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { components } from '../../api/schema';
-import { api, apiData, getErrorMessage } from '../../api/client';
+import { api, apiData, apiVoid, getErrorMessage } from '../../api/client';
 
 type QueueStatus = components['schemas']['QueueStatus'];
 type QueueSort = components['schemas']['QueueSort'];
@@ -21,6 +21,16 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({ role }
   const [sort, setSort] = useState<QueueSort>('desc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const queryClient = useQueryClient();
+  const releaseLock = useMutation({
+    mutationFn: (submissionId: string) => apiVoid(api.DELETE('/api/v1/submissions/{submission_id}/review-lock', {
+      params: { path: { submission_id: submissionId } },
+    })),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['submission-queue', courseId] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-audit'] }),
+    ]),
+  });
 
   const queueQuery = useQuery({
     queryKey: ['submission-queue', courseId, status, sort, page, pageSize],
@@ -109,6 +119,8 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({ role }
         </div>
       )}
 
+      {releaseLock.error && <p role="alert" className="text-sm text-rose-700">{getErrorMessage(releaseLock.error)}</p>}
+      {releaseLock.isSuccess && <p role="status" className="text-sm text-emerald-700">Review lock released.</p>}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -147,6 +159,20 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({ role }
                     ) : 'Unlocked'}
                   </td>
                   <td className="px-4 py-3 text-right">
+                    {role === 'admin' && item.review_lock && new Date(item.review_lock.expires_at).getTime() > Date.now() && (
+                      <button
+                        type="button"
+                        disabled={releaseLock.isPending || queueQuery.isFetching}
+                        onClick={() => {
+                          if (window.confirm(`Release the review lock held by ${item.review_lock?.reviewer_display_name}?`)) {
+                            releaseLock.mutate(item.submission_id);
+                          }
+                        }}
+                        className="mr-2 px-3 py-2 border border-rose-200 text-rose-700 rounded-lg text-xs font-semibold disabled:opacity-40"
+                      >
+                        Force release
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={!item.document_version_id || !['AWAITING_REVIEW', 'APPROVED', 'PUBLISHED'].includes(item.document_status ?? '')}

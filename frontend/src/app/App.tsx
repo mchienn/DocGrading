@@ -13,6 +13,10 @@ import {
   type AuthChangeKind,
 } from '../api/client';
 import { AppHeader } from '../components/common/AppHeader';
+import { AdminDashboardView } from '../components/admin/AdminDashboardView';
+import { UserManagementView } from '../components/admin/UserManagementView';
+import { JobMonitoringView } from '../components/admin/JobMonitoringView';
+import { AuditLogView } from '../components/admin/AuditLogView';
 import { AppSidebar } from '../components/common/AppSidebar';
 import { AuthShell } from '../components/auth/AuthShell';
 import { CourseListView } from '../components/teacher/CourseListView';
@@ -20,7 +24,9 @@ import { CourseWorkspaceView } from '../components/teacher/CourseWorkspaceView';
 import { RubricTemplatesView } from '../components/teacher/RubricTemplatesView';
 import { SubmissionQueueView } from '../components/teacher/SubmissionQueueView';
 import { ReviewWorkspaceView } from '../components/teacher/ReviewWorkspaceView';
+import { AppealsInboxView } from '../components/teacher/AppealsInboxView';
 import { StudentPublishedResultView } from '../components/student/StudentPublishedResultView';
+import { StudentAppealDetailView } from '../components/student/StudentAppealDetailView';
 import { StudentAssignmentsView } from '../components/student/StudentAssignmentsView';
 import { StudentUploadView } from '../components/student/StudentUploadView';
 import { StudentStatusTimelineView } from '../components/student/StudentStatusTimelineView';
@@ -32,7 +38,8 @@ import { strongestRole, type WorkspaceRole } from '../types/api';
 type AssignmentInput = components['schemas']['AssignmentCreate'];
 
 function defaultPath(role: WorkspaceRole): string {
-  return role === 'student' ? '/student/assignments' : `/${role}/courses`;
+  if (role === 'admin') return '/admin/dashboard';
+  return role === 'student' ? '/student/assignments' : '/teacher/courses';
 }
 
 function clearUserData(queryClient: QueryClient): void {
@@ -237,15 +244,28 @@ export const App: React.FC = () => {
   const user = sessionQuery.data;
   const activeRole = strongestRole(user.roles);
   const home = defaultPath(activeRole);
-  const title = location.pathname.includes('/rubrics')
-    ? 'Rubrics'
-    : location.pathname.includes('/upload')
-      ? 'Upload'
-      : location.pathname.startsWith('/jobs/')
-        ? 'Processing status'
-        : activeRole === 'student'
-          ? 'Assignments'
-          : 'Courses';
+  const adminTitles: Record<string, string> = {
+    '/admin/dashboard': 'Admin dashboard',
+    '/admin/users': 'Users',
+    '/admin/jobs': 'Analysis jobs',
+    '/admin/audit': 'Audit trail',
+    '/admin/appeals': 'Appeals',
+  };
+  const title = adminTitles[location.pathname] ?? (
+    location.pathname.startsWith('/teacher/appeals') || location.pathname.startsWith('/admin/appeals')
+      ? 'Appeals'
+      : location.pathname.startsWith('/student/appeals')
+        ? 'Appeal Detail'
+        : location.pathname.includes('/rubrics')
+          ? 'Rubrics'
+          : location.pathname.includes('/upload')
+            ? 'Upload'
+            : location.pathname.startsWith('/jobs/')
+              ? 'Processing status'
+              : activeRole === 'student'
+                ? 'Assignments'
+                : 'Courses'
+  );
 
   const logout = async () => {
     if (loggingOut) return;
@@ -282,9 +302,15 @@ export const App: React.FC = () => {
             <Route path="/teacher/courses" element={activeRole === 'teacher' ? <CoursesPage role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId" element={activeRole === 'teacher' ? <CoursePage role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/rubrics" element={activeRole === 'teacher' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/appeals" element={activeRole === 'teacher' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions" element={activeRole === 'teacher' ? <SubmissionQueueView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions/:submissionId" element={activeRole === 'teacher' ? <ReviewWorkspaceView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses" element={activeRole === 'admin' ? <CoursesPage role="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/dashboard" element={activeRole === 'admin' ? <AdminDashboardView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/users" element={activeRole === 'admin' ? <UserManagementView currentUserId={user.id} /> : <Navigate to={home} replace />} />
+            <Route path="/admin/jobs" element={activeRole === 'admin' ? <JobMonitoringView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/audit" element={activeRole === 'admin' ? <AuditLogView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/appeals" element={activeRole === 'admin' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId" element={activeRole === 'admin' ? <CoursePage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/rubrics" element={activeRole === 'admin' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions" element={activeRole === 'admin' ? <SubmissionQueueView role="admin" /> : <Navigate to={home} replace />} />
@@ -292,6 +318,7 @@ export const App: React.FC = () => {
             <Route path="/student/assignments" element={activeRole === 'student' ? <StudentAssignmentsView /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments/:courseId/:assignmentId/upload" element={activeRole === 'student' ? <StudentUploadView /> : <Navigate to={home} replace />} />
             <Route path="/student/submissions/:submissionId/result" element={activeRole === 'student' ? <StudentPublishedResultView /> : <Navigate to={home} replace />} />
+            <Route path="/student/appeals/:requestId" element={activeRole === 'student' ? <StudentAppealDetailView /> : <Navigate to={home} replace />} />
             <Route path="/jobs/:jobId" element={<StudentStatusTimelineView activeRole={activeRole} />} />
             <Route path="*" element={<Navigate to={home} replace />} />
           </Routes>

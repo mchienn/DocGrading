@@ -36,6 +36,41 @@ class AdminUserListResponse(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class AdminUserCreateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=12, max_length=512, repr=False)
+    roles: list[UserRole] = Field(min_length=1, max_length=3)
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        value = value.strip().lower()
+        if (
+            value.count("@") != 1
+            or any(character.isspace() for character in value)
+            or not all(value.split("@"))
+        ):
+            raise ValueError("email must contain one nonempty local and domain pair")
+        return value
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def trim_display_name(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("roles")
+    @classmethod
+    def require_unique_roles(cls, value: list[UserRole]) -> list[UserRole]:
+        if len(set(value)) != len(value):
+            raise ValueError("roles must be unique")
+        return value
+
+
 class AdminUserUpdateRequest(BaseModel):
     roles: list[UserRole] | None = Field(default=None, min_length=1, max_length=3)
     status: UserStatus | None = None
