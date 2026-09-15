@@ -7,13 +7,13 @@ Original design: [Figma — Follow Markdown Guide](https://www.figma.com/design/
 
 ## Run
 
-From repository root, run the full stack:
+From repository root, build and run the full stack:
 
 ```bash
 docker compose up --build
 ```
 
-Frontend: `http://localhost:5173`.
+The frontend image serves Vite production assets through Caddy at `http://localhost:5173`.
 
 For frontend-only development, start FastAPI on `http://127.0.0.1:8000`, then:
 
@@ -22,7 +22,7 @@ pnpm install
 pnpm dev
 ```
 
-Vite proxies `/api` and `/health` to FastAPI. Presigned PDF uploads and viewer downloads require object-storage CORS for the frontend origin.
+Frontend-only development uses Vite's `/api` and `/health` proxy. The Compose image provides the same paths through Caddy. Presigned PDF uploads and viewer downloads require object-storage CORS for the frontend origin.
 
 ```bash
 pnpm typecheck
@@ -31,6 +31,10 @@ pnpm generate:api
 ```
 
 `generate:api` rebuilds `src/api/schema.ts` from checked-in `openapi.json`. Refresh `openapi.json` from `create_app().openapi()` after backend contract changes.
+
+## Release deployment
+
+Compose host ports are loopback-only for development and UAT. Production must terminate TLS before the frontend, forward one public origin to port 5173, set `APP_ENV` outside `development`, set `FRONTEND_ORIGIN` to that HTTPS origin, and use non-placeholder storage credentials with an HTTPS public storage endpoint. Keep API port 8000 private; browser API traffic stays same-origin through Caddy.
 
 ## Structure
 

@@ -30,7 +30,7 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Frontend: `http://localhost:5173`; API: `http://localhost:8000`; OpenAPI: `http://localhost:8000/api/v1/openapi.json`.
+Frontend production assets qua Caddy: `http://localhost:5173`; API loopback trực tiếp: `http://localhost:8000`; OpenAPI: `http://localhost:8000/api/v1/openapi.json`. Production giữ port API private, terminate TLS trước frontend và dùng `/api` same-origin.
 
 Kiểm tra API:
 
