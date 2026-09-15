@@ -30,7 +30,7 @@ const UserForm: React.FC<{ user: AdminUser | null; currentUserId: string; onClos
       if (user) {
         const reason = String(fields.get('reason')).trim();
         if (!reason) { setError('A reason is required.'); return; }
-        await apiData(api.PATCH('/api/v1/users/{user_id}', { params: { path: { user_id: user.id } }, body: { roles: selectedRoles, status, reason } }));
+        await apiData(api.PATCH('/api/v1/users/{user_id}', { params: { path: { user_id: user.id }, header: { 'If-Match': `"rev-${user.revision}"` } }, body: { roles: selectedRoles, status, reason } }));
       } else {
         await apiData(api.POST('/api/v1/users', { body: {
           email: String(fields.get('email')).trim().toLowerCase(),

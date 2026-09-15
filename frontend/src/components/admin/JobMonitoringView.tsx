@@ -27,7 +27,10 @@ const JobDetail: React.FC<{ jobId: string; onClose: () => void }> = ({ jobId, on
       <div><dt className="font-semibold">Queued</dt><dd>{new Date(job.queued_at).toLocaleString()}</dd></div>
       <div><dt className="font-semibold">Started</dt><dd>{job.started_at ? new Date(job.started_at).toLocaleString() : '—'}</dd></div>
       <div><dt className="font-semibold">Finished</dt><dd>{job.finished_at ? new Date(job.finished_at).toLocaleString() : '—'}</dd></div>
-      {job.status === 'ERROR' && <p className="text-rose-700">Analysis failed. You can retry this job from the list.</p>}
+      {job.status === 'ERROR' && <>
+        <div><dt className="font-semibold">Error code</dt><dd>{job.error_code ?? '—'}</dd></div>
+        <div><dt className="font-semibold">Error detail</dt><dd>{job.error_detail ?? 'No diagnostic detail.'}</dd></div>
+      </>}
     </dl>}
     <button type="button" disabled={detail.isFetching} onClick={() => void detail.refetch()} className="mt-4 px-3 py-2 border border-slate-200 rounded-lg disabled:opacity-40">Refresh details</button>
   </dialog>;
@@ -41,6 +44,7 @@ export const JobMonitoringView: React.FC = () => {
   const jobs = useQuery({
     queryKey: ['admin-jobs', status, page],
     queryFn: () => apiData(api.GET('/api/v1/operations/analysis-jobs', { params: { query: { status: status || undefined, page, page_size: 25 } } })),
+    refetchInterval: (query) => query.state.data?.items.some((job) => job.status === 'QUEUED' || job.status === 'RUNNING') ? 5_000 : false,
   });
   const retry = useMutation({
     mutationFn: (jobId: string) => apiData(api.POST('/api/v1/operations/analysis-jobs/{job_id}/retry', { params: { path: { job_id: jobId } } })),
@@ -61,7 +65,7 @@ export const JobMonitoringView: React.FC = () => {
     {retry.isSuccess && <p role="status" className="text-emerald-700">Job queued for retry.</p>}
     {jobs.isLoading && <p role="status">Loading jobs...</p>}
     <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-50"><tr>{['Job / Course', 'Status', 'Attempts', 'Queued', 'Actions'].map((label) => <th key={label} className="p-4">{label}</th>)}</tr></thead><tbody>
-      {jobs.data?.items.map((job) => <tr key={job.id} className="border-t border-slate-200"><td className="p-4"><p className="font-mono text-xs">{job.id}</p><p>{job.course_code} — {job.course_name}</p></td><td className="p-4">{job.status}</td><td className="p-4">{job.attempt_count} / {job.max_attempts}</td><td className="p-4">{new Date(job.queued_at).toLocaleString()}</td><td className="p-4 space-x-2"><button type="button" onClick={() => setSelectedJob(job.id)} className="px-3 py-2 border border-slate-200 rounded-lg">Details</button>{job.status === 'ERROR' && <button type="button" disabled={retry.isPending} onClick={() => retry.mutate(job.id)} className="px-3 py-2 bg-slate-900 text-white rounded-lg disabled:opacity-40">{retry.isPending && retry.variables === job.id ? 'Retrying...' : 'Retry'}</button>}</td></tr>)}
+      {jobs.data?.items.map((job) => <tr key={job.id} className="border-t border-slate-200"><td className="p-4"><p className="font-mono text-xs">{job.id}</p><p>{job.course_code} — {job.course_name}</p></td><td className="p-4">{job.status}</td><td className="p-4">{job.attempt_count} / {job.max_attempts}</td><td className="p-4">{new Date(job.queued_at).toLocaleString()}</td><td className="p-4 space-x-2"><button type="button" onClick={() => setSelectedJob(job.id)} className="px-3 py-2 border border-slate-200 rounded-lg">Details</button>{job.status === 'ERROR' && <button type="button" disabled={retry.isPending || job.attempt_count >= job.max_attempts} onClick={() => retry.mutate(job.id)} className="px-3 py-2 bg-slate-900 text-white rounded-lg disabled:opacity-40">{job.attempt_count >= job.max_attempts ? 'Retry limit reached' : retry.isPending && retry.variables === job.id ? 'Retrying...' : 'Retry'}</button>}</td></tr>)}
       {jobs.data?.items.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-500">No jobs match this filter.</td></tr>}
     </tbody></table></div>
     <div className="flex justify-between text-sm"><span>{jobs.data?.total ?? '—'} jobs · page {page} of {pages}</span><div className="flex gap-2"><button type="button" aria-label="Previous page" disabled={page <= 1 || jobs.isFetching} onClick={() => setPage(page - 1)} className="px-3 py-2 border border-slate-200 rounded-lg disabled:opacity-40">Previous</button><button type="button" aria-label="Next page" disabled={page >= pages || jobs.isFetching} onClick={() => setPage(page + 1)} className="px-3 py-2 border border-slate-200 rounded-lg disabled:opacity-40">Next</button></div></div>

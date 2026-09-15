@@ -330,6 +330,7 @@ async def update_user(
     user_id: uuid.UUID,
     body: AdminUserUpdateRequest,
     actor_user_id: uuid.UUID,
+    expected_revision: int | None = None,
 ) -> AdminUserResponse:
     # ponytail: one advisory lock serializes rare Admin account writes; shard if needed.
     await db.execute(
@@ -345,6 +346,11 @@ async def update_user(
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if expected_revision is not None and user.revision != expected_revision:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="User revision conflict",
+        )
 
     requested_roles = set(body.roles) if body.roles is not None else set(user.roles)
     canonical_roles = [role for role in UserRole if role in requested_roles]

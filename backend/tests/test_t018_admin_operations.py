@@ -108,6 +108,7 @@ def test_non_admin_is_rejected_from_every_admin_endpoint(
     headers = {
         "Cookie": f"{session_cookie}={session_id}; {csrf_cookie}={token}",
         "X-CSRF-Token": token,
+        "If-Match": '"rev-1"',
     }
     resource_id = uuid.uuid4()
     requests = (

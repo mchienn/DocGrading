@@ -117,6 +117,7 @@ def test_admin_create_account_persistence_audit_rbac_and_duplicate_race(
                     created = await client.post("/api/v1/users", json=body)
                     assert created.status_code == 201, created.text
                     user = created.json()
+                    assert created.headers["Location"] == f"/api/v1/users/{user['id']}"
                     assert user["email"] == email
                     assert user["display_name"] == "Created User"
                     assert user["status"] == "ACTIVE"
@@ -131,6 +132,22 @@ def test_admin_create_account_persistence_audit_rbac_and_duplicate_race(
                     assert verify_password(password, stored_hash)
                     persisted = await client.get(f"/api/v1/users/{user['id']}")
                     assert persisted.json() == user
+                    locked = await client.patch(
+                        f"/api/v1/users/{user['id']}",
+                        json={"status": "LOCKED", "reason": "policy review"},
+                        headers={"If-Match": '"rev-1"'},
+                    )
+                    assert locked.status_code == 200
+                    assert locked.json()["status"] == "LOCKED"
+                    assert locked.json()["revision"] == 2
+                    stale = await client.patch(
+                        f"/api/v1/users/{user['id']}",
+                        json={"roles": ["STUDENT"], "reason": "stale edit"},
+                        headers={"If-Match": '"rev-1"'},
+                    )
+                    assert stale.status_code == 412
+                    current = await client.get(f"/api/v1/users/{user['id']}")
+                    assert current.json() == locked.json()
                     audit = (
                         (
                             await connection.execute(
@@ -138,7 +155,8 @@ def test_admin_create_account_persistence_audit_rbac_and_duplicate_race(
                                     "SELECT action, actor_user_id, before, "
                                     "after, reason "
                                     "FROM public.audit_events "
-                                    "WHERE resource_type = 'User' AND resource_id = :id"
+                                    "WHERE resource_type = 'User' "
+                                    "AND resource_id = :id AND action = 'CREATE'"
                                 ),
                                 {"id": uuid.UUID(user["id"])},
                             )
@@ -212,7 +230,7 @@ def test_admin_create_account_persistence_audit_rbac_and_duplicate_race(
                             ),
                             {"id": uuid.UUID(user["id"])},
                         )
-                        == 1
+                        == 2
                     )
             finally:
                 await transaction.rollback()

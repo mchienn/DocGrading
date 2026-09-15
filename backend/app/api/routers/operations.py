@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import PlainTextResponse
 from fastapi.routing import APIRoute
@@ -75,15 +75,15 @@ class _CreateUserRoute(APIRoute):
 
 async def create_user(
     body: AdminUserCreateRequest,
+    response: Response,
     admin: User = Depends(admin_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AdminUserResponse:
     try:
-        response = await operations_svc.create_user(
-            db, body=body, actor_user_id=admin.id
-        )
+        result = await operations_svc.create_user(db, body=body, actor_user_id=admin.id)
         await db.commit()
-        return response
+        response.headers["Location"] = f"/api/v1/users/{result.id}"
+        return result
     except IntegrityError as exc:
         await db.rollback()
         if getattr(exc.orig, "sqlstate", None) != "23505":
@@ -99,6 +99,16 @@ router.add_api_route(
     methods=["POST"],
     status_code=201,
     response_model=AdminUserResponse,
+    responses={
+        201: {
+            "headers": {
+                "Location": {
+                    "description": "Canonical URL of the created user",
+                    "schema": {"type": "string"},
+                }
+            }
+        }
+    },
     route_class_override=_CreateUserRoute,
 )
 
@@ -116,6 +126,7 @@ async def get_user(
 async def update_user(
     user_id: uuid.UUID,
     body: AdminUserUpdateRequest,
+    if_match: str = Header(alias="If-Match", pattern=r'^"rev-[1-9]\d*"$'),
     admin: User = Depends(admin_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AdminUserResponse:
@@ -125,6 +136,7 @@ async def update_user(
             user_id=user_id,
             body=body,
             actor_user_id=admin.id,
+            expected_revision=int(if_match[5:-1]),
         )
         await db.commit()
         return response

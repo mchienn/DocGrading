@@ -1415,6 +1415,14 @@
                   "$ref": "#/components/schemas/AdminUserResponse"
                 }
               }
+            },
+            "headers": {
+              "Location": {
+                "description": "Canonical URL of the created user",
+                "schema": {
+                  "type": "string"
+                }
+              }
             }
           },
           "422": {
@@ -1487,6 +1495,16 @@
               "type": "string",
               "format": "uuid",
               "title": "User Id"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"rev-[1-9]\\d*\"$",
+              "title": "If-Match"
             }
           }
         ],

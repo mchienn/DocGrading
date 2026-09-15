@@ -3106,6 +3106,8 @@ export interface operations {
             /** @description Successful Response */
             201: {
                 headers: {
+                    /** @description Canonical URL of the created user */
+                    Location?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -3157,7 +3159,9 @@ export interface operations {
     update_user_api_v1_users__user_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+            };
             path: {
                 user_id: string;
             };
