@@ -114,7 +114,7 @@ export const StudentUploadView: React.FC = () => {
       }));
 
       if (presign.analysis_job_id) {
-        navigate(`/jobs/${presign.analysis_job_id}?submissionId=${presign.submission_id}`);
+        navigate(`/jobs/${presign.analysis_job_id}?submissionId=${presign.submission_id}&reused=${presign.reused}`);
         return;
       }
       if (presign.upload_url && presign.fields) {
