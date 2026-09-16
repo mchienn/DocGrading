@@ -297,7 +297,12 @@ async def add_member(
     now = datetime.now(UTC)
     reason = reason.strip() if reason else None
     user = (
-        await db.execute(select(User).where(sa.func.lower(User.email) == email))
+        await db.execute(
+            select(User)
+            .where(sa.func.lower(User.email) == email)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
 
     if user is None:

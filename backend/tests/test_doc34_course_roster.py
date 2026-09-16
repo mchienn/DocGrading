@@ -66,8 +66,10 @@ class _DB:
     def __init__(self, *results: object) -> None:
         self.results = list(results)
         self.added: list[object] = []
+        self.statements: list[object] = []
 
-    async def execute(self, _statement: object) -> _Result:
+    async def execute(self, statement: object) -> _Result:
+        self.statements.append(statement)
         return _Result(self.results.pop(0))
 
     async def flush(self) -> None:
@@ -164,6 +166,7 @@ def test_add_existing_student_records_audit() -> None:
         audit = db.added[-1]
         assert audit.action == "ADD_MEMBER"  # type: ignore[attr-defined]
         assert audit.after["user_id"] == str(user.id)  # type: ignore[attr-defined]
+        assert getattr(db.statements[1], "_for_update_arg", None) is not None
 
     asyncio.run(scenario())
 
