@@ -542,6 +542,329 @@
         }
       }
     },
+    "/api/v1/courses/{course_id}/join-code": {
+      "post": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Create Course Join Code",
+        "operationId": "create_course_join_code_api_v1_courses__course_id__join_code_post",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseJoinCodeCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseJoinCodeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Get Course Join Code",
+        "operationId": "get_course_join_code_api_v1_courses__course_id__join_code_get",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseJoinCodeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Update Course Join Code",
+        "operationId": "update_course_join_code_api_v1_courses__course_id__join_code_put",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseJoinCodeUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseJoinCodeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Revoke Course Join Code",
+        "operationId": "revoke_course_join_code_api_v1_courses__course_id__join_code_delete",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseJoinCodeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/courses/{course_id}/join-code/regenerate": {
+      "post": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Regenerate Course Join Code",
+        "operationId": "regenerate_course_join_code_api_v1_courses__course_id__join_code_regenerate_post",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseJoinCodeCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseJoinCodeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/courses/{course_id}/join-code/qr": {
+      "get": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Get Course Join Code Qr",
+        "operationId": "get_course_join_code_qr_api_v1_courses__course_id__join_code_qr_get",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/course-joins": {
+      "post": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Join Course By Code",
+        "operationId": "join_course_by_code_api_v1_course_joins_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseJoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseJoinResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/courses/{course_id}/assignments": {
       "post": {
         "tags": [
@@ -764,7 +1087,7 @@
           "assignments"
         ],
         "summary": "Publish Assignment",
-        "description": "Publish a DRAFT assignment (DRAFT → OPEN).",
+        "description": "Publish a DRAFT assignment (DRAFT \u2192 OPEN).",
         "operationId": "publish_assignment_api_v1_courses__course_id__assignments__assignment_id__publish_post",
         "parameters": [
           {
@@ -818,7 +1141,7 @@
           "assignments"
         ],
         "summary": "Close Assignment",
-        "description": "Close an OPEN assignment (OPEN → CLOSED).",
+        "description": "Close an OPEN assignment (OPEN \u2192 CLOSED).",
         "operationId": "close_assignment_api_v1_courses__course_id__assignments__assignment_id__close_post",
         "parameters": [
           {
@@ -4437,6 +4760,155 @@
           "created_at"
         ],
         "title": "CourseInviteResponse"
+      },
+      "CourseJoinCodeCreateRequest": {
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expires_at"
+        ],
+        "title": "CourseJoinCodeCreateRequest"
+      },
+      "CourseJoinCodeResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "course_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Course Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "EXPIRED",
+              "REVOKED"
+            ],
+            "title": "Status"
+          },
+          "join_url": {
+            "type": "string",
+            "title": "Join Url"
+          },
+          "qr_url": {
+            "type": "string",
+            "title": "Qr Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "course_id",
+          "code",
+          "expires_at",
+          "revoked_at",
+          "status",
+          "join_url",
+          "qr_url"
+        ],
+        "title": "CourseJoinCodeResponse"
+      },
+      "CourseJoinCodeUpdateRequest": {
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expires_at"
+        ],
+        "title": "CourseJoinCodeUpdateRequest"
+      },
+      "CourseJoinOutcome": {
+        "type": "string",
+        "enum": [
+          "JOINED",
+          "REACTIVATED",
+          "ALREADY_MEMBER"
+        ],
+        "title": "CourseJoinOutcome"
+      },
+      "CourseJoinRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "CourseJoinRequest"
+      },
+      "CourseJoinResponse": {
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/CourseJoinOutcome"
+          },
+          "membership_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Membership Id"
+          },
+          "course_code": {
+            "type": "string",
+            "title": "Course Code"
+          },
+          "course_name": {
+            "type": "string",
+            "title": "Course Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "outcome",
+          "membership_id",
+          "course_code",
+          "course_name"
+        ],
+        "title": "CourseJoinResponse"
       },
       "CourseMemberAddRequest": {
         "properties": {

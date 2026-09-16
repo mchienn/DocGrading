@@ -165,7 +165,7 @@ docker compose --profile smoke --profile ops config --quiet
 
 Compose host ports mặc định chỉ bind loopback, phù hợp development/UAT. Trước production:
 
-- terminate TLS trước frontend và expose một HTTPS origin;
+- terminate TLS trực tiếp tại Caddy và expose một HTTPS origin; nếu phải đặt load balancer TLS phía trước Caddy, chỉ trust CIDR chính xác của proxy đó bằng `trusted_proxies` + `trusted_proxies_strict` để giữ client IP;
 - đặt `APP_ENV` khác `development`;
 - đặt `FRONTEND_ORIGIN` thành public HTTPS origin;
 - dùng storage credentials thật và `STORAGE_PUBLIC_ENDPOINT_URL` HTTPS;

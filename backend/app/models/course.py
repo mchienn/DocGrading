@@ -101,7 +101,7 @@ class CourseJoinCode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             postgresql_where=sa.text("revoked_at IS NULL"),
         ),
         sa.CheckConstraint(
-            "length(code) = 20 AND code ~ '^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{20}$'",
+            "length(code) = 20 AND code ~ '^[ABCDEFGHJKMNPQRSTUVWXYZ023456789]{20}$'",
             name="ck_course_join_codes_code_shape",
         ),
         sa.CheckConstraint(
@@ -135,9 +135,19 @@ class CourseJoinCode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class JoinRateLimit(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "join_rate_limits"
-    subject_hash: Mapped[str] = mapped_column(
-        sa.String(64), nullable=False, unique=True
+    __table_args__ = (
+        sa.UniqueConstraint("subject_hash", name="uq_join_rate_limits_subject_hash"),
+        sa.CheckConstraint(
+            "length(subject_hash) = 64",
+            name="ck_join_rate_limits_subject_hash",
+        ),
+        sa.CheckConstraint(
+            "request_count >= 0",
+            name="ck_join_rate_limits_count_nonnegative",
+        ),
     )
+
+    subject_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False)
     window_started_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False
     )

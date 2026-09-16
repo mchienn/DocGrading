@@ -9,11 +9,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.enums import (
+    CourseJoinOutcome,
     CourseStatus,
     MembershipAddOutcome,
     MembershipJoinedVia,
     MembershipStatus,
-    CourseJoinOutcome,
 )
 
 

@@ -815,7 +815,7 @@ async def _run_head_truncate_guards() -> None:
                 revision = await connection.scalar(
                     text("SELECT version_num FROM public.alembic_version")
                 )
-                assert revision == "20260913_0013"
+                assert revision == "20260916_0015"
                 for table in ("audit_events", "published_result_versions"):
                     with pytest.raises(exc.DBAPIError, match="append-only"):
                         async with connection.begin_nested():

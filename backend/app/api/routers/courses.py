@@ -318,13 +318,26 @@ async def regenerate_course_join_code(
 @router.get(
     "/{course_id}/join-code/qr",
     response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "image/svg+xml": {
+                    "schema": {"type": "string"},
+                }
+            }
+        }
+    },
 )
 async def get_course_join_code_qr(
     course: Course = Depends(get_owned_course),
     db: AsyncSession = Depends(get_db_session),
 ) -> Response:
     row = await join_svc.get_join_code(db, course_id=course.id)
-    return Response(join_svc.render_qr_svg(row.code), media_type="image/svg+xml")
+    return Response(
+        join_svc.render_qr_svg(row.code),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @join_router.post("", response_model=CourseJoinResponse)

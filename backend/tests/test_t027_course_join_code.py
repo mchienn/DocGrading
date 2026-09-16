@@ -5,16 +5,23 @@ import uuid
 from app.api.schemas_course import CourseJoinCodeResponse
 from app.main import create_app
 from app.models.enums import CourseJoinOutcome
-from app.services.course_join import CODE_ALPHABET, generate_join_code, normalize_join_code
+from app.services.course_join import (
+    CODE_ALPHABET,
+    generate_join_code,
+    normalize_join_code,
+)
 from app.services.operations import _AUDIT_SAFE_FIELDS
 
 
 def test_join_code_has_100_bit_unambiguous_shape_and_normalizes_case() -> None:
-    code = generate_join_code()
-    assert len(code) == 20
-    assert set(code) <= set(CODE_ALPHABET)
+    assert len(CODE_ALPHABET) == 32
+    assert len(CODE_ALPHABET) ** 20 == 2**100
+    codes = {generate_join_code() for _ in range(10_000)}
+    assert len(codes) == 10_000
+    assert all(len(code) == 20 and set(code) <= set(CODE_ALPHABET) for code in codes)
+    code = next(iter(codes))
     assert normalize_join_code(f"  {code.lower()} ") == code
-    assert not set(code) & set("01ILO")
+    assert not set(code) & set("1ILO")
 
 
 def test_t027_openapi_paths_and_fields() -> None:
@@ -26,10 +33,16 @@ def test_t027_openapi_paths_and_fields() -> None:
         "put",
         "delete",
     } <= set(paths["/api/v1/courses/{course_id}/join-code"])
+    qr_response = paths["/api/v1/courses/{course_id}/join-code/qr"]["get"]["responses"][
+        "200"
+    ]
+    assert qr_response["content"]["image/svg+xml"]["schema"] == {"type": "string"}
     assert "post" in paths["/api/v1/courses/{course_id}/join-code/regenerate"]
     assert "get" in paths["/api/v1/courses/{course_id}/join-code/qr"]
     assert "post" in paths["/api/v1/course-joins"]
-    assert set(schema["components"]["schemas"]["CourseJoinCodeResponse"]["properties"]) == {
+    assert set(
+        schema["components"]["schemas"]["CourseJoinCodeResponse"]["properties"]
+    ) == {
         "id",
         "course_id",
         "code",

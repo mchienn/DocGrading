@@ -21,8 +21,12 @@ def upgrade() -> None:
     op.create_table(
         "course_join_codes",
         sa.Column("id", uuid_type, nullable=False),
-        sa.Column("created_at", timestamp, server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", timestamp, server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at", timestamp, server_default=sa.text("now()"), nullable=False
+        ),
+        sa.Column(
+            "updated_at", timestamp, server_default=sa.text("now()"), nullable=False
+        ),
         sa.Column("course_id", uuid_type, nullable=False),
         sa.Column("code", sa.String(length=20), nullable=False),
         sa.Column("expires_at", timestamp, nullable=False),
@@ -31,7 +35,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("code", name="uq_course_join_codes_code"),
         sa.CheckConstraint(
             "length(code) = 20 AND code ~ "
-            "'^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{20}$'",
+            "'^[ABCDEFGHJKMNPQRSTUVWXYZ023456789]{20}$'",
             name="ck_course_join_codes_code_shape",
         ),
         sa.CheckConstraint(
@@ -58,15 +62,25 @@ def upgrade() -> None:
     op.create_table(
         "join_rate_limits",
         sa.Column("id", uuid_type, nullable=False),
-        sa.Column("created_at", timestamp, server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", timestamp, server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at", timestamp, server_default=sa.text("now()"), nullable=False
+        ),
+        sa.Column(
+            "updated_at", timestamp, server_default=sa.text("now()"), nullable=False
+        ),
         sa.Column("subject_hash", sa.String(length=64), nullable=False),
         sa.Column("window_started_at", timestamp, nullable=False),
-        sa.Column("request_count", sa.Integer(), server_default=sa.text("0"), nullable=False),
+        sa.Column(
+            "request_count", sa.Integer(), server_default=sa.text("0"), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_join_rate_limits"),
         sa.UniqueConstraint("subject_hash", name="uq_join_rate_limits_subject_hash"),
-        sa.CheckConstraint("length(subject_hash) = 64", name="ck_join_rate_limits_subject_hash"),
-        sa.CheckConstraint("request_count >= 0", name="ck_join_rate_limits_count_nonnegative"),
+        sa.CheckConstraint(
+            "length(subject_hash) = 64", name="ck_join_rate_limits_subject_hash"
+        ),
+        sa.CheckConstraint(
+            "request_count >= 0", name="ck_join_rate_limits_count_nonnegative"
+        ),
         schema="public",
     )
 
@@ -83,9 +97,7 @@ def downgrade() -> None:
     if bind.scalar(
         sa.text("SELECT EXISTS (SELECT 1 FROM public.course_join_codes LIMIT 1)")
     ):
-        raise RuntimeError(
-            "Refusing downgrade: public.course_join_codes is not empty"
-        )
+        raise RuntimeError("Refusing downgrade: public.course_join_codes is not empty")
 
     op.drop_table("join_rate_limits", schema="public")
     op.drop_index(

@@ -11,9 +11,9 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 import qrcode
-from qrcode.image.svg import SvgPathImage
 import sqlalchemy as sa
 from fastapi import HTTPException, Request, status
+from qrcode.image.svg import SvgPathImage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +30,7 @@ from app.models.enums import (
 from app.models.identity import User
 from app.services.audit import record_audit
 
-CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ023456789"
 CODE_LENGTH = 20
 _JOIN_MUTATION_LOCK_ID = 0x544F_3237
 
@@ -51,10 +51,10 @@ def _error(code: str, message: str, http_status: int) -> HTTPException:
     )
 
 
-
 async def _raise_after_commit(db: AsyncSession, error: HTTPException) -> None:
     await db.commit()
     raise error
+
 
 def _state(code: CourseJoinCode, now: datetime | None = None) -> str:
     now = now or datetime.now(UTC)
@@ -74,7 +74,9 @@ def qr_url(course_id: uuid.UUID) -> str:
     return f"/api/v1/courses/{course_id}/join-code/qr"
 
 
-def _snapshot(code: CourseJoinCode, now: datetime | None = None) -> dict[str, str | None]:
+def _snapshot(
+    code: CourseJoinCode, now: datetime | None = None
+) -> dict[str, str | None]:
     return {
         "course_id": str(code.course_id),
         "expires_at": code.expires_at.isoformat(),
@@ -96,7 +98,9 @@ async def _lock_active_course(db: AsyncSession, course_id: uuid.UUID) -> Course:
         raise _error("COURSE_NOT_FOUND", "Course not found", status.HTTP_404_NOT_FOUND)
     if course.status == CourseStatus.ARCHIVED:
         raise _error(
-            "COURSE_ARCHIVED", "Archived courses are read-only", status.HTTP_409_CONFLICT
+            "COURSE_ARCHIVED",
+            "Archived courses are read-only",
+            status.HTTP_409_CONFLICT,
         )
     return course
 
@@ -106,9 +110,16 @@ async def _lock_course_code(
 ) -> CourseJoinCode | None:
     statement = select(CourseJoinCode).where(CourseJoinCode.course_id == course_id)
     if latest:
-        statement = statement.order_by(CourseJoinCode.created_at.desc()).limit(1)
+        statement = statement.order_by(
+            CourseJoinCode.revoked_at.is_(None).desc(),
+            CourseJoinCode.revoked_at.desc(),
+            CourseJoinCode.created_at.desc(),
+            CourseJoinCode.id.desc(),
+        ).limit(1)
     return (
-        await db.execute(statement.with_for_update().execution_options(populate_existing=True))
+        await db.execute(
+            statement.with_for_update().execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
 
 
@@ -118,9 +129,7 @@ async def _create_code_row(
     await db.execute(select(sa.func.pg_advisory_xact_lock(_JOIN_MUTATION_LOCK_ID)))
     while True:
         code = generate_join_code()
-        exists = await db.scalar(
-            select(sa.exists().where(CourseJoinCode.code == code))
-        )
+        exists = await db.scalar(select(sa.exists().where(CourseJoinCode.code == code)))
         if not exists:
             break
     row = CourseJoinCode(
@@ -134,18 +143,26 @@ async def _create_code_row(
 def _valid_expiry(expires_at: datetime) -> datetime:
     if expires_at.tzinfo is None:
         raise _error(
-            "INVALID_EXPIRY", "expires_at must include timezone", status.HTTP_422_UNPROCESSABLE_ENTITY
+            "INVALID_EXPIRY",
+            "expires_at must include timezone",
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
     expires_at = expires_at.astimezone(UTC)
     if expires_at <= datetime.now(UTC):
         raise _error(
-            "INVALID_EXPIRY", "expires_at must be in the future", status.HTTP_422_UNPROCESSABLE_ENTITY
+            "INVALID_EXPIRY",
+            "expires_at must be in the future",
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
     return expires_at
 
 
 async def create_join_code(
-    db: AsyncSession, *, course_id: uuid.UUID, expires_at: datetime, actor_user_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    course_id: uuid.UUID,
+    expires_at: datetime,
+    actor_user_id: uuid.UUID,
 ) -> CourseJoinCode:
     await db.execute(select(sa.func.pg_advisory_xact_lock(_JOIN_MUTATION_LOCK_ID)))
     await _lock_active_course(db, course_id)
@@ -156,7 +173,11 @@ async def create_join_code(
         )
     )
     if current is not None:
-        raise _error("JOIN_CODE_EXISTS", "Course already has an active join code", status.HTTP_409_CONFLICT)
+        raise _error(
+            "JOIN_CODE_EXISTS",
+            "Course already has an active join code",
+            status.HTTP_409_CONFLICT,
+        )
     row = await _create_code_row(db, course_id=course_id, expires_at=expires_at)
     await record_audit(
         db,
@@ -170,23 +191,29 @@ async def create_join_code(
     return row
 
 
-async def get_join_code(
-    db: AsyncSession, *, course_id: uuid.UUID
-) -> CourseJoinCode:
+async def get_join_code(db: AsyncSession, *, course_id: uuid.UUID) -> CourseJoinCode:
     row = await _lock_course_code(db, course_id)
     if row is None:
-        raise _error("JOIN_CODE_NOT_FOUND", "Join code not found", status.HTTP_404_NOT_FOUND)
+        raise _error(
+            "JOIN_CODE_NOT_FOUND", "Join code not found", status.HTTP_404_NOT_FOUND
+        )
     return row
 
 
 async def update_join_code(
-    db: AsyncSession, *, course_id: uuid.UUID, expires_at: datetime, actor_user_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    course_id: uuid.UUID,
+    expires_at: datetime,
+    actor_user_id: uuid.UUID,
 ) -> CourseJoinCode:
     await db.execute(select(sa.func.pg_advisory_xact_lock(_JOIN_MUTATION_LOCK_ID)))
     await _lock_active_course(db, course_id)
     row = await _lock_course_code(db, course_id)
     if row is None:
-        raise _error("JOIN_CODE_NOT_FOUND", "Join code not found", status.HTTP_404_NOT_FOUND)
+        raise _error(
+            "JOIN_CODE_NOT_FOUND", "Join code not found", status.HTTP_404_NOT_FOUND
+        )
     if row.revoked_at is not None:
         raise _error("JOIN_CODE_REVOKED", "Join code is revoked", status.HTTP_410_GONE)
     expires_at = _valid_expiry(expires_at)
@@ -213,9 +240,13 @@ async def revoke_join_code(
     await _lock_active_course(db, course_id)
     row = await _lock_course_code(db, course_id)
     if row is None:
-        raise _error("JOIN_CODE_NOT_FOUND", "Join code not found", status.HTTP_404_NOT_FOUND)
+        raise _error(
+            "JOIN_CODE_NOT_FOUND", "Join code not found", status.HTTP_404_NOT_FOUND
+        )
     if row.revoked_at is not None:
-        raise _error("JOIN_CODE_REVOKED", "Join code is already revoked", status.HTTP_410_GONE)
+        raise _error(
+            "JOIN_CODE_REVOKED", "Join code is already revoked", status.HTTP_410_GONE
+        )
     before = _snapshot(row)
     row.revoked_at = datetime.now(UTC)
     await db.flush()
@@ -233,12 +264,17 @@ async def revoke_join_code(
 
 
 async def regenerate_join_code(
-    db: AsyncSession, *, course_id: uuid.UUID, expires_at: datetime, actor_user_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    course_id: uuid.UUID,
+    expires_at: datetime,
+    actor_user_id: uuid.UUID,
 ) -> CourseJoinCode:
     await db.execute(select(sa.func.pg_advisory_xact_lock(_JOIN_MUTATION_LOCK_ID)))
     course = await _lock_active_course(db, course_id)
     expires_at = _valid_expiry(expires_at)
     old = await _lock_course_code(db, course.id)
+    before = _snapshot(old) if old is not None else None
     if old is not None and old.revoked_at is None:
         old.revoked_at = datetime.now(UTC)
         await db.flush()
@@ -249,7 +285,7 @@ async def regenerate_join_code(
         resource_type="CourseJoinCode",
         resource_id=row.id,
         action="REGENERATE_JOIN_CODE",
-        before=_snapshot(old) if old is not None else None,
+        before=before,
         after=_snapshot(row),
         reason="Course join code regenerated",
     )
@@ -266,13 +302,24 @@ async def enforce_join_rate_limit(
     retry_after = 0
     for subject in subjects:
         digest = hashlib.sha256(subject.encode()).hexdigest()
-        lock_id = int.from_bytes(hashlib.sha256(digest.encode()).digest()[:8], "big", signed=True)
+        lock_id = int.from_bytes(
+            hashlib.sha256(digest.encode()).digest()[:8], "big", signed=True
+        )
         await db.execute(select(sa.func.pg_advisory_xact_lock(lock_id)))
-        row = await db.scalar(select(JoinRateLimit).where(JoinRateLimit.subject_hash == digest).with_for_update())
-        if row is None or now - row.window_started_at >= timedelta(seconds=settings.join_rate_limit_window_seconds):
+        row = await db.scalar(
+            select(JoinRateLimit)
+            .where(JoinRateLimit.subject_hash == digest)
+            .with_for_update()
+        )
+        if row is None or now - row.window_started_at >= timedelta(
+            seconds=settings.join_rate_limit_window_seconds
+        ):
             if row is None:
                 row = JoinRateLimit(
-                    id=uuid.uuid4(), subject_hash=digest, window_started_at=now, request_count=1
+                    id=uuid.uuid4(),
+                    subject_hash=digest,
+                    window_started_at=now,
+                    request_count=1,
                 )
                 db.add(row)
             else:
@@ -292,7 +339,10 @@ async def enforce_join_rate_limit(
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={"code": "JOIN_RATE_LIMITED", "message": "Too many join attempts"},
+                detail={
+                    "code": "JOIN_RATE_LIMITED",
+                    "message": "Too many join attempts",
+                },
                 headers={"Retry-After": str(max(1, retry_after))},
             )
     await db.flush()
@@ -309,32 +359,55 @@ async def join_course(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     await enforce_join_rate_limit(db, user_id=user.id, request=request)
     normalized = normalize_join_code(code)
-    if len(normalized) != CODE_LENGTH or any(c not in CODE_ALPHABET for c in normalized):
+    if len(normalized) != CODE_LENGTH or any(
+        c not in CODE_ALPHABET for c in normalized
+    ):
         await _raise_after_commit(
-            db, _error("JOIN_CODE_INVALID", "Join code is invalid", status.HTTP_404_NOT_FOUND)
+            db,
+            _error(
+                "JOIN_CODE_INVALID", "Join code is invalid", status.HTTP_404_NOT_FOUND
+            ),
         )
-    await db.execute(select(sa.func.pg_advisory_xact_lock(_JOIN_MUTATION_LOCK_ID)))
+    locator = (
+        await db.execute(
+            select(CourseJoinCode.id, CourseJoinCode.course_id).where(
+                CourseJoinCode.code == normalized
+            )
+        )
+    ).one_or_none()
+    if locator is None:
+        await _raise_after_commit(
+            db,
+            _error(
+                "JOIN_CODE_INVALID", "Join code is invalid", status.HTTP_404_NOT_FOUND
+            ),
+        )
+    try:
+        course = await _lock_active_course(db, locator.course_id)
+    except HTTPException as error:
+        await _raise_after_commit(db, error)
     row = await db.scalar(
         select(CourseJoinCode)
-        .where(CourseJoinCode.code == normalized)
+        .where(CourseJoinCode.id == locator.id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
     if row is None:
         await _raise_after_commit(
-            db, _error("JOIN_CODE_INVALID", "Join code is invalid", status.HTTP_404_NOT_FOUND)
+            db,
+            _error(
+                "JOIN_CODE_INVALID", "Join code is invalid", status.HTTP_404_NOT_FOUND
+            ),
         )
-    try:
-        course = await _lock_active_course(db, row.course_id)
-    except HTTPException as error:
-        await _raise_after_commit(db, error)
     if row.revoked_at is not None:
         await _raise_after_commit(
-            db, _error("JOIN_CODE_REVOKED", "Join code is revoked", status.HTTP_410_GONE)
+            db,
+            _error("JOIN_CODE_REVOKED", "Join code is revoked", status.HTTP_410_GONE),
         )
     if row.expires_at <= datetime.now(UTC):
         await _raise_after_commit(
-            db, _error("JOIN_CODE_EXPIRED", "Join code is expired", status.HTTP_410_GONE)
+            db,
+            _error("JOIN_CODE_EXPIRED", "Join code is expired", status.HTTP_410_GONE),
         )
     membership = await db.scalar(
         select(Membership)

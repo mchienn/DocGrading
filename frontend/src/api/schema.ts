@@ -188,6 +188,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/courses/{course_id}/join-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Course Join Code */
+        get: operations["get_course_join_code_api_v1_courses__course_id__join_code_get"];
+        /** Update Course Join Code */
+        put: operations["update_course_join_code_api_v1_courses__course_id__join_code_put"];
+        /** Create Course Join Code */
+        post: operations["create_course_join_code_api_v1_courses__course_id__join_code_post"];
+        /** Revoke Course Join Code */
+        delete: operations["revoke_course_join_code_api_v1_courses__course_id__join_code_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/courses/{course_id}/join-code/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Regenerate Course Join Code */
+        post: operations["regenerate_course_join_code_api_v1_courses__course_id__join_code_regenerate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/courses/{course_id}/join-code/qr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Course Join Code Qr */
+        get: operations["get_course_join_code_qr_api_v1_courses__course_id__join_code_qr_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/course-joins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join Course By Code */
+        post: operations["join_course_by_code_api_v1_course_joins_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/courses/{course_id}/assignments": {
         parameters: {
             query?: never;
@@ -1415,6 +1486,76 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** CourseJoinCodeCreateRequest */
+        CourseJoinCodeCreateRequest: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /** CourseJoinCodeResponse */
+        CourseJoinCodeResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Course Id
+             * Format: uuid
+             */
+            course_id: string;
+            /** Code */
+            code: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ACTIVE" | "EXPIRED" | "REVOKED";
+            /** Join Url */
+            join_url: string;
+            /** Qr Url */
+            qr_url: string;
+        };
+        /** CourseJoinCodeUpdateRequest */
+        CourseJoinCodeUpdateRequest: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /**
+         * CourseJoinOutcome
+         * @enum {string}
+         */
+        CourseJoinOutcome: "JOINED" | "REACTIVATED" | "ALREADY_MEMBER";
+        /** CourseJoinRequest */
+        CourseJoinRequest: {
+            /** Code */
+            code: string;
+        };
+        /** CourseJoinResponse */
+        CourseJoinResponse: {
+            outcome: components["schemas"]["CourseJoinOutcome"];
+            /**
+             * Membership Id
+             * Format: uuid
+             */
+            membership_id: string;
+            /** Course Code */
+            course_code: string;
+            /** Course Name */
+            course_name: string;
         };
         /** CourseMemberAddRequest */
         CourseMemberAddRequest: {
@@ -2666,6 +2807,237 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CourseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_course_join_code_api_v1_courses__course_id__join_code_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseJoinCodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_course_join_code_api_v1_courses__course_id__join_code_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseJoinCodeUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseJoinCodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_course_join_code_api_v1_courses__course_id__join_code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseJoinCodeCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseJoinCodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_course_join_code_api_v1_courses__course_id__join_code_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseJoinCodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    regenerate_course_join_code_api_v1_courses__course_id__join_code_regenerate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseJoinCodeCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseJoinCodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_course_join_code_qr_api_v1_courses__course_id__join_code_qr_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/svg+xml": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_course_by_code_api_v1_course_joins_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseJoinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseJoinResponse"];
                 };
             };
             /** @description Validation Error */

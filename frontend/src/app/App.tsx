@@ -29,6 +29,7 @@ import { AppealsInboxView } from '../components/teacher/AppealsInboxView';
 import { StudentPublishedResultView } from '../components/student/StudentPublishedResultView';
 import { StudentAppealDetailView } from '../components/student/StudentAppealDetailView';
 import { StudentAssignmentsView } from '../components/student/StudentAssignmentsView';
+import { StudentJoinCourseView } from '../components/student/StudentJoinCourseView';
 import { StudentUploadView } from '../components/student/StudentUploadView';
 import { StudentStatusTimelineView } from '../components/student/StudentStatusTimelineView';
 import { LoginPage } from '../pages/LoginPage';
@@ -237,7 +238,10 @@ export const App: React.FC = () => {
           queryClient.setQueryData(['session'], user);
           broadcastAuthChange('signed-in');
           setAuthExpired(false);
-          navigate('/');
+          const returnUrl = location.pathname === '/student/join'
+            ? `${location.pathname}${location.search}`
+            : '/';
+          navigate(returnUrl);
         }} />
       </AuthShell>
     );
@@ -259,15 +263,17 @@ export const App: React.FC = () => {
         ? 'Appeals'
         : location.pathname.startsWith('/student/appeals')
           ? 'Appeal Detail'
-          : location.pathname.includes('/rubrics')
-            ? 'Rubrics'
-            : location.pathname.includes('/upload')
-              ? 'Upload'
-              : location.pathname.startsWith('/jobs/')
-                ? 'Processing status'
-                : activeRole === 'student'
-                  ? 'Assignments'
-                  : 'Courses'
+          : location.pathname === '/student/join'
+            ? 'Join course'
+            : location.pathname.includes('/rubrics')
+              ? 'Rubrics'
+              : location.pathname.includes('/upload')
+                ? 'Upload'
+                : location.pathname.startsWith('/jobs/')
+                  ? 'Processing status'
+                  : activeRole === 'student'
+                    ? 'Assignments'
+                    : 'Courses'
     )
   );
 
@@ -322,6 +328,7 @@ export const App: React.FC = () => {
             <Route path="/admin/courses/:courseId/submissions" element={activeRole === 'admin' ? <SubmissionQueueView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions/:submissionId" element={activeRole === 'admin' ? <ReviewWorkspaceView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments" element={activeRole === 'student' ? <StudentAssignmentsView /> : <Navigate to={home} replace />} />
+            <Route path="/student/join" element={activeRole === 'student' ? <StudentJoinCourseView /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments/:courseId/:assignmentId/upload" element={activeRole === 'student' ? <StudentUploadView /> : <Navigate to={home} replace />} />
             <Route path="/student/submissions/:submissionId/result" element={activeRole === 'student' ? <StudentPublishedResultView /> : <Navigate to={home} replace />} />
             <Route path="/student/appeals/:requestId" element={activeRole === 'student' ? <StudentAppealDetailView /> : <Navigate to={home} replace />} />
