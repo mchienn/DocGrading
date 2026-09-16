@@ -11,6 +11,7 @@ from app.models import (
     AssignmentRequirement,
     AuditEvent,
     Course,
+    CourseInvite,
     CriterionVersion,
     DocumentIR,
     DocumentVersion,
@@ -34,6 +35,7 @@ from app.models import (
 MODEL_TABLE_MAP: dict[type[Base], str] = {
     User: "users",
     Course: "courses",
+    CourseInvite: "course_invites",
     Membership: "memberships",
     Assignment: "assignments",
     AssignmentRequirement: "assignment_requirements",
@@ -102,6 +104,7 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
     configure_mappers()
     assert "users.id" in foreign_key_targets(Course)
     assert {"courses.id", "users.id"} <= foreign_key_targets(Membership)
+    assert {"courses.id", "users.id"} <= foreign_key_targets(CourseInvite)
     assert {"courses.id", "users.id", "rubric_versions.id"} <= foreign_key_targets(
         Assignment
     )

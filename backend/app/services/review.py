@@ -42,10 +42,12 @@ from app.api.schemas_submission import (
 )
 from app.models.analysis import AnalysisJob, DocumentIR
 from app.models.assignment import Assignment
-from app.models.course import Course
+from app.models.course import Course, Membership
 from app.models.enums import (
     CourseStatus,
     DocumentStatus,
+    MembershipRole,
+    MembershipStatus,
     NotificationType,
     ReviewDecisionType,
     UserRole,
@@ -61,6 +63,7 @@ from app.models.review import (
     ReviewLock,
 )
 from app.models.submission import DocumentVersion, Submission
+from app.services import course as course_svc
 from app.services import notification as notification_svc
 from app.services.audit import record_audit
 from app.services.storage import S3Storage
@@ -1149,6 +1152,7 @@ async def _publish_locked(
     *,
     version: DocumentVersion,
     submission: Submission,
+    course_id: uuid.UUID,
     user: User,
     reason: str,
 ) -> PublishedResultVersion:
@@ -1181,9 +1185,10 @@ async def _publish_locked(
         snapshot=version.approved_snapshot,
     )
     db.add(result)
-    await notification_svc.add_notification(
+    await notification_svc.add_student_course_notification(
         db,
         recipient_id=submission.student_id,
+        course_id=course_id,
         notification_type=NotificationType.RESULT_PUBLISHED,
         payload={
             "published_result_version_id": str(result.id),
@@ -1232,9 +1237,14 @@ async def publish_document_version(
         return PublishedResultResponse.model_validate(replay)
     if not reason.strip():
         raise HTTPException(status_code=422, detail="Reason must not be blank")
-    _, submission, version = await _locked_document_context(db, version_id, user)
+    course, submission, version = await _locked_document_context(db, version_id, user)
     result = await _publish_locked(
-        db, version=version, submission=submission, user=user, reason=reason
+        db,
+        version=version,
+        submission=submission,
+        course_id=course.id,
+        user=user,
+        reason=reason,
     )
     response = _published_response(result, submission.id)
     await _command_finish(
@@ -1352,6 +1362,7 @@ async def bulk_publish_document_versions(
             db,
             version=version,
             submission=submission_by_id[version.submission_id],
+            course_id=course.id,
             user=user,
             reason=reason,
         )
@@ -1486,14 +1497,27 @@ assert set(_PROCESSING_STATUS) == set(DocumentStatus)
 async def _submission_for_read(
     db: AsyncSession, submission_id: uuid.UUID, user: User
 ) -> tuple[Submission, Course, bool]:
-    row = (
-        await db.execute(
-            sa.select(Submission, Course)
-            .join(Assignment, Assignment.id == Submission.assignment_id)
-            .join(Course, Course.id == Assignment.course_id)
-            .where(Submission.id == submission_id)
+    stmt = (
+        sa.select(Submission, Course)
+        .join(Assignment, Assignment.id == Submission.assignment_id)
+        .join(Course, Course.id == Assignment.course_id)
+        .where(Submission.id == submission_id)
+    )
+    if (
+        UserRole.STUDENT in user.roles
+        and UserRole.ADMIN not in user.roles
+        and UserRole.TEACHER not in user.roles
+    ):
+        stmt = (
+            stmt.join(Membership, Membership.course_id == Course.id)
+            .where(
+                Membership.user_id == user.id,
+                Membership.role == MembershipRole.STUDENT,
+                Membership.status == MembershipStatus.ACTIVE,
+            )
+            .with_for_update(read=True, of=Membership)
         )
-    ).one_or_none()
+    row = (await db.execute(stmt)).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Submission not found")
     submission, course = row
@@ -1845,11 +1869,16 @@ async def get_student_published_result(
                 DocumentVersion.id == PublishedResultVersion.document_version_id,
             )
             .join(Submission, Submission.id == DocumentVersion.submission_id)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
             .where(
                 Submission.id == submission_id,
                 Submission.student_id == user.id,
                 DocumentVersion.status == DocumentStatus.PUBLISHED,
                 DocumentVersion.version_number == latest_published_version_number,
+                course_svc.active_student_membership_exists(
+                    course_id=Assignment.course_id,
+                    user_id=user.id,
+                ),
             )
             .order_by(
                 DocumentVersion.version_number.desc(),

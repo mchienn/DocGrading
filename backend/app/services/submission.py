@@ -74,8 +74,14 @@ async def initiate_upload(
     assignment = (
         await db.execute(
             sa.select(Assignment)
-            .where(Assignment.id == assignment_id)
-            .with_for_update()
+            .join(Membership, Membership.course_id == Assignment.course_id)
+            .where(
+                Assignment.id == assignment_id,
+                Membership.user_id == user.id,
+                Membership.role == MembershipRole.STUDENT,
+                Membership.status == MembershipStatus.ACTIVE,
+            )
+            .with_for_update(of=[Assignment, Membership])
         )
     ).scalar_one_or_none()
     if assignment is None:
@@ -94,18 +100,6 @@ async def initiate_upload(
         raise HTTPException(
             status_code=409, detail="Assignment is not accepting submissions"
         )
-    member = (
-        await db.execute(
-            sa.select(Membership.id).where(
-                Membership.course_id == assignment.course_id,
-                Membership.user_id == user.id,
-                Membership.role == MembershipRole.STUDENT,
-                Membership.status == MembershipStatus.ACTIVE,
-            )
-        )
-    ).scalar_one_or_none()
-    if member is None:
-        raise HTTPException(status_code=404, detail="Assignment not found")
     submission = (
         await db.execute(
             sa.select(Submission)
@@ -257,8 +251,15 @@ async def complete_upload(
             sa.select(DocumentVersion, Submission, Assignment)
             .join(Submission, DocumentVersion.submission_id == Submission.id)
             .join(Assignment, Submission.assignment_id == Assignment.id)
-            .where(DocumentVersion.id == version_id)
-            .with_for_update(of=[DocumentVersion, Assignment])
+            .join(Membership, Membership.course_id == Assignment.course_id)
+            .where(
+                DocumentVersion.id == version_id,
+                Submission.student_id == user.id,
+                Membership.user_id == user.id,
+                Membership.role == MembershipRole.STUDENT,
+                Membership.status == MembershipStatus.ACTIVE,
+            )
+            .with_for_update(of=[DocumentVersion, Assignment, Membership])
         )
     ).one_or_none()
     if row is None:
