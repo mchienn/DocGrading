@@ -15,7 +15,7 @@ const friendlyErrors: Record<string, string> = {
   PDF_TOO_LARGE: 'PDF exceeds file-size limits.',
   PDF_DECODED_TOO_LARGE: 'Decoded PDF content exceeds processing limits.',
   PDF_PAGE_LIMIT: 'PDF exceeds page-count limits.',
-  PDF_ACTIVE_CONTENT: 'PDF contains unsupported active content or attachments.',
+  PDF_ACTIVE_CONTENT: 'This PDF contains active content or embedded attachments, which DocGrading cannot process. Remove scripts, actions, or attachments, export a clean PDF, then upload it again.',
   PDF_SCAN_ONLY: 'PDF needs a usable text layer; scanned documents are not supported.',
   PDF_MALFORMED: 'PDF structure is invalid or unsupported.',
   PDF_STORAGE_ERROR: 'Storage is temporarily unavailable.',
@@ -26,6 +26,7 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const submissionId = searchParams.get('submissionId');
+  const reused = searchParams.get('reused') === 'true';
   const queryClient = useQueryClient();
   const [retryError, setRetryError] = useState<string>();
   const [retrying, setRetrying] = useState(false);
@@ -64,34 +65,59 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
   const statusContent = () => {
     if (!job) return null;
     if (job.status === 'DONE') {
-      return {
-        icon: <CheckCircle2 className="w-10 h-10 text-emerald-600" />,
-        title: 'PDF processing completed',
-        detail: 'Ingestion and validation finished. Teacher review and publication may still be pending.',
-      };
+      return reused
+        ? {
+            icon: <CheckCircle2 className="w-10 h-10 text-emerald-600" />,
+            title: 'This PDF was already submitted',
+            detail: 'No new upload was created. Showing the previous processing result.',
+          }
+        : {
+            icon: <CheckCircle2 className="w-10 h-10 text-emerald-600" />,
+            title: 'PDF processing completed',
+            detail: 'Ingestion and validation finished. Teacher review and publication may still be pending.',
+          };
     }
     if (job.status === 'ERROR') {
       const detail = job.error_code
         ? friendlyErrors[job.error_code] ?? 'PDF processing failed. Contact support with job ID.'
         : 'PDF processing failed. Contact support with job ID.';
+      const isValidationError = job.error_code !== 'PDF_STORAGE_ERROR';
       return {
         icon: <AlertCircle className="w-10 h-10 text-rose-600" />,
-        title: 'Processing failed',
-        detail,
+        title: reused
+          ? 'This exact PDF was already rejected'
+          : isValidationError
+            ? 'PDF rejected'
+            : 'Processing failed',
+        detail: reused
+          ? `This exact PDF was submitted before, so DocGrading did not upload or process it again. Previous result: ${detail}`
+          : detail,
       };
     }
     if (job.status === 'RUNNING') {
-      return {
-        icon: <LoaderCircle className="w-10 h-10 text-sky-600 animate-spin" />,
-        title: 'Processing PDF',
-        detail: 'DocGrading is validating and extracting the uploaded document.',
-      };
+      return reused
+        ? {
+            icon: <LoaderCircle className="w-10 h-10 text-sky-600 animate-spin" />,
+            title: 'This PDF is already processing',
+            detail: 'No new upload was created. Showing the existing processing job.',
+          }
+        : {
+            icon: <LoaderCircle className="w-10 h-10 text-sky-600 animate-spin" />,
+            title: 'Processing PDF',
+            detail: 'DocGrading is validating and extracting the uploaded document.',
+          };
     }
-    return {
-      icon: <Clock3 className="w-10 h-10 text-amber-600" />,
-      title: 'Queued',
-      detail: 'Upload completed. Processing will start shortly.',
-    };
+    return reused
+      ? {
+          icon: <Clock3 className="w-10 h-10 text-amber-600" />,
+          title: 'This PDF is already queued',
+          detail: 'No new upload was created. Showing the existing processing job.',
+        }
+      : {
+          icon: <Clock3 className="w-10 h-10 text-amber-600" />,
+          title: 'Queued',
+          detail: 'Upload completed. Processing will start shortly.',
+        };
   };
   const content = statusContent();
 
