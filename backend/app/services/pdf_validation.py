@@ -136,6 +136,7 @@ _MAX_GEOMETRY_OPERATIONS = 10_000
 _MAX_CLIP_VERTICES = 256
 _MAX_PAGE_TREE_NODES = 10_000
 _MAX_PAGE_TREE_DEPTH = 100
+_MAX_ACTIVE_CONTENT_NODES = 50_000
 
 type Matrix = tuple[float, float, float, float, float, float]
 type Point = tuple[float, float]
@@ -891,16 +892,16 @@ def _resolve_active_object(value: Any, nodes: list[int]) -> Any:
     seen: set[int] = set()
     while isinstance(value, IndirectObject):
         nodes[0] += 1
-        if nodes[0] > _MAX_PAGE_TREE_NODES:
+        if nodes[0] > _MAX_ACTIVE_CONTENT_NODES:
             raise _PDFScanLimit
         marker = id(value)
         if marker in seen:
-            raise _PDFScanLimit
+            raise PDFValidationError("PDF_MALFORMED")
         seen.add(marker)
         try:
             value = value.get_object()
         except Exception as exc:
-            raise _PDFScanLimit from exc
+            raise PDFValidationError("PDF_MALFORMED") from exc
     return value
 
 
@@ -916,7 +917,7 @@ def _contains_active_content(
     if nodes is None:
         nodes = [0]
     nodes[0] += 1
-    if nodes[0] > _MAX_PAGE_TREE_NODES:
+    if nodes[0] > _MAX_ACTIVE_CONTENT_NODES:
         raise _PDFScanLimit
     if isinstance(value, IndirectObject):
         value = _resolve_active_object(value, nodes)
@@ -925,13 +926,8 @@ def _contains_active_content(
         return False
     seen[marker] = value
     if isinstance(value, dict):
-        try:
-            object_type = _resolve_active_object(value.get("/Type"), nodes)
-            subtype = _resolve_active_object(value.get("/Subtype"), nodes)
-        except _PDFScanLimit:
-            raise
-        except Exception as exc:
-            raise _PDFScanLimit from exc
+        object_type = _resolve_active_object(value.get("/Type"), nodes)
+        subtype = _resolve_active_object(value.get("/Subtype"), nodes)
         object_type_name = str(object_type)
         subtype_name = str(subtype)
         is_action = _action_context or object_type_name == "/Action"
@@ -1023,7 +1019,7 @@ def validate_pdf(
     except PDFValidationError:
         raise
     except _PDFScanLimit as exc:
-        raise PDFValidationError("PDF_ACTIVE_CONTENT") from exc
+        raise PDFValidationError("PDF_SCAN_LIMIT") from exc
     except Exception as exc:
         raise PDFValidationError("PDF_MALFORMED") from exc
     return PDFValidationResult(
