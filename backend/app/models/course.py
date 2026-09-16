@@ -82,6 +82,68 @@ class Course(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         back_populates="course",
         foreign_keys="Assignment.course_id",
     )
+    join_codes: Mapped[list[CourseJoinCode]] = relationship(
+        "CourseJoinCode",
+        back_populates="course",
+        cascade="all, delete-orphan",
+        foreign_keys="CourseJoinCode.course_id",
+    )
+
+
+class CourseJoinCode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "course_join_codes"
+    __table_args__ = (
+        sa.UniqueConstraint("code", name="uq_course_join_codes_code"),
+        sa.Index(
+            "uq_course_join_codes_course_active",
+            "course_id",
+            unique=True,
+            postgresql_where=sa.text("revoked_at IS NULL"),
+        ),
+        sa.CheckConstraint(
+            "length(code) = 20 AND code ~ '^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{20}$'",
+            name="ck_course_join_codes_code_shape",
+        ),
+        sa.CheckConstraint(
+            "expires_at > created_at",
+            name="ck_course_join_codes_expiry_after_creation",
+        ),
+    )
+
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "courses.id",
+            ondelete="CASCADE",
+            name="fk_course_join_codes_course_id_courses",
+        ),
+        nullable=False,
+    )
+    code: Mapped[str] = mapped_column(sa.String(20), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    course: Mapped[Course] = relationship(
+        "Course",
+        back_populates="join_codes",
+        foreign_keys=[course_id],
+    )
+
+
+class JoinRateLimit(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "join_rate_limits"
+    subject_hash: Mapped[str] = mapped_column(
+        sa.String(64), nullable=False, unique=True
+    )
+    window_started_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False
+    )
+    request_count: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default=sa.text("0")
+    )
 
 
 class Membership(UUIDPrimaryKeyMixin, TimestampMixin, Base):

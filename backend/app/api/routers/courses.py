@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -15,6 +16,11 @@ from app.api.deps import (
 from app.api.schemas_course import (
     CourseCreate,
     CourseInviteResponse,
+    CourseJoinCodeCreateRequest,
+    CourseJoinCodeResponse,
+    CourseJoinCodeUpdateRequest,
+    CourseJoinRequest,
+    CourseJoinResponse,
     CourseMemberAddRequest,
     CourseMemberAddResponse,
     CourseMemberListResponse,
@@ -28,6 +34,7 @@ from app.models.course import Course, Membership
 from app.models.enums import MembershipAddOutcome, MembershipStatus, UserRole
 from app.models.identity import User
 from app.services import course as course_svc
+from app.services import course_join as join_svc
 
 
 def _member_response(membership: Membership, user: User) -> CourseMemberResponse:
@@ -42,6 +49,7 @@ def _member_response(membership: Membership, user: User) -> CourseMemberResponse
     )
 
 
+join_router = APIRouter(prefix="/course-joins", tags=["courses"])
 router = APIRouter(prefix="/courses", tags=["courses"])
 
 
@@ -212,3 +220,127 @@ async def archive_course(
     course = await course_svc.archive_course(db, course, actor_user_id=user.id)
     await db.commit()
     return CourseResponse.model_validate(course)
+
+
+def _join_code_response(row) -> CourseJoinCodeResponse:  # noqa: ANN001
+    return CourseJoinCodeResponse(
+        id=row.id,
+        course_id=row.course_id,
+        code=row.code,
+        expires_at=row.expires_at,
+        revoked_at=row.revoked_at,
+        status=join_svc._state(row),
+        join_url=join_svc.join_url(row.code),
+        qr_url=join_svc.qr_url(row.course_id),
+    )
+
+
+@router.post(
+    "/{course_id}/join-code",
+    response_model=CourseJoinCodeResponse,
+    status_code=201,
+)
+async def create_course_join_code(
+    body: CourseJoinCodeCreateRequest,
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseJoinCodeResponse:
+    row = await join_svc.create_join_code(
+        db, course_id=course.id, expires_at=body.expires_at, actor_user_id=user.id
+    )
+    await db.commit()
+    return _join_code_response(row)
+
+
+@router.get(
+    "/{course_id}/join-code",
+    response_model=CourseJoinCodeResponse,
+)
+async def get_course_join_code(
+    course: Course = Depends(get_owned_course),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseJoinCodeResponse:
+    row = await join_svc.get_join_code(db, course_id=course.id)
+    return _join_code_response(row)
+
+
+@router.put(
+    "/{course_id}/join-code",
+    response_model=CourseJoinCodeResponse,
+)
+async def update_course_join_code(
+    body: CourseJoinCodeUpdateRequest,
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseJoinCodeResponse:
+    row = await join_svc.update_join_code(
+        db, course_id=course.id, expires_at=body.expires_at, actor_user_id=user.id
+    )
+    await db.commit()
+    return _join_code_response(row)
+
+
+@router.delete(
+    "/{course_id}/join-code",
+    response_model=CourseJoinCodeResponse,
+)
+async def revoke_course_join_code(
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseJoinCodeResponse:
+    row = await join_svc.revoke_join_code(
+        db, course_id=course.id, actor_user_id=user.id
+    )
+    await db.commit()
+    return _join_code_response(row)
+
+
+@router.post(
+    "/{course_id}/join-code/regenerate",
+    response_model=CourseJoinCodeResponse,
+)
+async def regenerate_course_join_code(
+    body: CourseJoinCodeCreateRequest,
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseJoinCodeResponse:
+    row = await join_svc.regenerate_join_code(
+        db, course_id=course.id, expires_at=body.expires_at, actor_user_id=user.id
+    )
+    await db.commit()
+    return _join_code_response(row)
+
+
+@router.get(
+    "/{course_id}/join-code/qr",
+    response_class=Response,
+)
+async def get_course_join_code_qr(
+    course: Course = Depends(get_owned_course),
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
+    row = await join_svc.get_join_code(db, course_id=course.id)
+    return Response(join_svc.render_qr_svg(row.code), media_type="image/svg+xml")
+
+
+@join_router.post("", response_model=CourseJoinResponse)
+async def join_course_by_code(
+    body: CourseJoinRequest,
+    request: Request,
+    user: User = Depends(require_roles(UserRole.STUDENT)),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseJoinResponse:
+    outcome, membership, course = await join_svc.join_course(
+        db, code=body.code, user=user, request=request
+    )
+    await db.commit()
+    return CourseJoinResponse(
+        outcome=outcome,
+        membership_id=membership.id,
+        course_code=course.code,
+        course_name=course.name,
+    )

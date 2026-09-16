@@ -13,6 +13,7 @@ from app.models.enums import (
     MembershipAddOutcome,
     MembershipJoinedVia,
     MembershipStatus,
+    CourseJoinOutcome,
 )
 
 
@@ -129,3 +130,43 @@ class CourseMemberAddResponse(BaseModel):
         if (self.member is None) == (self.invite is None):
             raise ValueError("exactly one of member or invite is required")
         return self
+
+
+class CourseJoinCodeCreateRequest(BaseModel):
+    expires_at: datetime
+
+    model_config = {"extra": "forbid"}
+
+
+class CourseJoinCodeUpdateRequest(BaseModel):
+    expires_at: datetime
+
+    model_config = {"extra": "forbid"}
+
+
+class CourseJoinCodeResponse(BaseModel):
+    id: uuid.UUID
+    course_id: uuid.UUID
+    code: str
+    expires_at: datetime
+    revoked_at: datetime | None
+    status: Literal["ACTIVE", "EXPIRED", "REVOKED"]
+    join_url: str
+    qr_url: str
+
+    model_config = {"extra": "forbid"}
+
+
+class CourseJoinRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+
+    model_config = {"extra": "forbid"}
+
+
+class CourseJoinResponse(BaseModel):
+    outcome: CourseJoinOutcome
+    membership_id: uuid.UUID
+    course_code: str
+    course_name: str
+
+    model_config = {"extra": "forbid"}

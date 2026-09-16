@@ -1,11 +1,12 @@
 from app.models.analysis import AnalysisJob, AnalysisJobDispatch, DocumentIR
 from app.models.assignment import Assignment, AssignmentRequirement
 from app.models.audit import AuditEvent
-from app.models.course import Course, CourseInvite, Membership
+from app.models.course import Course, CourseInvite, CourseJoinCode, JoinRateLimit, Membership
 from app.models.enums import (
     AnalysisJobStatus,
     AssignmentStatus,
     AuditActorType,
+    CourseJoinOutcome,
     CourseStatus,
     DocumentStatus,
     MembershipAddOutcome,
@@ -48,6 +49,9 @@ __all__ = [
     "AuditEvent",
     "Course",
     "CourseInvite",
+    "CourseJoinCode",
+    "JoinRateLimit",
+    "CourseJoinOutcome",
     "CriterionVersion",
     "CourseStatus",
     "DocumentIR",

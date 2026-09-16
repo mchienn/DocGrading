@@ -36,6 +36,12 @@ class MembershipAddOutcome(StrEnum):
     INVITED = "INVITED"
 
 
+class CourseJoinOutcome(StrEnum):
+    JOINED = "JOINED"
+    REACTIVATED = "REACTIVATED"
+    ALREADY_MEMBER = "ALREADY_MEMBER"
+
+
 class CourseStatus(StrEnum):
     ACTIVE = "ACTIVE"
     ARCHIVED = "ARCHIVED"

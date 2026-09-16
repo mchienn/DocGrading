@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    frontend_origin: str = "http://localhost:5173"
+    join_rate_limit_max_requests: int = Field(default=10, ge=1)
+    join_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
     postgres_db: str = Field(min_length=1)
     postgres_user: str = Field(min_length=1)
