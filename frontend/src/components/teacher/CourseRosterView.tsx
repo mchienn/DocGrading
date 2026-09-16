@@ -323,7 +323,9 @@ export const CourseRosterView: React.FC<{ role: 'teacher' | 'admin' }> = ({ role
         </p>
       )}
 
-      <CourseJoinCodeSection courseId={courseId} isArchived={isArchived} />
+      {course && (
+        <CourseJoinCodeSection courseId={courseId} isArchived={isArchived} />
+      )}
 
       <section aria-label="Roster filters" className="flex flex-wrap items-center justify-between gap-4 p-4 bg-white border border-slate-200 rounded-xl">
         <div className="flex items-center gap-3">

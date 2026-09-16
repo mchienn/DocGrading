@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 
+import pytest
+
 from app.api.schemas_course import CourseJoinCodeResponse
+from app.core.config import get_settings
 from app.main import create_app
 from app.models.enums import CourseJoinOutcome
 from app.services.course_join import (
     CODE_ALPHABET,
+    _rate_limit_subject_digest,
     generate_join_code,
     normalize_join_code,
 )
@@ -22,6 +27,26 @@ def test_join_code_has_100_bit_unambiguous_shape_and_normalizes_case() -> None:
     code = next(iter(codes))
     assert normalize_join_code(f"  {code.lower()} ") == code
     assert not set(code) & set("1ILO")
+
+
+def test_rate_limit_subject_digest_is_keyed(monkeypatch: pytest.MonkeyPatch) -> None:
+    subject = "ip:203.0.113.10"
+    monkeypatch.setenv(
+        "JOIN_RATE_LIMIT_HASH_SECRET", "first-rate-limit-hash-secret-value"
+    )
+    get_settings.cache_clear()
+    try:
+        first = _rate_limit_subject_digest(subject)
+        monkeypatch.setenv(
+            "JOIN_RATE_LIMIT_HASH_SECRET", "second-rate-limit-hash-secret-value"
+        )
+        get_settings.cache_clear()
+        second = _rate_limit_subject_digest(subject)
+    finally:
+        get_settings.cache_clear()
+
+    assert first != second
+    assert first != hashlib.sha256(subject.encode()).hexdigest()
 
 
 def test_t027_openapi_paths_and_fields() -> None:

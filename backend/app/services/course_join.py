@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import math
 import secrets
@@ -106,7 +107,11 @@ async def _lock_active_course(db: AsyncSession, course_id: uuid.UUID) -> Course:
 
 
 async def _lock_course_code(
-    db: AsyncSession, course_id: uuid.UUID, *, latest: bool = True
+    db: AsyncSession,
+    course_id: uuid.UUID,
+    *,
+    latest: bool = True,
+    for_update: bool = False,
 ) -> CourseJoinCode | None:
     statement = select(CourseJoinCode).where(CourseJoinCode.course_id == course_id)
     if latest:
@@ -116,10 +121,10 @@ async def _lock_course_code(
             CourseJoinCode.created_at.desc(),
             CourseJoinCode.id.desc(),
         ).limit(1)
+    if for_update:
+        statement = statement.with_for_update()
     return (
-        await db.execute(
-            statement.with_for_update().execution_options(populate_existing=True)
-        )
+        await db.execute(statement.execution_options(populate_existing=True))
     ).scalar_one_or_none()
 
 
@@ -209,7 +214,7 @@ async def update_join_code(
 ) -> CourseJoinCode:
     await db.execute(select(sa.func.pg_advisory_xact_lock(_JOIN_MUTATION_LOCK_ID)))
     await _lock_active_course(db, course_id)
-    row = await _lock_course_code(db, course_id)
+    row = await _lock_course_code(db, course_id, for_update=True)
     if row is None:
         raise _error(
             "JOIN_CODE_NOT_FOUND", "Join code not found", status.HTTP_404_NOT_FOUND
@@ -238,7 +243,7 @@ async def revoke_join_code(
 ) -> CourseJoinCode:
     await db.execute(select(sa.func.pg_advisory_xact_lock(_JOIN_MUTATION_LOCK_ID)))
     await _lock_active_course(db, course_id)
-    row = await _lock_course_code(db, course_id)
+    row = await _lock_course_code(db, course_id, for_update=True)
     if row is None:
         raise _error(
             "JOIN_CODE_NOT_FOUND", "Join code not found", status.HTTP_404_NOT_FOUND
@@ -273,7 +278,7 @@ async def regenerate_join_code(
     await db.execute(select(sa.func.pg_advisory_xact_lock(_JOIN_MUTATION_LOCK_ID)))
     course = await _lock_active_course(db, course_id)
     expires_at = _valid_expiry(expires_at)
-    old = await _lock_course_code(db, course.id)
+    old = await _lock_course_code(db, course.id, for_update=True)
     before = _snapshot(old) if old is not None else None
     if old is not None and old.revoked_at is None:
         old.revoked_at = datetime.now(UTC)
@@ -292,16 +297,22 @@ async def regenerate_join_code(
     return row
 
 
+def _rate_limit_subject_digest(subject: str) -> str:
+    secret = get_settings().join_rate_limit_hash_secret.encode()
+    return hmac.new(secret, subject.encode(), hashlib.sha256).hexdigest()
+
+
 async def enforce_join_rate_limit(
     db: AsyncSession, *, user_id: uuid.UUID, request: Request
 ) -> None:
     settings = get_settings()
     ip = request.client.host if request.client else "unknown"
     subjects = (f"account:{user_id}", f"ip:{ip}")
+    digests = tuple(_rate_limit_subject_digest(subject) for subject in subjects)
     now = datetime.now(UTC)
     retry_after = 0
-    for subject in subjects:
-        digest = hashlib.sha256(subject.encode()).hexdigest()
+    limited = False
+    for digest in digests:
         lock_id = int.from_bytes(
             hashlib.sha256(digest.encode()).digest()[:8], "big", signed=True
         )
@@ -334,18 +345,35 @@ async def enforce_join_rate_limit(
                     - (now - row.window_started_at).total_seconds()
                 ),
             )
-        if row.request_count > settings.join_rate_limit_max_requests:
-            await db.flush()
-            await db.commit()
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
-                    "code": "JOIN_RATE_LIMITED",
-                    "message": "Too many join attempts",
-                },
-                headers={"Retry-After": str(max(1, retry_after))},
-            )
+        limited = limited or (row.request_count > settings.join_rate_limit_max_requests)
     await db.flush()
+    expired_ids = (
+        await db.scalars(
+            select(JoinRateLimit.id)
+            .where(
+                JoinRateLimit.window_started_at
+                < now - timedelta(seconds=settings.join_rate_limit_window_seconds),
+                ~JoinRateLimit.subject_hash.in_(digests),
+            )
+            .order_by(JoinRateLimit.window_started_at)
+            .limit(100)
+            .with_for_update(skip_locked=True)
+        )
+    ).all()
+    if expired_ids:
+        await db.execute(
+            sa.delete(JoinRateLimit).where(JoinRateLimit.id.in_(expired_ids))
+        )
+    if limited:
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "JOIN_RATE_LIMITED",
+                "message": "Too many join attempts",
+            },
+            headers={"Retry-After": str(max(1, retry_after))},
+        )
 
 
 async def join_course(

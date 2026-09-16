@@ -30,7 +30,7 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Frontend production assets qua Caddy: `http://localhost:5173`; API loopback trực tiếp: `http://localhost:8000`; OpenAPI: `http://localhost:8000/api/v1/openapi.json`. Production giữ port API private, terminate TLS trực tiếp tại Caddy và dùng `/api` same-origin. Nếu có TLS proxy phía trước, cấu hình Caddy chỉ trust CIDR chính xác của proxy bằng `trusted_proxies` + `trusted_proxies_strict`.
+Frontend production assets qua Caddy: `http://localhost:5173`; API loopback trực tiếp: `http://localhost:8000`; OpenAPI: `http://localhost:8000/api/v1/openapi.json`. Production giữ port API private, đặt `JOIN_RATE_LIMIT_HASH_SECRET` ngẫu nhiên tối thiểu 32 ký tự, terminate TLS trực tiếp tại Caddy và dùng `/api` same-origin. Compose mặc định chỉ trust IP Caddy cố định `172.30.255.3`; nếu đổi topology, đặt `FORWARDED_ALLOW_IPS` thành đúng IP proxy. Nếu có TLS proxy phía trước, cấu hình Caddy chỉ trust CIDR chính xác của proxy bằng `trusted_proxies` + `trusted_proxies_strict`.
 
 Kiểm tra API:
 

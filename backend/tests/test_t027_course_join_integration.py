@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -16,7 +15,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.models.enums import CourseJoinOutcome, MembershipJoinedVia, MembershipStatus
 from app.models.identity import User
-from app.services.course_join import join_course
+from app.services.course_join import _rate_limit_subject_digest, join_course
 from tests.test_t011_review_workspace import _ids, _seed_graph
 from tests.test_t019_security_adversarial import _authenticated_client
 
@@ -226,18 +225,62 @@ def test_join_endpoint_rate_limit_returns_retry_after(
             transaction = await connection.begin()
             try:
                 await _seed_graph(connection, ids)
+                stale_digests = [f"{index:064x}" for index in range(101)]
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.join_rate_limits "
+                        "(id, subject_hash, window_started_at, request_count) "
+                        "VALUES (:id, :digest, now() - interval '2 minutes', 1)"
+                    ),
+                    [
+                        {"id": uuid.uuid4(), "digest": digest}
+                        for digest in stale_digests
+                    ],
+                )
                 async with _authenticated_client(
                     connection, ids["student_1"]
                 ) as student:
-                    for _ in range(2):
-                        response = await student.post(
-                            "/api/v1/course-joins", json={"code": "0" * 20}
+                    response = await student.post(
+                        "/api/v1/course-joins", json={"code": "0" * 20}
+                    )
+                    assert response.status_code == 404
+                    assert (
+                        await connection.scalar(
+                            text(
+                                "SELECT count(*) FROM public.join_rate_limits "
+                                "WHERE window_started_at "
+                                "< now() - interval '1 minute'"
+                            )
                         )
-                        assert response.status_code == 404
+                        == 1
+                    )
+                    response = await student.post(
+                        "/api/v1/course-joins", json={"code": "0" * 20}
+                    )
+                    assert response.status_code == 404
+                    assert (
+                        await connection.scalar(
+                            text(
+                                "SELECT count(*) FROM public.join_rate_limits "
+                                "WHERE window_started_at "
+                                "< now() - interval '1 minute'"
+                            )
+                        )
+                        == 0
+                    )
                     limited = await student.post(
                         "/api/v1/course-joins", json={"code": "0" * 20}
                     )
                     assert limited.status_code == 429
+                    assert (
+                        await connection.scalars(
+                            text(
+                                "SELECT request_count "
+                                "FROM public.join_rate_limits "
+                                "ORDER BY subject_hash"
+                            )
+                        )
+                    ).all() == [3, 3]
                     assert limited.json()["detail"]["code"] == "JOIN_RATE_LIMITED"
                     assert int(limited.headers["Retry-After"]) >= 1
             finally:
@@ -368,11 +411,9 @@ def test_concurrent_join_creates_one_membership_and_idempotent_replay() -> None:
                     {"id": course_id},
                 )
                 digests = {
-                    "account": hashlib.sha256(
-                        f"account:{student_id}".encode()
-                    ).hexdigest(),
-                    "ip_1": hashlib.sha256(f"ip:{ips[0]}".encode()).hexdigest(),
-                    "ip_2": hashlib.sha256(f"ip:{ips[1]}".encode()).hexdigest(),
+                    "account": _rate_limit_subject_digest(f"account:{student_id}"),
+                    "ip_1": _rate_limit_subject_digest(f"ip:{ips[0]}"),
+                    "ip_2": _rate_limit_subject_digest(f"ip:{ips[1]}"),
                 }
                 await connection.execute(
                     text(

@@ -54,6 +54,18 @@ async def _constraints(engine: AsyncEngine) -> set[str]:
         return {row.conname for row in rows}
 
 
+async def _indexes(engine: AsyncEngine) -> set[str]:
+    async with engine.connect() as connection:
+        rows = await connection.execute(
+            text(
+                "SELECT indexname FROM pg_catalog.pg_indexes "
+                "WHERE schemaname = 'public' "
+                "AND tablename IN ('course_join_codes', 'join_rate_limits')"
+            )
+        )
+        return {row.indexname for row in rows}
+
+
 async def _prove_lossy_downgrade_guard(engine: AsyncEngine, config: Config) -> None:
     teacher_id = uuid.uuid4()
     course_id = uuid.uuid4()
@@ -126,6 +138,10 @@ def test_t027_real_postgresql_roundtrip_and_append_only_guards() -> None:
             "ck_join_rate_limits_subject_hash",
             "ck_join_rate_limits_count_nonnegative",
         } <= asyncio.run(_constraints(engine))
+        assert {
+            "uq_course_join_codes_course_active",
+            "ix_join_rate_limits_window_started_at",
+        } <= asyncio.run(_indexes(engine))
         asyncio.run(_append_only_guards(engine))
         asyncio.run(_prove_lossy_downgrade_guard(engine, config))
 

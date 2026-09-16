@@ -83,6 +83,12 @@ def upgrade() -> None:
         ),
         schema="public",
     )
+    op.create_index(
+        "ix_join_rate_limits_window_started_at",
+        "join_rate_limits",
+        ["window_started_at"],
+        schema="public",
+    )
 
 
 def downgrade() -> None:

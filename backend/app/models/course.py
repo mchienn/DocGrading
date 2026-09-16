@@ -137,6 +137,7 @@ class JoinRateLimit(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "join_rate_limits"
     __table_args__ = (
         sa.UniqueConstraint("subject_hash", name="uq_join_rate_limits_subject_hash"),
+        sa.Index("ix_join_rate_limits_window_started_at", "window_started_at"),
         sa.CheckConstraint(
             "length(subject_hash) = 64",
             name="ck_join_rate_limits_subject_hash",

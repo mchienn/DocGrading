@@ -190,6 +190,9 @@ def test_critical_constraints_and_indexes_have_stable_names() -> None:
         "ck_join_rate_limits_count_nonnegative",
         "uq_join_rate_limits_subject_hash",
     } <= rate_limit_constraints
+    assert "ix_join_rate_limits_window_started_at" in {
+        index.name for index in Base.metadata.tables["join_rate_limits"].indexes
+    }
 
     document_irs_checks = {
         c.name

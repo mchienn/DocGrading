@@ -8,8 +8,8 @@
 - Code chuẩn hóa thành 20 ký tự từ bảng chữ cái Base32 không mơ hồ, sinh bằng `secrets.choice`: 100 bit entropy, không dùng UUID cắt ngắn. Unique toàn hệ thống vì Student nhập code không kèm Course; điều này mạnh hơn unique trong từng Course.
 - Tạo mới yêu cầu Course chưa có code chưa revoke. Đổi hạn cập nhật code hiện tại. Regenerate revoke code cũ và tạo code mới trong cùng transaction. Revoke/regenerate không sửa Membership đã có.
 - QR chứa đúng join URL `/student/join?code=...`; link không chứa email, user ID, Course ID hoặc metadata nội bộ. Backend sinh SVG bằng `qrcode==8.2` đã pin.
-- Join luôn đọc row code trực tiếp với `FOR UPDATE`; không cache. Cùng khóa Course serialize mutation Membership. Unique constraint `(course_id, user_id, role)` của T-026 là chốt DB cuối cùng. Student đã là member ACTIVE nhận `ALREADY_MEMBER`; không insert, không lỗi. Membership REMOVED được kích hoạt lại bằng `joined_via=CODE`.
-- Rate limit DB-backed áp dụng đồng thời theo account và client IP đã được Uvicorn nhận từ proxy thuộc private CIDR cấu hình: 10 request/60 giây mặc định, row counter cập nhật dưới advisory lock, trả `429` cùng `Retry-After`. Compose chỉ tin proxy từ private network; API không được public trực tiếp. Không lưu IP thô; chỉ lưu SHA-256 subject.
+- Join đọc code trực tiếp, không cache; GET/QR không giữ row lock, còn mutation dùng `FOR UPDATE`. Khóa Course serialize mutation Membership. Unique constraint `(course_id, user_id, role)` của T-026 là chốt DB cuối cùng. Student đã là member ACTIVE nhận `ALREADY_MEMBER`; không insert, không lỗi. Membership REMOVED được kích hoạt lại bằng `joined_via=CODE`.
+- Rate limit DB-backed áp dụng đồng thời theo account và client IP đã được Uvicorn nhận từ đúng IP Caddy: 10 request/60 giây mặc định, row counter cập nhật dưới advisory lock, trả `429` cùng `Retry-After`. API không được public trực tiếp. Subject dùng HMAC-SHA256 với secret riêng; mỗi request dọn tối đa 100 row hết window sau khi khóa subject, dùng `FOR UPDATE SKIP LOCKED` và index `window_started_at`.
 - Audit cùng transaction cho create, expiry update, revoke, regenerate và Membership join/reactivate. Audit không lưu code hoặc join URL.
 - Teacher/Admin endpoints dùng dependency ownership hiện có. Student join yêu cầu role `STUDENT`. Archived Course không cho tạo/đổi/revoke/regenerate hoặc join.
 
@@ -53,9 +53,9 @@ Hard gate hoàn tất trước khi viết migration:
 
 ## Verification results
 
-- Backend trên PostgreSQL sạch `docgrading_t027_full`: `uv run ruff check .`, `uv run black --check .`, `uv run alembic upgrade head`, `RUN_DATABASE_TESTS=1 uv run pytest -q` — **426 passed**.
+- Backend trên PostgreSQL sạch `docgrading_t027_review`: `uv run ruff check .`, `uv run black --check .`, `uv run alembic upgrade head`, `RUN_DATABASE_TESTS=1 uv run pytest -q` — **430 passed**.
 - T-027 database integration: **4 passed**; gồm lifecycle/error/audit/privacy/rate-limit, hai join đồng thời chỉ một Membership và migration append-only guard.
 - Migration DB thật riêng: `upgrade head`, `downgrade 20260916_0014`, `upgrade head` — pass.
 - Frontend: `pnpm typecheck` và `pnpm build` — pass; chỉ còn warning chunk size/Zod annotation đã có.
 - Browser UAT qua Compose: Teacher tạo code/link/QR; Student mở link, code chỉ prefill trước xác nhận, join thành công; DB có đúng `ACTIVE:CODE:1`. Revoke cũ trả `Join code is revoked`; regenerate rồi ép hết hạn trả `Join code is expired`.
-- Reviewer correctness và security recheck: không còn finding; proxy trust/explicit consent và QR cache đã được sửa, tài liệu production đã đồng bộ.
+- Reviewer correctness/security và CodeRabbit follow-up: không còn finding trong diff; proxy trust dùng đúng IP Caddy, subject rate-limit dùng HMAC, cleanup có index và giới hạn 100 row/request với `SKIP LOCKED`, GET/QR không giữ row lock, UI chờ Course tải xong.
