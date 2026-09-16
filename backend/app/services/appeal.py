@@ -31,6 +31,7 @@ from app.models.identity import User
 from app.models.review import Finding, PublishedResultVersion, ReviewRequest
 from app.models.rubric import CriterionVersion
 from app.models.submission import DocumentVersion, Submission
+from app.services import course as course_svc
 from app.services import notification as notification_svc
 from app.services.audit import record_audit
 
@@ -208,6 +209,19 @@ async def create_review_request(
         payload.submission_id,
         user.id,
     )
+    membership_course_id = (
+        await db.execute(
+            sa.select(Course.id).where(
+                Course.id == course.id,
+                course_svc.active_student_membership_exists(
+                    course_id=Course.id,
+                    user_id=user.id,
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+    if membership_course_id is None:
+        raise HTTPException(status_code=404, detail="Published result not found")
     if version.status is not DocumentStatus.PUBLISHED:
         raise HTTPException(status_code=409, detail="Document is not published")
     if course.status is CourseStatus.ARCHIVED:
@@ -357,6 +371,7 @@ async def _get_request_with_course(
     request_id: uuid.UUID,
     *,
     owner_teacher_id: uuid.UUID | None = None,
+    active_student_id: uuid.UUID | None = None,
     lock_course: bool = False,
 ) -> tuple[ReviewRequest, Assignment, Course]:
     statement = (
@@ -369,6 +384,14 @@ async def _get_request_with_course(
     )
     if owner_teacher_id is not None:
         statement = statement.where(Course.owner_teacher_id == owner_teacher_id)
+    if active_student_id is not None:
+        statement = statement.where(
+            ReviewRequest.student_id == active_student_id,
+            course_svc.active_student_membership_exists(
+                course_id=Course.id,
+                user_id=active_student_id,
+            ),
+        )
     if lock_course:
         statement = statement.with_for_update(read=True, of=Course).execution_options(
             populate_existing=True
@@ -414,7 +437,18 @@ def _authorize_read(user: User, request: ReviewRequest, course: Course) -> None:
 async def get_review_request(
     db: AsyncSession, *, request_id: uuid.UUID, user: User
 ) -> ReviewRequestResponse:
-    request, _, course = await _get_request_with_course(db, request_id)
+    active_student_id = (
+        user.id
+        if UserRole.STUDENT in user.roles
+        and UserRole.ADMIN not in user.roles
+        and UserRole.TEACHER not in user.roles
+        else None
+    )
+    request, _, course = await _get_request_with_course(
+        db,
+        request_id,
+        active_student_id=active_student_id,
+    )
     _authorize_read(user, request, course)
     return _response(request)
 
@@ -522,9 +556,10 @@ async def respond_review_request(
     request.responded_at = _now()
     await db.flush()
     await db.refresh(request, attribute_names=["updated_at"])
-    await notification_svc.add_notification(
+    await notification_svc.add_student_course_notification(
         db,
         recipient_id=request.student_id,
+        course_id=assignment.course_id,
         notification_type=(
             NotificationType.REVIEW_REQUEST_RESOLVED
             if payload.status is ReviewRequestStatus.RESOLVED

@@ -1,13 +1,15 @@
 from app.models.analysis import AnalysisJob, AnalysisJobDispatch, DocumentIR
 from app.models.assignment import Assignment, AssignmentRequirement
 from app.models.audit import AuditEvent
-from app.models.course import Course, Membership
+from app.models.course import Course, CourseInvite, Membership
 from app.models.enums import (
     AnalysisJobStatus,
     AssignmentStatus,
     AuditActorType,
     CourseStatus,
     DocumentStatus,
+    MembershipAddOutcome,
+    MembershipJoinedVia,
     MembershipRole,
     MembershipStatus,
     NotificationType,
@@ -45,6 +47,7 @@ __all__ = [
     "AuditActorType",
     "AuditEvent",
     "Course",
+    "CourseInvite",
     "CriterionVersion",
     "CourseStatus",
     "DocumentIR",
@@ -53,6 +56,8 @@ __all__ = [
     "EvidenceAnchor",
     "Finding",
     "Membership",
+    "MembershipAddOutcome",
+    "MembershipJoinedVia",
     "MembershipRole",
     "MembershipStatus",
     "PublishedResultVersion",

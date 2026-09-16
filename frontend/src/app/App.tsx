@@ -21,6 +21,7 @@ import { AppSidebar } from '../components/common/AppSidebar';
 import { AuthShell } from '../components/auth/AuthShell';
 import { CourseListView } from '../components/teacher/CourseListView';
 import { CourseWorkspaceView } from '../components/teacher/CourseWorkspaceView';
+import { CourseRosterView } from '../components/teacher/CourseRosterView';
 import { RubricTemplatesView } from '../components/teacher/RubricTemplatesView';
 import { SubmissionQueueView } from '../components/teacher/SubmissionQueueView';
 import { ReviewWorkspaceView } from '../components/teacher/ReviewWorkspaceView';
@@ -158,6 +159,7 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
       error={assignmentsQuery.error || rubricsQuery.error ? getErrorMessage(assignmentsQuery.error ?? rubricsQuery.error) : undefined}
       onBack={() => navigate(`/${role}/courses`)}
       onOpenSubmissionQueue={() => navigate(`/${role}/courses/${courseId}/submissions`)}
+      onOpenRoster={() => navigate(`/${role}/courses/${courseId}/roster`)}
       onSaveAssignment={saveAssignment}
       onPublishAssignment={publishAssignment}
       onCloseAssignment={closeAssignment}
@@ -251,20 +253,22 @@ export const App: React.FC = () => {
     '/admin/audit': 'Audit trail',
     '/admin/appeals': 'Appeals',
   };
-  const title = adminTitles[location.pathname] ?? (
-    location.pathname.startsWith('/teacher/appeals') || location.pathname.startsWith('/admin/appeals')
-      ? 'Appeals'
-      : location.pathname.startsWith('/student/appeals')
-        ? 'Appeal Detail'
-        : location.pathname.includes('/rubrics')
-          ? 'Rubrics'
-          : location.pathname.includes('/upload')
-            ? 'Upload'
-            : location.pathname.startsWith('/jobs/')
-              ? 'Processing status'
-              : activeRole === 'student'
-                ? 'Assignments'
-                : 'Courses'
+  const title = location.pathname.endsWith('/roster') ? 'Course roster' : (
+    adminTitles[location.pathname] ?? (
+      location.pathname.startsWith('/teacher/appeals') || location.pathname.startsWith('/admin/appeals')
+        ? 'Appeals'
+        : location.pathname.startsWith('/student/appeals')
+          ? 'Appeal Detail'
+          : location.pathname.includes('/rubrics')
+            ? 'Rubrics'
+            : location.pathname.includes('/upload')
+              ? 'Upload'
+              : location.pathname.startsWith('/jobs/')
+                ? 'Processing status'
+                : activeRole === 'student'
+                  ? 'Assignments'
+                  : 'Courses'
+    )
   );
 
   const logout = async () => {
@@ -301,6 +305,7 @@ export const App: React.FC = () => {
             <Route path="/logout" element={<LogoutRoute onLogout={logout} />} />
             <Route path="/teacher/courses" element={activeRole === 'teacher' ? <CoursesPage role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId" element={activeRole === 'teacher' ? <CoursePage role="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/courses/:courseId/roster" element={activeRole === 'teacher' ? <CourseRosterView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/rubrics" element={activeRole === 'teacher' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
             <Route path="/teacher/appeals" element={activeRole === 'teacher' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions" element={activeRole === 'teacher' ? <SubmissionQueueView role="teacher" /> : <Navigate to={home} replace />} />
@@ -312,6 +317,7 @@ export const App: React.FC = () => {
             <Route path="/admin/audit" element={activeRole === 'admin' ? <AuditLogView /> : <Navigate to={home} replace />} />
             <Route path="/admin/appeals" element={activeRole === 'admin' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId" element={activeRole === 'admin' ? <CoursePage role="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/courses/:courseId/roster" element={activeRole === 'admin' ? <CourseRosterView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/rubrics" element={activeRole === 'admin' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions" element={activeRole === 'admin' ? <SubmissionQueueView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions/:submissionId" element={activeRole === 'admin' ? <ReviewWorkspaceView role="admin" /> : <Navigate to={home} replace />} />

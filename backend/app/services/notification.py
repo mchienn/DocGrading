@@ -13,7 +13,13 @@ from app.api.schemas_notification import (
     NotificationListResponse,
     NotificationResponse,
 )
-from app.models.enums import NOTIFICATION_PAYLOAD_KEYS, NotificationType
+from app.models.course import Membership
+from app.models.enums import (
+    NOTIFICATION_PAYLOAD_KEYS,
+    MembershipRole,
+    MembershipStatus,
+    NotificationType,
+)
 from app.models.identity import User
 from app.models.notification import Notification
 
@@ -45,6 +51,37 @@ async def add_notification(
     db.add(notification)
     await db.flush()
     return notification
+
+
+async def add_student_course_notification(
+    db: AsyncSession,
+    *,
+    recipient_id: uuid.UUID,
+    course_id: uuid.UUID,
+    notification_type: NotificationType,
+    payload: dict[str, Any],
+) -> Notification | None:
+    """Add a course notification only while Student membership remains active."""
+    membership_id = (
+        await db.execute(
+            sa.select(Membership.id)
+            .where(
+                Membership.course_id == course_id,
+                Membership.user_id == recipient_id,
+                Membership.role == MembershipRole.STUDENT,
+                Membership.status == MembershipStatus.ACTIVE,
+            )
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+    if membership_id is None:
+        return None
+    return await add_notification(
+        db,
+        recipient_id=recipient_id,
+        notification_type=notification_type,
+        payload=payload,
+    )
 
 
 async def list_notifications(

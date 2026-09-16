@@ -11,15 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.models.assignment import Assignment
-from app.models.course import Course, Membership
-from app.models.enums import (
-    AssignmentStatus,
-    CourseStatus,
-    MembershipRole,
-    MembershipStatus,
-    UserRole,
-)
+from app.models.course import Course
+from app.models.enums import AssignmentStatus, CourseStatus, UserRole
 from app.models.identity import User
+from app.services import course as course_svc
 from app.services.auth import auth_cookie_names, get_valid_session
 
 # ---------------------------------------------------------------------------
@@ -166,13 +161,15 @@ async def get_accessible_course(
         return course
 
     if UserRole.STUDENT in user.roles:
-        stmt = select(Membership.id).where(
-            Membership.course_id == course.id,
-            Membership.user_id == user.id,
-            Membership.role == MembershipRole.STUDENT,
-            Membership.status == MembershipStatus.ACTIVE,
+        result = await db.execute(
+            select(Course.id).where(
+                Course.id == course.id,
+                course_svc.active_student_membership_exists(
+                    course_id=Course.id,
+                    user_id=user.id,
+                ),
+            )
         )
-        result = await db.execute(stmt)
         if result.scalar_one_or_none() is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

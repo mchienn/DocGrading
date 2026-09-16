@@ -21,7 +21,7 @@ Kiến trúc được chọn là **modular monolith có worker riêng**:
 - PDF: PDF.js ở trình duyệt; pypdf và pdfplumber ở worker.
 - Triển khai MVP: Docker Compose trên một máy chủ, không dùng Kubernetes hoặc microservice.
 
-Repository hiện có frontend React/Vite nối trực tiếp session auth, Course, Assignment, Rubric, upload PDF, trạng thái job, Submission Queue, PDF.js review viewer với evidence hai chiều, review draft/evidence, approve/publish, kết quả đã công bố, yêu cầu xem lại theo criterion, Teacher/Admin xử lý yêu cầu, notification center và Admin dashboard/user/job/audit/force-release; backend đã triển khai domain, authorization và API nghiệp vụ tương ứng đến T-025 cùng API tạo tài khoản Admin. Product UI chưa nối luồng nộp lại/so sánh version; luồng đó tiếp tục ẩn cho đến khi frontend tương ứng hoàn tất.
+Repository hiện có frontend React/Vite nối trực tiếp session auth, Course, roster sinh viên, Assignment, Rubric, upload PDF, trạng thái job, Submission Queue, PDF.js review viewer với evidence hai chiều, review draft/evidence, approve/publish, kết quả đã công bố, yêu cầu xem lại theo criterion, Teacher/Admin xử lý yêu cầu, notification center và Admin dashboard/user/job/audit/force-release; backend đã triển khai domain, authorization và API nghiệp vụ tương ứng đến T-026 cùng API tạo tài khoản Admin. Product UI chưa nối luồng nộp lại/so sánh version; luồng đó tiếp tục ẩn cho đến khi frontend tương ứng hoàn tất.
 
 ## 2. Mục tiêu sản phẩm
 
@@ -66,6 +66,7 @@ Repository hiện có frontend React/Vite nối trực tiếp session auth, Cour
 13. Sinh viên gửi một yêu cầu xem lại gắn với tiêu chí của một phiên bản kết quả đã công bố.
 14. Admin quản lý người dùng, rubric/template mặc định, danh sách job, thử lại job, usage cơ bản và audit log.
 15. Thông báo trong ứng dụng khi AnalysisJob chuyển `ERROR`, tạo `PublishedResultVersion`, tạo ReviewRequest và chuyển ReviewRequest sang `RESOLVED` hoặc `REJECTED`; MVP dùng polling, không có push/email/websocket. Thông báo khi unpublish theo BR-33 được hoãn sang `DOC-30`.
+16. Teacher sở hữu Course hoặc Admin xem roster, thêm sinh viên bằng email, tạo invite chờ khi email chưa có tài khoản và soft-remove membership mà không xóa Submission/Result lịch sử.
 
 Evaluator tự động của MVP chỉ được nghiệm thu cho SRS tiếng Việt. SRS tiếng Anh hoặc tài liệu thuộc ngôn ngữ khác vẫn có thể dùng rubric thủ công nếu PDF hợp lệ; chỉ được bật tự động sau khi có corpus và qua quality gate riêng.
 
@@ -126,7 +127,7 @@ Một rubric có thể thay đổi trọng số hoặc tắt tiêu chí trước
 
 ### 5.1. Thực thể chính
 
-- `User`, `Role`, `Course`, `CourseMembership`, `Assignment`.
+- `User`, `Role`, `Course`, `CourseMembership`, `CourseInvite`, `Assignment`.
 - `RubricVersion`, `CriterionVersion`, `PerformanceLevel`, `TemplateVersion`.
 - `Submission`, `DocumentVersion`, `AnalysisJob`.
 - `EvaluationResult`, `CriterionResult`, `Finding`, `EvidenceAnchor`.
@@ -139,7 +140,7 @@ Một rubric có thể thay đổi trọng số hoặc tắt tiêu chí trước
 ACTIVE → ARCHIVED
 ```
 
-- `ARCHIVED` chỉ đọc, vẫn giữ lịch sử Assignment, Membership và audit.
+- `ARCHIVED` chỉ đọc, vẫn giữ lịch sử Assignment, Membership, CourseInvite và audit.
 - Muốn mở Course mới phải tạo Course khác; không unarchive hoặc ghi đè Course đã archive.
 
 ### 5.3. Vòng đời Assignment
@@ -215,6 +216,7 @@ QUEUED → RUNNING → DONE
 | BR-31 | Dry-run rubric dùng PDF mẫu riêng, không tạo Submission hoặc PublishedResult, vẫn ghi usage và evaluator snapshot. Mỗi rubric chỉ có một dry-run đang hoạt động; kết quả dry-run tự hết hạn sau 30 ngày. |
 | BR-32 | Model/provider là cấu hình vận hành có version, không hard-code vào domain. Chỉ một cấu hình đã qua benchmark và chính sách dữ liệu mới được đặt `ACTIVE`; thay model không làm thay đổi kết quả đã lưu. |
 | BR-33 | Chỉ Teacher phụ trách hoặc Admin được unpublish. Thao tác phải có lý do, giữ nguyên PublishedResultVersion và audit, ẩn kết quả khỏi Student ngay lập tức và thông báo cho Student. Unpublish chặn review request mới nhưng không sửa request đã tồn tại; request đang mở chỉ kết thúc bằng `RESOLVED` hoặc `REJECTED`. |
+| BR-J | Chỉ Teacher sở hữu Course hoặc Admin được xem và quản lý roster. Roster chỉ gồm membership `STUDENT`, hỗ trợ lọc `ACTIVE`/`REMOVED`, lưu thời điểm tham gia và nguồn `joined_via` (`MANUAL` hoặc `CODE`). Thêm tay chuẩn hóa email: tài khoản có role `STUDENT` được tạo membership `ACTIVE`; membership `REMOVED` được kích hoạt lại với thời điểm tham gia mới; tài khoản thiếu role `STUDENT` bị từ chối; email chưa có tài khoản tạo `CourseInvite` pending, chưa gửi email hoặc tự tạo membership trong T-026. Gỡ sinh viên là soft-remove sang `REMOVED`: mọi kiểm tra membership chặn truy cập hoặc submission mới, còn Submission, Result, audit và notification cũ giữ nguyên; hệ thống không tạo notification Course mới cho sinh viên đã gỡ. URL storage đã ký trước khi gỡ có thể dùng đến khi hết TTL tối đa 5 phút, nhưng API không cấp URL mới. Mọi lần thêm, kích hoạt lại, tạo invite hoặc gỡ phải ghi `AuditEvent` cùng transaction với actor, before/after và lý do do người thao tác nhập nếu có; Course `ARCHIVED` chỉ cho xem roster. |
 
 ## 7. Quality gate cho evaluator tự động
 
@@ -354,7 +356,7 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 | Nhóm | Endpoint v1 | Hợp đồng chính |
 |---|---|---|
 | Session | `POST /auth/session`, `DELETE /auth/session`, `GET /users/me` | Đăng nhập/đăng xuất và trả user, role, quyền hiệu lực; session nằm trong cookie, không trả JWT để lưu ở browser. |
-| Course | `GET/POST /courses`, `GET/PATCH /courses/{course_id}`, `GET/POST /courses/{course_id}/members`, `DELETE /courses/{course_id}/members/{user_id}` | CRUD Course và membership; chỉ Admin hoặc Teacher được phân công mới mutation. |
+| Course | `GET/POST /courses`, `GET/PATCH /courses/{course_id}`, `GET/POST /courses/{course_id}/members`, `DELETE /courses/{course_id}/members/{user_id}` | Chỉ Admin hoặc Teacher sở hữu Course xem roster và mutation. `GET members` phân trang, lọc `ACTIVE`/`REMOVED`, trả email, display name, `joined_at`, `joined_via`. `POST members` nhận email và reason tùy chọn, trả `ADDED`, `REACTIVATED` hoặc `INVITED`; `DELETE` nhận JSON body có reason tùy chọn và soft-remove, không xóa lịch sử submission/result. |
 | Assignment | `GET/POST /courses/{course_id}/assignments`, `GET/PATCH /assignments/{assignment_id}`, `POST /assignments/{assignment_id}/open`, `POST /assignments/{assignment_id}/close` | Lưu details, submission requirements, rubric link và lifecycle. `open` chỉ thành công khi rubric/requirements hợp lệ. Từ **publish** chỉ dành cho kết quả; Assignment dùng **open/close**. |
 | Rubric | `GET/POST /rubrics`, `GET /rubrics/{rubric_id}/versions`, `POST /rubrics/{rubric_id}/versions`, `PUT /assignments/{assignment_id}/rubric-version` | Nhân bản/version rubric; không sửa version đã được Assignment sử dụng. |
 | Submission | `GET /assignments/{assignment_id}/submissions`, `POST /assignments/{assignment_id}/uploads/presign`, `POST /document-versions/{version_id}/complete`, `GET /submissions/{submission_id}`, `GET /submissions/{submission_id}/versions`, `GET /submissions/{submission_id}/versions/compare` | Upload hai bước: presign yêu cầu `Idempotency-Key`, SHA-256 và client hints, trả presigned POST tối đa 5 phút khóa đúng object key/MIME/size; completion kiểm tra metadata từ object storage rồi tạo hoặc trả lại đúng một AnalysisJob. Upload trùng theo BR-09 trả resource hiện có mà không cấp credential ghi đè. Danh sách version trả trạng thái xử lý/publication; compare chỉ đọc snapshot, draft và decision đã lưu, đồng thời kiểm tra owner Student hoặc quyền Course của Teacher/Admin. |

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, CalendarClock, ClipboardCheck, Pencil, Plus, Send, Square } from 'lucide-react';
+import { ArrowLeft, CalendarClock, ClipboardCheck, Pencil, Plus, Send, Square, Users } from 'lucide-react';
 import type { components } from '../../api/schema';
 import { getErrorMessage } from '../../api/client';
 import type { ApiAssignment, ApiCourse, ApiRubric } from '../../types/api';
@@ -15,6 +15,7 @@ interface CourseWorkspaceViewProps {
   error?: string;
   onBack: () => void;
   onOpenSubmissionQueue: () => void;
+  onOpenRoster: () => void;
   onSaveAssignment: (input: AssignmentInput, assignmentId?: string) => Promise<void>;
   onPublishAssignment: (assignmentId: string) => Promise<void>;
   onCloseAssignment: (assignmentId: string) => Promise<void>;
@@ -28,6 +29,7 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   error,
   onBack,
   onOpenSubmissionQueue,
+  onOpenRoster,
   onSaveAssignment,
   onPublishAssignment,
   onCloseAssignment,
@@ -50,17 +52,24 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
       <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
         <ArrowLeft className="w-4 h-4" /> Back to courses
       </button>
-      <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <span className="font-mono text-xs font-bold text-sky-700">{course.code}</span>
           <h1 className="text-2xl font-bold text-slate-900 mt-1">{course.name}</h1>
           <p className="text-sm text-slate-500 mt-1">{course.term} · {course.status}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenRoster}
+            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50"
+          >
+            <Users className="w-4 h-4" /> Roster
+          </button>
           <button
             type="button"
             onClick={onOpenSubmissionQueue}
-            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold"
+            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50"
           >
             <ClipboardCheck className="w-4 h-4" /> Submission Queue
           </button>
