@@ -718,6 +718,33 @@ def test_active_content_scan_cycle_terminates() -> None:
     assert not _contains_active_content(cycle)
 
 
+def test_active_content_scan_handles_deep_graph_without_python_recursion() -> None:
+    graph: dict[str, object] = {"/Type": "/Action", "/S": "/Launch"}
+    for _ in range(2_000):
+        graph = {"/Safe": graph}
+
+    assert _contains_active_content(graph)
+
+
+def test_active_content_scan_does_not_queue_past_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CountingKey(str):
+        calls = 0
+
+        def __str__(self) -> str:
+            type(self).calls += 1
+            return super().__str__()
+
+    monkeypatch.setattr(pdf_validation, "_MAX_ACTIVE_CONTENT_NODES", 3)
+    graph = {CountingKey(f"/Safe{index}"): {} for index in range(100)}
+
+    with pytest.raises(pdf_validation._PDFScanLimit):
+        _contains_active_content(graph)
+
+    assert CountingKey.calls == 3
+
+
 def test_active_content_indirect_cycle_is_malformed() -> None:
     class CyclicPDF:
         reference: IndirectObject
