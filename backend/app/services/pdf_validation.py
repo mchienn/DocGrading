@@ -136,6 +136,7 @@ _MAX_GEOMETRY_OPERATIONS = 10_000
 _MAX_CLIP_VERTICES = 256
 _MAX_PAGE_TREE_NODES = 10_000
 _MAX_PAGE_TREE_DEPTH = 100
+_MAX_ACTIVE_CONTENT_NODES = 50_000
 
 type Matrix = tuple[float, float, float, float, float, float]
 type Point = tuple[float, float]
@@ -891,16 +892,16 @@ def _resolve_active_object(value: Any, nodes: list[int]) -> Any:
     seen: set[int] = set()
     while isinstance(value, IndirectObject):
         nodes[0] += 1
-        if nodes[0] > _MAX_PAGE_TREE_NODES:
+        if nodes[0] > _MAX_ACTIVE_CONTENT_NODES:
             raise _PDFScanLimit
         marker = id(value)
         if marker in seen:
-            raise _PDFScanLimit
+            raise PDFValidationError("PDF_MALFORMED")
         seen.add(marker)
         try:
             value = value.get_object()
         except Exception as exc:
-            raise _PDFScanLimit from exc
+            raise PDFValidationError("PDF_MALFORMED") from exc
     return value
 
 
@@ -915,62 +916,68 @@ def _contains_active_content(
         seen = {}
     if nodes is None:
         nodes = [0]
-    nodes[0] += 1
-    if nodes[0] > _MAX_PAGE_TREE_NODES:
-        raise _PDFScanLimit
-    if isinstance(value, IndirectObject):
-        value = _resolve_active_object(value, nodes)
-    marker = (id(value), _action_context)
-    if marker in seen and seen[marker] is value:
-        return False
-    seen[marker] = value
-    if isinstance(value, dict):
-        try:
-            object_type = _resolve_active_object(value.get("/Type"), nodes)
-            subtype = _resolve_active_object(value.get("/Subtype"), nodes)
-        except _PDFScanLimit:
-            raise
-        except Exception as exc:
-            raise _PDFScanLimit from exc
-        object_type_name = str(object_type)
-        subtype_name = str(subtype)
-        is_action = _action_context or object_type_name == "/Action"
-        if (
-            subtype_name in _ACTIVE_CONTENT_SUBTYPES
-            or object_type_name in _ACTIVE_CONTENT_SUBTYPES
-        ):
-            return True
-        for key, child in value.items():
-            key_name = str(key)
-            resolved_child = _resolve_active_object(child, nodes)
-            if resolved_child is None or isinstance(resolved_child, NullObject):
-                continue
-            if key_name in _ACTIVE_CONTENT_KEYS:
-                return True
-            if (
+    frames: list[tuple[Iterator[Any], bool, bool]] = []
+    current = value
+    action_context = _action_context
+    key_name: str | None = None
+    parent_is_action = False
+    while True:
+        visit_current = True
+        if key_name is not None:
+            current = _resolve_active_object(current, nodes)
+            if current is None or isinstance(current, NullObject):
+                visit_current = False
+            elif key_name in _ACTIVE_CONTENT_KEYS or (
                 key_name == "/S"
-                and is_action
-                and str(resolved_child) in _ACTIVE_ACTION_TYPES
+                and parent_is_action
+                and str(current) in _ACTIVE_ACTION_TYPES
             ):
                 return True
-            if _contains_active_content(
-                resolved_child,
-                seen,
-                nodes=nodes,
-                _action_context=key_name in _ACTION_CHILD_KEYS,
-            ):
-                return True
-    elif isinstance(value, (list, tuple)):
-        return any(
-            _contains_active_content(
-                item,
-                seen,
-                nodes=nodes,
-                _action_context=_action_context,
-            )
-            for item in value
-        )
-    return False
+
+        if visit_current:
+            nodes[0] += 1
+            if nodes[0] > _MAX_ACTIVE_CONTENT_NODES:
+                raise _PDFScanLimit
+            if isinstance(current, IndirectObject):
+                current = _resolve_active_object(current, nodes)
+            marker = (id(current), action_context)
+            if marker not in seen or seen[marker] is not current:
+                seen[marker] = current
+                if isinstance(current, dict):
+                    object_type = _resolve_active_object(current.get("/Type"), nodes)
+                    subtype = _resolve_active_object(current.get("/Subtype"), nodes)
+                    object_type_name = str(object_type)
+                    subtype_name = str(subtype)
+                    is_action = action_context or object_type_name == "/Action"
+                    if (
+                        subtype_name in _ACTIVE_CONTENT_SUBTYPES
+                        or object_type_name in _ACTIVE_CONTENT_SUBTYPES
+                    ):
+                        return True
+                    frames.append((iter(current.items()), is_action, True))
+                elif isinstance(current, (list, tuple)):
+                    frames.append((iter(current), action_context, False))
+
+        while frames:
+            children, child_context, dictionary_children = frames[-1]
+            try:
+                child = next(children)
+            except StopIteration:
+                frames.pop()
+                continue
+            if dictionary_children:
+                key, current = child
+                key_name = str(key)
+                action_context = key_name in _ACTION_CHILD_KEYS
+                parent_is_action = child_context
+            else:
+                current = child
+                action_context = child_context
+                key_name = None
+                parent_is_action = False
+            break
+        else:
+            return False
 
 
 def validate_pdf(
@@ -1023,7 +1030,7 @@ def validate_pdf(
     except PDFValidationError:
         raise
     except _PDFScanLimit as exc:
-        raise PDFValidationError("PDF_ACTIVE_CONTENT") from exc
+        raise PDFValidationError("PDF_SCAN_LIMIT") from exc
     except Exception as exc:
         raise PDFValidationError("PDF_MALFORMED") from exc
     return PDFValidationResult(

@@ -9,6 +9,7 @@ import pydantic
 import pytest
 from pypdf import PdfWriter
 from pypdf.generic import (
+    ArrayObject,
     DecodedStreamObject,
     DictionaryObject,
     IndirectObject,
@@ -612,6 +613,7 @@ def _make_active_pdf(
     launch: bool = False,
     attachment: bool = False,
     uri: bool = False,
+    safe_nodes: int = 0,
 ) -> bytes:
     writer = PdfWriter()
     font = DictionaryObject(
@@ -656,6 +658,10 @@ def _make_active_pdf(
             "https://example.test/requirements",
             RectangleObject((72, 680, 240, 710)),
         )
+    if safe_nodes:
+        writer._root_object[NameObject("/SafeGraph")] = ArrayObject(
+            [DictionaryObject() for _ in range(safe_nodes)]
+        )
     output = BytesIO()
     writer.write(output)
     return output.getvalue()
@@ -685,6 +691,74 @@ def test_real_safe_uri_pdf_parses_normally() -> None:
 
     assert parsed.validation.page_count == 1
     assert parsed.content["pages"][0]["text"] == "Valid text body for active test"
+
+
+def test_large_safe_object_graph_is_not_reported_as_active_content() -> None:
+    result = pdf_validation.validate_pdf(_make_active_pdf(safe_nodes=18_600))
+
+    assert result.page_count == 1
+    assert result.has_text is True
+
+
+def test_active_content_scan_budget_has_distinct_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pdf_validation, "_MAX_ACTIVE_CONTENT_NODES", 100)
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(safe_nodes=101))
+
+    assert exc_info.value.code == "PDF_SCAN_LIMIT"
+
+
+def test_active_content_scan_cycle_terminates() -> None:
+    cycle: dict[str, object] = {}
+    cycle["/Safe"] = cycle
+
+    assert not _contains_active_content(cycle)
+
+
+def test_active_content_scan_handles_deep_graph_without_python_recursion() -> None:
+    graph: dict[str, object] = {"/Type": "/Action", "/S": "/Launch"}
+    for _ in range(2_000):
+        graph = {"/Safe": graph}
+
+    assert _contains_active_content(graph)
+
+
+def test_active_content_scan_does_not_queue_past_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CountingKey(str):
+        calls = 0
+
+        def __str__(self) -> str:
+            type(self).calls += 1
+            return super().__str__()
+
+    monkeypatch.setattr(pdf_validation, "_MAX_ACTIVE_CONTENT_NODES", 3)
+    graph = {CountingKey(f"/Safe{index}"): {} for index in range(100)}
+
+    with pytest.raises(pdf_validation._PDFScanLimit):
+        _contains_active_content(graph)
+
+    assert CountingKey.calls == 3
+
+
+def test_active_content_indirect_cycle_is_malformed() -> None:
+    class CyclicPDF:
+        reference: IndirectObject
+
+        def get_object(self, _reference: IndirectObject) -> IndirectObject:
+            return self.reference
+
+    pdf = CyclicPDF()
+    pdf.reference = IndirectObject(1, 0, pdf)
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        _contains_active_content(pdf.reference)
+
+    assert exc_info.value.code == "PDF_MALFORMED"
 
 
 def test_real_javascript_pdf_rejected_before_pdfplumber_open(
