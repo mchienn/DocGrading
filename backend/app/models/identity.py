@@ -15,7 +15,7 @@ from app.models.mixins import RevisionMixin, TimestampMixin, UUIDPrimaryKeyMixin
 if TYPE_CHECKING:
     from app.models.assignment import Assignment
     from app.models.audit import AuditEvent
-    from app.models.course import Course, Membership
+    from app.models.course import Course, CourseInvite, Membership
     from app.models.rubric import RubricVersion, TemplateVersion
     from app.models.submission import Submission
 
@@ -89,6 +89,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         "Membership",
         back_populates="user",
         foreign_keys="Membership.user_id",
+    )
+    created_course_invites: Mapped[list[CourseInvite]] = relationship(
+        "CourseInvite",
+        back_populates="created_by_user",
+        foreign_keys="CourseInvite.created_by_user_id",
     )
     created_assignments: Mapped[list[Assignment]] = relationship(
         "Assignment",

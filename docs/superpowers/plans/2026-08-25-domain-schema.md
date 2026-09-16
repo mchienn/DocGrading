@@ -1,5 +1,7 @@
 # Domain Schema and Migration Implementation Plan
 
+> Historical T-006 plan. Current Membership lifecycle is `ACTIVE`/`REMOVED` per BR-J in `docs/design/PROJECT_SCOPE_BUSINESS_RULES_TECH_STACK.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the 12 SQLAlchemy 2 async domain models and a reversible PostgreSQL migration after `20260825_0001`, with database-enforced rubric immutability, role ownership, and append-only audit events.

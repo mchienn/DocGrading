@@ -22,7 +22,18 @@ class MembershipRole(StrEnum):
 
 class MembershipStatus(StrEnum):
     ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
+    REMOVED = "REMOVED"
+
+
+class MembershipJoinedVia(StrEnum):
+    MANUAL = "MANUAL"
+    CODE = "CODE"
+
+
+class MembershipAddOutcome(StrEnum):
+    ADDED = "ADDED"
+    REACTIVATED = "REACTIVATED"
+    INVITED = "INVITED"
 
 
 class CourseStatus(StrEnum):

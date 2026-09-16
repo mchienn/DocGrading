@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.models.enums import (
     CourseStatus,
+    MembershipJoinedVia,
     MembershipRole,
     MembershipStatus,
     pg_enum,
@@ -69,6 +71,12 @@ class Course(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         cascade="all, delete-orphan",
         foreign_keys="Membership.course_id",
     )
+    invites: Mapped[list[CourseInvite]] = relationship(
+        "CourseInvite",
+        back_populates="course",
+        cascade="all, delete-orphan",
+        foreign_keys="CourseInvite.course_id",
+    )
     assignments: Mapped[list[Assignment]] = relationship(
         "Assignment",
         back_populates="course",
@@ -114,7 +122,18 @@ class Membership(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=MembershipStatus.ACTIVE,
         nullable=False,
     )
-
+    joined_via: Mapped[MembershipJoinedVia] = mapped_column(
+        pg_enum(MembershipJoinedVia, name="membership_joined_via"),
+        default=MembershipJoinedVia.MANUAL,
+        server_default=sa.text("'MANUAL'::membership_joined_via"),
+        nullable=False,
+    )
+    joined_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.func.now(),
+        nullable=False,
+    )
     course: Mapped[Course] = relationship(
         "Course",
         back_populates="memberships",
@@ -124,4 +143,51 @@ class Membership(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         "User",
         back_populates="memberships",
         foreign_keys=[user_id],
+    )
+
+
+class CourseInvite(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "course_invites"
+    __table_args__ = (
+        sa.Index(
+            "uq_course_invites_course_email_lower",
+            "course_id",
+            sa.func.lower(sa.column("email")),
+            unique=True,
+        ),
+        sa.CheckConstraint(
+            "length(btrim(email)) > 0 AND email !~ '^[[:space:]]*$'",
+            name="ck_course_invites_email_not_blank",
+        ),
+    )
+
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "courses.id",
+            ondelete="CASCADE",
+            name="fk_course_invites_course_id_courses",
+        ),
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(sa.String(320), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+            name="fk_course_invites_created_by_user_id_users",
+        ),
+        nullable=False,
+    )
+
+    course: Mapped[Course] = relationship(
+        "Course",
+        back_populates="invites",
+        foreign_keys=[course_id],
+    )
+    created_by_user: Mapped[User] = relationship(
+        "User",
+        back_populates="created_course_invites",
+        foreign_keys=[created_by_user_id],
     )

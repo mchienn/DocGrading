@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -10,14 +12,121 @@ from app.api.deps import (
     get_owned_course,
     require_roles,
 )
-from app.api.schemas_course import CourseCreate, CourseResponse, CourseUpdate
+from app.api.schemas_course import (
+    CourseCreate,
+    CourseInviteResponse,
+    CourseMemberAddRequest,
+    CourseMemberAddResponse,
+    CourseMemberListResponse,
+    CourseMemberRemoveRequest,
+    CourseMemberResponse,
+    CourseResponse,
+    CourseUpdate,
+)
 from app.db.session import get_db_session
-from app.models.course import Course
-from app.models.enums import UserRole
+from app.models.course import Course, Membership
+from app.models.enums import MembershipAddOutcome, MembershipStatus, UserRole
 from app.models.identity import User
 from app.services import course as course_svc
 
+
+def _member_response(membership: Membership, user: User) -> CourseMemberResponse:
+    return CourseMemberResponse(
+        id=membership.id,
+        user_id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        status=membership.status,
+        joined_at=membership.joined_at,
+        joined_via=membership.joined_via,
+    )
+
+
 router = APIRouter(prefix="/courses", tags=["courses"])
+
+
+@router.get(
+    "/{course_id}/members",
+    response_model=CourseMemberListResponse,
+)
+async def list_course_members(
+    course: Course = Depends(get_owned_course),
+    member_status: MembershipStatus | None = Query(default=None, alias="status"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseMemberListResponse:
+    rows, total = await course_svc.list_members(
+        db,
+        course_id=course.id,
+        member_status=member_status,
+        page=page,
+        page_size=page_size,
+    )
+    return CourseMemberListResponse(
+        items=[_member_response(membership, user) for membership, user in rows],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
+
+
+@router.post(
+    "/{course_id}/members",
+    response_model=CourseMemberAddResponse,
+    status_code=201,
+)
+async def add_course_member(
+    body: CourseMemberAddRequest,
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> CourseMemberAddResponse:
+    outcome, membership, invite = await course_svc.add_member(
+        db,
+        course_id=course.id,
+        email=body.email,
+        actor_user_id=user.id,
+        reason=body.reason,
+    )
+    await db.commit()
+    if outcome == MembershipAddOutcome.INVITED:
+        assert invite is not None
+        return CourseMemberAddResponse(
+            outcome=outcome,
+            invite=CourseInviteResponse(
+                id=invite.id,
+                course_id=invite.course_id,
+                email=invite.email,
+                status="PENDING",
+                created_at=invite.created_at,
+            ),
+        )
+    assert membership is not None
+    member_user = await db.get(User, membership.user_id)
+    assert member_user is not None
+    return CourseMemberAddResponse(
+        outcome=outcome,
+        member=_member_response(membership, member_user),
+    )
+
+
+@router.delete("/{course_id}/members/{user_id}", status_code=204)
+async def remove_course_member(
+    user_id: uuid.UUID,
+    body: CourseMemberRemoveRequest | None = None,
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    await course_svc.remove_member(
+        db,
+        course_id=course.id,
+        user_id=user_id,
+        actor_user_id=user.id,
+        reason=body.reason if body is not None else None,
+    )
+    await db.commit()
 
 
 @router.post("", response_model=CourseResponse, status_code=201)

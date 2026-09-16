@@ -22,6 +22,7 @@ from app.models.enums import (
 )
 from app.models.identity import User
 from app.models.submission import DocumentVersion, Submission
+from app.services import course as course_svc
 from app.services import notification as notification_svc
 from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.audit import record_audit, record_system_audit
@@ -44,30 +45,42 @@ async def authorize_job(
         .join(Course, Course.id == Assignment.course_id)
         .where(DocumentVersion.id == job.document_version_id)
     )
+    if UserRole.TEACHER in user.roles:
+        query = query.where(Course.owner_teacher_id == user.id)
+    elif UserRole.STUDENT in user.roles and not retry:
+        query = query.where(
+            Submission.student_id == user.id,
+            course_svc.active_student_membership_exists(
+                course_id=Assignment.course_id,
+                user_id=user.id,
+            ),
+        )
+    else:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
     row = (await db.execute(query)).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Analysis job not found")
-    student_id, _course_id, owner_id = row
+    student_id, _, owner_id = row
     if UserRole.TEACHER in user.roles:
         if owner_id != user.id:
             raise HTTPException(status_code=404, detail="Analysis job not found")
-        return
-    if UserRole.STUDENT in user.roles and student_id == user.id and not retry:
-        return
-    raise HTTPException(status_code=404, detail="Analysis job not found")
+    elif UserRole.STUDENT in user.roles and student_id != user.id:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
 
 
 async def _notify_error(db: AsyncSession, job: AnalysisJob) -> None:
-    student_id = (
+    student_id, course_id = (
         await db.execute(
-            sa.select(Submission.student_id)
+            sa.select(Submission.student_id, Assignment.course_id)
             .join(DocumentVersion, DocumentVersion.submission_id == Submission.id)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
             .where(DocumentVersion.id == job.document_version_id)
         )
-    ).scalar_one()
-    await notification_svc.add_notification(
+    ).one()
+    await notification_svc.add_student_course_notification(
         db,
         recipient_id=student_id,
+        course_id=course_id,
         notification_type=NotificationType.ANALYSIS_JOB_ERROR,
         payload={"analysis_job_id": str(job.id)},
     )

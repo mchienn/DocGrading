@@ -105,6 +105,202 @@
         }
       }
     },
+    "/api/v1/courses/{course_id}/members": {
+      "get": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "List Course Members",
+        "operationId": "list_course_members_api_v1_courses__course_id__members_get",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MembershipStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseMemberListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Add Course Member",
+        "operationId": "add_course_member_api_v1_courses__course_id__members_post",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CourseMemberAddRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseMemberAddResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/courses/{course_id}/members/{user_id}": {
+      "delete": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Remove Course Member",
+        "operationId": "remove_course_member_api_v1_courses__course_id__members__user_id__delete",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CourseMemberRemoveRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/courses": {
       "get": {
         "tags": [
@@ -568,7 +764,7 @@
           "assignments"
         ],
         "summary": "Publish Assignment",
-        "description": "Publish a DRAFT assignment (DRAFT \u2192 OPEN).",
+        "description": "Publish a DRAFT assignment (DRAFT → OPEN).",
         "operationId": "publish_assignment_api_v1_courses__course_id__assignments__assignment_id__publish_post",
         "parameters": [
           {
@@ -622,7 +818,7 @@
           "assignments"
         ],
         "summary": "Close Assignment",
-        "description": "Close an OPEN assignment (OPEN \u2192 CLOSED).",
+        "description": "Close an OPEN assignment (OPEN → CLOSED).",
         "operationId": "close_assignment_api_v1_courses__course_id__assignments__assignment_id__close_post",
         "parameters": [
           {
@@ -4204,6 +4400,201 @@
         ],
         "title": "CourseCreate"
       },
+      "CourseInviteResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "course_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Course Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "status": {
+            "type": "string",
+            "const": "PENDING",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "course_id",
+          "email",
+          "status",
+          "created_at"
+        ],
+        "title": "CourseInviteResponse"
+      },
+      "CourseMemberAddRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "CourseMemberAddRequest"
+      },
+      "CourseMemberAddResponse": {
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/MembershipAddOutcome"
+          },
+          "member": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CourseMemberResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "invite": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CourseInviteResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "title": "CourseMemberAddResponse"
+      },
+      "CourseMemberListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CourseMemberResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "title": "CourseMemberListResponse"
+      },
+      "CourseMemberRemoveRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CourseMemberRemoveRequest"
+      },
+      "CourseMemberResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MembershipStatus"
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Joined At"
+          },
+          "joined_via": {
+            "$ref": "#/components/schemas/MembershipJoinedVia"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "email",
+          "display_name",
+          "status",
+          "joined_at",
+          "joined_via"
+        ],
+        "title": "CourseMemberResponse"
+      },
       "CourseResponse": {
         "properties": {
           "id": {
@@ -4828,6 +5219,31 @@
           "password"
         ],
         "title": "LoginRequest"
+      },
+      "MembershipAddOutcome": {
+        "type": "string",
+        "enum": [
+          "ADDED",
+          "REACTIVATED",
+          "INVITED"
+        ],
+        "title": "MembershipAddOutcome"
+      },
+      "MembershipJoinedVia": {
+        "type": "string",
+        "enum": [
+          "MANUAL",
+          "CODE"
+        ],
+        "title": "MembershipJoinedVia"
+      },
+      "MembershipStatus": {
+        "type": "string",
+        "enum": [
+          "ACTIVE",
+          "REMOVED"
+        ],
+        "title": "MembershipStatus"
       },
       "NotificationBulkReadRequest": {
         "properties": {

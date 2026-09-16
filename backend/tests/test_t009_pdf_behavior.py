@@ -173,7 +173,7 @@ def test_duplicate_sha_reuses_active_upload_instead_of_inserting(
         upload_expires_at=datetime.now(UTC),
     )
     sha256 = "a" * 64
-    values = [assignment, uuid.uuid4(), submission, None]
+    values = [assignment, submission, None]
 
     class Result:
         def __init__(self, value: object) -> None:
@@ -530,7 +530,10 @@ def test_other_user_denied_but_teacher_student_multirole_uses_teacher_branch() -
             return (student_id, uuid.uuid4(), teacher_id)
 
     class DB:
-        async def execute(self, _statement):
+        statements = []
+
+        async def execute(self, statement):
+            self.statements.append(statement)
             return Result()
 
     with pytest.raises(HTTPException) as denied:
@@ -560,6 +563,7 @@ def test_other_user_denied_but_teacher_student_multirole_uses_teacher_branch() -
             retry=True,
         )
     )
+    assert sum("memberships" in str(statement) for statement in DB.statements) == 2
 
     class NeverQueriedDB:
         async def execute(self, _statement):

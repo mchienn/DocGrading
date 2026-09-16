@@ -81,6 +81,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/courses/{course_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Course Members */
+        get: operations["list_course_members_api_v1_courses__course_id__members_get"];
+        put?: never;
+        /** Add Course Member */
+        post: operations["add_course_member_api_v1_courses__course_id__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/courses/{course_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Course Member */
+        delete: operations["remove_course_member_api_v1_courses__course_id__members__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/courses": {
         parameters: {
             query?: never;
@@ -1356,6 +1391,84 @@ export interface components {
             /** Term */
             term: string;
         };
+        /** CourseInviteResponse */
+        CourseInviteResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Course Id
+             * Format: uuid
+             */
+            course_id: string;
+            /** Email */
+            email: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "PENDING";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** CourseMemberAddRequest */
+        CourseMemberAddRequest: {
+            /** Email */
+            email: string;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** CourseMemberAddResponse */
+        CourseMemberAddResponse: {
+            outcome: components["schemas"]["MembershipAddOutcome"];
+            member?: components["schemas"]["CourseMemberResponse"] | null;
+            invite?: components["schemas"]["CourseInviteResponse"] | null;
+        };
+        /** CourseMemberListResponse */
+        CourseMemberListResponse: {
+            /** Items */
+            items: components["schemas"]["CourseMemberResponse"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+        };
+        /** CourseMemberRemoveRequest */
+        CourseMemberRemoveRequest: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /** CourseMemberResponse */
+        CourseMemberResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name: string;
+            status: components["schemas"]["MembershipStatus"];
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            joined_via: components["schemas"]["MembershipJoinedVia"];
+        };
         /** CourseResponse */
         CourseResponse: {
             /**
@@ -1597,6 +1710,21 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * MembershipAddOutcome
+         * @enum {string}
+         */
+        MembershipAddOutcome: "ADDED" | "REACTIVATED" | "INVITED";
+        /**
+         * MembershipJoinedVia
+         * @enum {string}
+         */
+        MembershipJoinedVia: "MANUAL" | "CODE";
+        /**
+         * MembershipStatus
+         * @enum {string}
+         */
+        MembershipStatus: "ACTIVE" | "REMOVED";
         /** NotificationBulkReadRequest */
         NotificationBulkReadRequest: {
             /** Notification Ids */
@@ -2264,6 +2392,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+        };
+    };
+    list_course_members_api_v1_courses__course_id__members_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["MembershipStatus"] | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseMemberListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_course_member_api_v1_courses__course_id__members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CourseMemberAddRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseMemberAddResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_course_member_api_v1_courses__course_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CourseMemberRemoveRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

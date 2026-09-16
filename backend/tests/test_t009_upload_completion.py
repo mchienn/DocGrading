@@ -141,6 +141,7 @@ def test_complete_upload_lock_query_semantics(
     assert "document_versions" in compiled
     assert "submissions" in compiled
     assert "assignments" in compiled
+    assert "memberships" in compiled
     assert select_stmt._for_update_arg is not None
 
 

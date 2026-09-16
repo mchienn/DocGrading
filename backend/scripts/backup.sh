@@ -11,7 +11,7 @@ counts_file=${COUNTS_FILE:-/backups/docgrading-row-counts.tsv}
 backup_tmp="${backup_file}.tmp"
 before_tmp="${counts_file}.before.tmp"
 after_tmp="${counts_file}.after.tmp"
-tables="users courses memberships assignments assignment_requirements rubric_versions criterion_versions template_versions submissions document_versions analysis_jobs analysis_job_dispatches document_irs findings evidence_anchors review_locks review_drafts review_decisions published_result_versions review_requests review_commands notifications sessions audit_events"
+tables="users courses memberships course_invites assignments assignment_requirements rubric_versions criterion_versions template_versions submissions document_versions analysis_jobs analysis_job_dispatches document_irs findings evidence_anchors review_locks review_drafts review_decisions published_result_versions review_requests review_commands notifications sessions audit_events"
 
 export PGPASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
 mkdir -p "$(dirname "$backup_file")" "$(dirname "$counts_file")"

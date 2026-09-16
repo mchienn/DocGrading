@@ -4,6 +4,8 @@ Ngày: 2026-08-25
 
 Trạng thái: Đã duyệt trong phiên thiết kế
 
+> Ghi chú hiện tại: đây là thiết kế lịch sử của T-006; lifecycle Membership hiện dùng `ACTIVE`/`REMOVED` theo BR-J trong `docs/design/PROJECT_SCOPE_BUSINESS_RULES_TECH_STACK.md`.
+
 ## 1. Mục tiêu và phạm vi
 
 T-006 bổ sung persistence domain đầu tiên cho backend DocGrading bằng SQLAlchemy 2 typed ORM trên async foundation của T-005 và một Alembic revision PostgreSQL có thể upgrade/downgrade.
