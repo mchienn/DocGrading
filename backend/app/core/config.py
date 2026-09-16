@@ -17,6 +17,7 @@ KNOWN_STORAGE_PLACEHOLDERS = frozenset(
         "changeme",
     }
 )
+JOIN_RATE_LIMIT_HASH_SECRET_PLACEHOLDER = "change-me-for-local-development-only"
 
 
 class Settings(BaseSettings):
@@ -30,6 +31,13 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    frontend_origin: str = "http://localhost:5173"
+    join_rate_limit_max_requests: int = Field(default=10, ge=1)
+    join_rate_limit_window_seconds: int = Field(default=60, gt=0)
+    join_rate_limit_hash_secret: str = Field(
+        default=JOIN_RATE_LIMIT_HASH_SECRET_PLACEHOLDER,
+        min_length=32,
+    )
 
     postgres_db: str = Field(min_length=1)
     postgres_user: str = Field(min_length=1)
@@ -77,6 +85,21 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "Known placeholder storage credentials are not allowed outside "
+                "development environment"
+            )
+        rate_limit_secret = self.join_rate_limit_hash_secret.strip()
+        if sum(not character.isspace() for character in rate_limit_secret) < 32:
+            raise ValueError(
+                "Join rate-limit hash secret must contain at least "
+                "32 non-whitespace characters"
+            )
+        self.join_rate_limit_hash_secret = rate_limit_secret
+        if (
+            self.app_env != "development"
+            and rate_limit_secret.lower() == JOIN_RATE_LIMIT_HASH_SECRET_PLACEHOLDER
+        ):
+            raise ValueError(
+                "Default join rate-limit hash secret is not allowed outside "
                 "development environment"
             )
         return self

@@ -58,13 +58,19 @@ function errorMessage(error: unknown, status: number): string {
   if (error && typeof error === 'object' && 'detail' in error) {
     const detail = error.detail;
     if (typeof detail === 'string') return detail;
+    if (detail && typeof detail === 'object' && !Array.isArray(detail) && 'message' in detail) {
+      const message = detail.message;
+      if (typeof message === 'string') return message;
+    }
     if (Array.isArray(detail)) {
       const messages = detail
-        .map((item) =>
-          item && typeof item === 'object' && 'msg' in item
-            ? String(item.msg)
-            : null,
-        )
+        .map((item) => {
+          if (item && typeof item === 'object' && 'msg' in item) {
+            const msg = item.msg;
+            return typeof msg === 'string' ? msg : null;
+          }
+          return null;
+        })
         .filter(Boolean);
       if (messages.length) return messages.join('. ');
     }

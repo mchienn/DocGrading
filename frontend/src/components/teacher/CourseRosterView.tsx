@@ -4,6 +4,7 @@ import { ArrowLeft, Plus, UserMinus, UserPlus } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { api, apiData, apiVoid, getErrorMessage } from '../../api/client';
+import { CourseJoinCodeSection } from './CourseJoinCodeSection';
 
 type MembershipStatus = components['schemas']['MembershipStatus'];
 type CourseMember = components['schemas']['CourseMemberResponse'];
@@ -320,6 +321,10 @@ export const CourseRosterView: React.FC<{ role: 'teacher' | 'admin' }> = ({ role
         <p role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
           {getErrorMessage(courseQuery.error)}
         </p>
+      )}
+
+      {course && (
+        <CourseJoinCodeSection courseId={courseId} isArchived={isArchived} />
       )}
 
       <section aria-label="Roster filters" className="flex flex-wrap items-center justify-between gap-4 p-4 bg-white border border-slate-200 rounded-xl">

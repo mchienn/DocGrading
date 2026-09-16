@@ -12,11 +12,13 @@ from app.models import (
     AuditEvent,
     Course,
     CourseInvite,
+    CourseJoinCode,
     CriterionVersion,
     DocumentIR,
     DocumentVersion,
     EvidenceAnchor,
     Finding,
+    JoinRateLimit,
     Membership,
     Notification,
     PublishedResultVersion,
@@ -36,6 +38,8 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     User: "users",
     Course: "courses",
     CourseInvite: "course_invites",
+    CourseJoinCode: "course_join_codes",
+    JoinRateLimit: "join_rate_limits",
     Membership: "memberships",
     Assignment: "assignments",
     AssignmentRequirement: "assignment_requirements",
@@ -105,6 +109,7 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
     assert "users.id" in foreign_key_targets(Course)
     assert {"courses.id", "users.id"} <= foreign_key_targets(Membership)
     assert {"courses.id", "users.id"} <= foreign_key_targets(CourseInvite)
+    assert "courses.id" in foreign_key_targets(CourseJoinCode)
     assert {"courses.id", "users.id", "rubric_versions.id"} <= foreign_key_targets(
         Assignment
     )
@@ -164,6 +169,30 @@ def test_critical_constraints_and_indexes_have_stable_names() -> None:
         if isinstance(constraint, sa.UniqueConstraint)
     }
     assert "uq_analysis_jobs_document_rubric" in analysis_jobs_constraints
+    join_code_constraints = {
+        constraint.name
+        for constraint in Base.metadata.tables["course_join_codes"].constraints
+        if isinstance(constraint, (sa.CheckConstraint, sa.UniqueConstraint))
+    }
+    assert {
+        "ck_course_join_codes_code_shape",
+        "ck_course_join_codes_expiry_after_creation",
+        "uq_course_join_codes_code",
+    } <= join_code_constraints
+
+    rate_limit_constraints = {
+        constraint.name
+        for constraint in Base.metadata.tables["join_rate_limits"].constraints
+        if isinstance(constraint, (sa.CheckConstraint, sa.UniqueConstraint))
+    }
+    assert {
+        "ck_join_rate_limits_subject_hash",
+        "ck_join_rate_limits_count_nonnegative",
+        "uq_join_rate_limits_subject_hash",
+    } <= rate_limit_constraints
+    assert "ix_join_rate_limits_window_started_at" in {
+        index.name for index in Base.metadata.tables["join_rate_limits"].indexes
+    }
 
     document_irs_checks = {
         c.name

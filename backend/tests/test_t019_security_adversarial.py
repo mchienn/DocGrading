@@ -358,6 +358,9 @@ def test_login_cookies_are_secure_outside_development(
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("STORAGE_ACCESS_KEY_ID", "t019-production-key")
     monkeypatch.setenv("STORAGE_SECRET_ACCESS_KEY", "t019-production-secret")
+    monkeypatch.setenv(
+        "JOIN_RATE_LIMIT_HASH_SECRET", "test-rate-limit-hash-secret-32-bytes"
+    )
     get_settings.cache_clear()
     try:
         asyncio.run(_run_secure_cookie_login())
@@ -815,7 +818,7 @@ async def _run_head_truncate_guards() -> None:
                 revision = await connection.scalar(
                     text("SELECT version_num FROM public.alembic_version")
                 )
-                assert revision == "20260913_0013"
+                assert revision == "20260916_0015"
                 for table in ("audit_events", "published_result_versions"):
                     with pytest.raises(exc.DBAPIError, match="append-only"):
                         async with connection.begin_nested():

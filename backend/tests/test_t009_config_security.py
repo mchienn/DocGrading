@@ -95,12 +95,36 @@ def test_settings_rejects_placeholder_credentials_outside_development(
                 postgres_password="pw",
                 storage_access_key_id=key_id,
                 storage_secret_access_key=secret_key,
+                join_rate_limit_hash_secret="test-rate-limit-hash-secret-32-bytes",
             )
         error_str = str(exc_info.value)
         # Verify secrets are not leaked in error messages
         assert "placeholder" in error_str.lower() or "credential" in error_str.lower()
         assert key_id not in error_str
         assert secret_key not in error_str
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "change-me-for-local-development-only",
+        " CHANGE-ME-FOR-LOCAL-DEVELOPMENT-ONLY ",
+        f"{'a' * 15}  {'b' * 15}",
+    ],
+)
+def test_settings_rejects_default_rate_limit_hash_secret_in_production(
+    secret: str,
+) -> None:
+    with pytest.raises(ValidationError, match="rate-limit hash secret"):
+        Settings(
+            app_env="production",
+            postgres_db="docgrading",
+            postgres_user="docgrading",
+            postgres_password="pw",
+            storage_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            storage_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            join_rate_limit_hash_secret=secret,
+        )
 
 
 def test_settings_accepts_valid_custom_credentials_outside_development() -> None:
@@ -111,6 +135,7 @@ def test_settings_accepts_valid_custom_credentials_outside_development() -> None
         postgres_password="pw",
         storage_access_key_id="AKIAIOSFODNN7EXAMPLE",
         storage_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        join_rate_limit_hash_secret="test-rate-limit-hash-secret-32-bytes",
     )
     assert settings.storage_access_key_id == "AKIAIOSFODNN7EXAMPLE"
 
@@ -153,6 +178,9 @@ def test_api_startup_succeeds_in_production_with_valid_custom_credentials(
     monkeypatch.setenv("STORAGE_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
     monkeypatch.setenv(
         "STORAGE_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    )
+    monkeypatch.setenv(
+        "JOIN_RATE_LIMIT_HASH_SECRET", "test-rate-limit-hash-secret-32-bytes"
     )
 
     app = create_app()

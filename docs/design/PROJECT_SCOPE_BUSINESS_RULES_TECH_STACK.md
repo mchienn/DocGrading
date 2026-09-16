@@ -67,6 +67,7 @@ Repository hiện có frontend React/Vite nối trực tiếp session auth, Cour
 14. Admin quản lý người dùng, rubric/template mặc định, danh sách job, thử lại job, usage cơ bản và audit log.
 15. Thông báo trong ứng dụng khi AnalysisJob chuyển `ERROR`, tạo `PublishedResultVersion`, tạo ReviewRequest và chuyển ReviewRequest sang `RESOLVED` hoặc `REJECTED`; MVP dùng polling, không có push/email/websocket. Thông báo khi unpublish theo BR-33 được hoãn sang `DOC-30`.
 16. Teacher sở hữu Course hoặc Admin xem roster, thêm sinh viên bằng email, tạo invite chờ khi email chưa có tài khoản và soft-remove membership mà không xóa Submission/Result lịch sử.
+17. Teacher sở hữu Course hoặc Admin tạo, đổi hạn, revoke và regenerate join code; Student mở link/QR hoặc nhập code rồi xác nhận để tự tham gia Course.
 
 Evaluator tự động của MVP chỉ được nghiệm thu cho SRS tiếng Việt. SRS tiếng Anh hoặc tài liệu thuộc ngôn ngữ khác vẫn có thể dùng rubric thủ công nếu PDF hợp lệ; chỉ được bật tự động sau khi có corpus và qua quality gate riêng.
 
@@ -127,7 +128,7 @@ Một rubric có thể thay đổi trọng số hoặc tắt tiêu chí trước
 
 ### 5.1. Thực thể chính
 
-- `User`, `Role`, `Course`, `CourseMembership`, `CourseInvite`, `Assignment`.
+- `User`, `Role`, `Course`, `CourseMembership`, `CourseInvite`, `CourseJoinCode`, `Assignment`.
 - `RubricVersion`, `CriterionVersion`, `PerformanceLevel`, `TemplateVersion`.
 - `Submission`, `DocumentVersion`, `AnalysisJob`.
 - `EvaluationResult`, `CriterionResult`, `Finding`, `EvidenceAnchor`.
@@ -217,6 +218,7 @@ QUEUED → RUNNING → DONE
 | BR-32 | Model/provider là cấu hình vận hành có version, không hard-code vào domain. Chỉ một cấu hình đã qua benchmark và chính sách dữ liệu mới được đặt `ACTIVE`; thay model không làm thay đổi kết quả đã lưu. |
 | BR-33 | Chỉ Teacher phụ trách hoặc Admin được unpublish. Thao tác phải có lý do, giữ nguyên PublishedResultVersion và audit, ẩn kết quả khỏi Student ngay lập tức và thông báo cho Student. Unpublish chặn review request mới nhưng không sửa request đã tồn tại; request đang mở chỉ kết thúc bằng `RESOLVED` hoặc `REJECTED`. |
 | BR-J | Chỉ Teacher sở hữu Course hoặc Admin được xem và quản lý roster. Roster chỉ gồm membership `STUDENT`, hỗ trợ lọc `ACTIVE`/`REMOVED`, lưu thời điểm tham gia và nguồn `joined_via` (`MANUAL` hoặc `CODE`). Thêm tay chuẩn hóa email: tài khoản có role `STUDENT` được tạo membership `ACTIVE`; membership `REMOVED` được kích hoạt lại với thời điểm tham gia mới; tài khoản thiếu role `STUDENT` bị từ chối; email chưa có tài khoản tạo `CourseInvite` pending, chưa gửi email hoặc tự tạo membership trong T-026. Gỡ sinh viên là soft-remove sang `REMOVED`: mọi kiểm tra membership chặn truy cập hoặc submission mới, còn Submission, Result, audit và notification cũ giữ nguyên; hệ thống không tạo notification Course mới cho sinh viên đã gỡ. URL storage đã ký trước khi gỡ có thể dùng đến khi hết TTL tối đa 5 phút, nhưng API không cấp URL mới. Mọi lần thêm, kích hoạt lại, tạo invite hoặc gỡ phải ghi `AuditEvent` cùng transaction với actor, before/after và lý do do người thao tác nhập nếu có; Course `ARCHIVED` chỉ cho xem roster. |
+| BR-J2 | Mỗi Course có tối đa một `CourseJoinCode` chưa revoke; code 20 ký tự Base32 không mơ hồ có 100 bit entropy và unique toàn hệ thống. Chỉ Teacher sở hữu Course hoặc Admin được tạo, đổi hạn, revoke, regenerate và xem QR/link; archived Course chỉ đọc. Link/QR chỉ chứa code. Student phải xác nhận trước khi join chính tài khoản của mình. Code sai, hết hạn và revoked trả lỗi phân biệt; revoke có hiệu lực ngay. Join lặp membership `ACTIVE` là idempotent; membership `REMOVED` được kích hoạt lại với `joined_via=CODE`. Regenerate không sửa membership cũ. Join bị rate-limit theo account và client IP; lifecycle code và join/reactivate đều có audit không chứa code, URL, email hoặc IP. |
 
 ## 7. Quality gate cho evaluator tự động
 

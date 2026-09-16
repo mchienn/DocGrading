@@ -92,6 +92,7 @@ _AUDIT_SAFE_FIELDS: dict[str, frozenset[str]] = {
         }
     ),
     "Course": frozenset({"code", "name", "term", "status"}),
+    "CourseJoinCode": frozenset({"course_id", "expires_at", "revoked_at", "status"}),
     "CourseInvite": frozenset({"course_id", "status"}),
     "Membership": frozenset(
         {"course_id", "user_id", "status", "joined_via", "joined_at"}

@@ -1,7 +1,7 @@
 
 # DocGrading Frontend
 
-React/Vite client for Admin, Teacher, and Student workspaces. Active product routes use FastAPI session, Course, Assignment, Rubric, PDF upload, analysis-job, submission queue, PDF.js review with bidirectional evidence, review draft/evidence, approval/publication, published-result, criterion review-request/response, polling notification/read, and Admin dashboard/user/job/audit/force-release APIs. Resubmission/version-comparison screens remain outside product routing.
+React/Vite client for Admin, Teacher, and Student workspaces. Active product routes use FastAPI session, Course, roster, expiring Course join code/link/QR with explicit Student confirmation, Assignment, Rubric, PDF upload, analysis-job, submission queue, PDF.js review with bidirectional evidence, review draft/evidence, approval/publication, published-result, criterion review-request/response, polling notification/read, and Admin dashboard/user/job/audit/force-release APIs. Resubmission/version-comparison screens remain outside product routing.
 
 Original design: [Figma — Follow Markdown Guide](https://www.figma.com/design/VNMmj3UUihw1Wp1duygxZl/Follow-Markdown-Guide).
 
@@ -34,7 +34,7 @@ pnpm generate:api
 
 ## Release deployment
 
-Compose host ports are loopback-only for development and UAT. Production must terminate TLS before the frontend, forward one public origin to port 5173, set `APP_ENV` outside `development`, set `FRONTEND_ORIGIN` to that HTTPS origin, and use non-placeholder storage credentials with an HTTPS public storage endpoint. Keep API port 8000 private; browser API traffic stays same-origin through Caddy.
+Compose host ports are loopback-only for development and UAT. Production must terminate TLS directly at Caddy and expose one public HTTPS origin. Compose pins Caddy to `172.30.255.3`; if network topology changes, set API `FORWARDED_ALLOW_IPS` to the exact Caddy address. If an upstream TLS load balancer is required, configure Caddy `trusted_proxies` with that proxy's exact CIDR plus `trusted_proxies_strict` so client IP rate limits remain per-client. Set `APP_ENV` outside `development`, set a random `JOIN_RATE_LIMIT_HASH_SECRET` of at least 32 characters, set `FRONTEND_ORIGIN` to the HTTPS origin, use non-placeholder storage credentials with an HTTPS public storage endpoint, and keep API port 8000 private; browser API traffic stays same-origin through Caddy.
 
 ## Structure
 

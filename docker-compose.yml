@@ -81,6 +81,8 @@ services:
       POSTGRES_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      JOIN_RATE_LIMIT_HASH_SECRET: ${JOIN_RATE_LIMIT_HASH_SECRET:-change-me-for-local-development-only}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.30.255.3}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-docgrading}
       STORAGE_ENDPOINT_URL: http://storage:4566
       STORAGE_PUBLIC_ENDPOINT_URL: ${STORAGE_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
@@ -104,7 +106,9 @@ services:
         condition: service_healthy
       storage-init:
         condition: service_completed_successfully
-    networks: [backend]
+    networks:
+      - backend
+      - proxy
 
   worker:
     build:
@@ -158,7 +162,9 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    networks: [backend]
+    networks:
+      proxy:
+        ipv4_address: 172.30.255.3
 
   load-smoke:
     image: ghcr.io/astral-sh/uv:0.11.19-python3.13-trixie-slim
@@ -256,6 +262,11 @@ volumes:
 networks:
   backend:
     driver: bridge
+  proxy:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.255.0/29
   restore:
     driver: bridge
     internal: true
