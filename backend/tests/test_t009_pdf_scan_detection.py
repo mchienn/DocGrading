@@ -223,20 +223,92 @@ def test_self_overlapping_even_odd_clip_does_not_inflate_coverage() -> None:
 
 
 @pytest.mark.parametrize(
-    "clip_operations",
+    "curve_operation",
     [
-        "0 0 m 30 0 70 100 100 100 c 100 0 l W n",
-        "0 0 m 100 0 l 50 40 l 100 100 l 0 100 l W n",
+        "10 95 5 100 0 100 c",
+        "5 100 0 100 v",
+        "5 100 0 100 y",
     ],
 )
-def test_unsupported_applied_clip_fails_closed(
-    clip_operations: str,
-) -> None:
+def test_curved_clip_uses_conservative_bounds(curve_operation: str) -> None:
     data = _pdf_bytes(
         {
             "image_rect": (0, 0, 100, 100),
-            "pre_image_operations": clip_operations,
+            "pre_image_operations": (f"0 0 m 10 0 l 10 90 l {curve_operation} h W n"),
             "text": "A",
+        }
+    )
+
+    assert validate_pdf(data).has_text is True
+
+
+def test_curved_clip_cannot_hide_scan_page() -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 100, 100),
+            "pre_image_operations": "0 0 m 30 0 70 100 100 100 c 100 0 l W n",
+            "text": "A",
+        }
+    )
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(data)
+
+    assert exc_info.value.code == "PDF_SCAN_ONLY"
+
+
+def test_non_convex_applied_clip_fails_closed() -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 100, 100),
+            "pre_image_operations": ("0 0 m 100 0 l 50 40 l 100 100 l 0 100 l W n"),
+            "text": "A",
+        }
+    )
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(data)
+
+    assert exc_info.value.code == "PDF_MALFORMED"
+
+
+def test_geometry_operation_limit_is_scoped_per_page() -> None:
+    ordinary_vector_operations = " ".join(["q Q"] * 3_000)
+    data = _pdf_bytes(
+        *[
+            {
+                "image_rect": (0, 0, 1, 1),
+                "pre_image_operations": ordinary_vector_operations,
+                "text": "Text-native page has enough useful characters.",
+            }
+            for _ in range(2)
+        ]
+    )
+
+    assert validate_pdf(data).page_count == 2
+
+
+def test_geometry_operation_limit_still_rejects_single_page_bomb() -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 1, 1),
+            "pre_image_operations": " ".join(["q Q"] * 5_001),
+            "text": "Text-native page has enough useful characters.",
+        }
+    )
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(data)
+
+    assert exc_info.value.code == "PDF_MALFORMED"
+
+
+def test_surplus_geometry_operands_fail_closed() -> None:
+    data = _pdf_bytes(
+        {
+            "image_rect": (0, 0, 1, 1),
+            "pre_image_operations": "/Missing /Im0 Do",
+            "text": "Text-native page has enough useful characters.",
         }
     )
 
@@ -399,3 +471,11 @@ def test_nonfinite_intermediate_clip_geometry_fails_closed() -> None:
 
     with pytest.raises(_PDFGeometryLimit):
         _clip_polygon(subject, clip)
+
+
+def test_effective_clip_vertex_limit_is_enforced() -> None:
+    oversized_subject = [(float(index), 0.0) for index in range(257)]
+    clip = [(0.0, 0.0), (256.0, 0.0), (256.0, 1.0), (0.0, 1.0)]
+
+    with pytest.raises(_PDFGeometryLimit):
+        _clip_polygon(oversized_subject, clip)

@@ -111,6 +111,17 @@ class _PDFGeometryLimit(Exception):
     pass
 
 
+class _BoundedOperationList(list[tuple[Any, bytes]]):
+    def __init__(self, limit: int) -> None:
+        super().__init__()
+        self.limit = limit
+
+    def append(self, item: tuple[Any, bytes]) -> None:
+        if len(self) >= self.limit:
+            raise _PDFGeometryLimit
+        super().append(item)
+
+
 _PYPDF_DECODE_LOCK = RLock()
 _PYPDF_DECODE_LIMIT_NAMES = (
     "JBIG2_MAX_OUTPUT_LENGTH",
@@ -137,6 +148,31 @@ _MAX_CLIP_VERTICES = 256
 _MAX_PAGE_TREE_NODES = 10_000
 _MAX_PAGE_TREE_DEPTH = 100
 _MAX_ACTIVE_CONTENT_NODES = 50_000
+_GEOMETRY_OPERATOR_ARITY = {
+    b"q": 0,
+    b"Q": 0,
+    b"cm": 6,
+    b"re": 4,
+    b"m": 2,
+    b"l": 2,
+    b"c": 6,
+    b"v": 4,
+    b"y": 4,
+    b"h": 0,
+    b"W": 0,
+    b"W*": 0,
+    b"S": 0,
+    b"s": 0,
+    b"f": 0,
+    b"F": 0,
+    b"f*": 0,
+    b"B": 0,
+    b"B*": 0,
+    b"b": 0,
+    b"b*": 0,
+    b"n": 0,
+    b"Do": 1,
+}
 
 type Matrix = tuple[float, float, float, float, float, float]
 type Point = tuple[float, float]
@@ -345,6 +381,8 @@ def _polygon_area(polygon: Polygon) -> float:
 
 
 def _clip_polygon(subject: Polygon, clip: Polygon) -> Polygon:
+    if len(subject) > _MAX_CLIP_VERTICES or len(clip) > _MAX_CLIP_VERTICES:
+        raise _PDFGeometryLimit
     if len(subject) < 3 or len(clip) < 3:
         return []
     orientation = 1.0 if _signed_polygon_area(clip) >= 0 else -1.0
@@ -429,6 +467,8 @@ def _clip_polygon(subject: Polygon, clip: Polygon) -> Polygon:
                     )
                 )
             segment_start = segment_end
+        if len(output) > _MAX_CLIP_VERTICES:
+            raise _PDFGeometryLimit
     return output
 
 
@@ -560,6 +600,20 @@ def _rectangle_polygon(values: Any, *, required: bool = False) -> Polygon:
     return rectangle
 
 
+def _bounding_box_polygon(points: Polygon) -> Polygon:
+    if not points or len(points) > _MAX_CLIP_VERTICES:
+        raise _PDFGeometryLimit
+    return _rectangle_polygon(
+        (
+            min(point[0] for point in points),
+            min(point[1] for point in points),
+            max(point[0] for point in points),
+            max(point[1] for point in points),
+        ),
+        required=True,
+    )
+
+
 def _matrix_from_pdf(value: Any) -> Matrix:
     resolved = _resolve_pdf_object(value)
     if not isinstance(resolved, (list, tuple)) or len(resolved) < 6:
@@ -623,6 +677,20 @@ def _load_form_content(
     return content, decoded_size
 
 
+def _bounded_content_operations(
+    content: ContentStream,
+    remaining_operations: int,
+) -> list[tuple[Any, bytes]]:
+    if remaining_operations < 0:
+        raise _PDFGeometryLimit
+    if not content._operations and content._data:
+        content._operations = _BoundedOperationList(remaining_operations)
+    operations = content.operations
+    if len(operations) > remaining_operations:
+        raise _PDFGeometryLimit
+    return operations
+
+
 def _walk_raster_coverage(
     content: ContentStream,
     resources: DictionaryObject,
@@ -642,11 +710,19 @@ def _walk_raster_coverage(
     current_clip = initial_clip.copy()
     current_path: Polygon | None = []
     clip_pending = False
+    current_path_uses_curve = False
     graphics_stack: list[tuple[Matrix, Polygon]] = []
     maximum_coverage = 0.0
-    for operands, operator in content.operations:
+    operations = _bounded_content_operations(
+        content,
+        _MAX_GEOMETRY_OPERATIONS - context.operation_count,
+    )
+    for operands, operator in operations:
         context.operation_count += 1
         if context.operation_count > _MAX_GEOMETRY_OPERATIONS:
+            raise _PDFGeometryLimit
+        expected_arity = _GEOMETRY_OPERATOR_ARITY.get(operator)
+        if expected_arity is not None and len(operands) != expected_arity:
             raise _PDFGeometryLimit
         if operator == b"q":
             graphics_stack.append((current_matrix, current_clip.copy()))
@@ -656,13 +732,13 @@ def _walk_raster_coverage(
             else:
                 current_matrix = initial_matrix
                 current_clip = initial_clip.copy()
-        elif operator == b"cm" and len(operands) >= 6:
+        elif operator == b"cm":
             matrix = tuple(map(float, operands[:6]))
             current_matrix = _multiply_matrix(
                 _matrix_from_pdf(matrix),
                 current_matrix,
             )
-        elif operator == b"re" and len(operands) >= 4:
+        elif operator == b"re":
             if current_path:
                 current_path = None
             elif current_path is not None:
@@ -676,7 +752,8 @@ def _walk_raster_coverage(
                     ],
                     current_matrix,
                 )
-        elif operator == b"m" and len(operands) >= 2:
+                current_path_uses_curve = False
+        elif operator == b"m":
             if current_path:
                 current_path = None
             elif current_path is not None:
@@ -686,7 +763,8 @@ def _walk_raster_coverage(
                         current_matrix,
                     )[0]
                 )
-        elif operator == b"l" and len(operands) >= 2:
+                current_path_uses_curve = False
+        elif operator == b"l":
             if current_path:
                 current_path.append(
                     _transform_polygon(
@@ -697,7 +775,20 @@ def _walk_raster_coverage(
             else:
                 current_path = None
         elif operator in {b"c", b"v", b"y"}:
-            current_path = None
+            coordinate_count = _GEOMETRY_OPERATOR_ARITY[operator]
+            if current_path:
+                current_path.extend(
+                    _transform_polygon(
+                        [
+                            (float(operands[index]), float(operands[index + 1]))
+                            for index in range(0, coordinate_count, 2)
+                        ],
+                        current_matrix,
+                    )
+                )
+                current_path_uses_curve = True
+            else:
+                current_path = None
         elif operator == b"W":
             clip_pending = True
         elif operator == b"W*":
@@ -719,17 +810,21 @@ def _walk_raster_coverage(
                 if current_path is None:
                     raise _PDFGeometryLimit
                 clip_path = _without_repeated_closing_point(current_path)
-                if not _is_convex_polygon(clip_path):
+                if current_path_uses_curve:
+                    # Control-point bounds overestimate area, never hide scans.
+                    clip_path = _bounding_box_polygon(clip_path)
+                elif not _is_convex_polygon(clip_path):
                     raise _PDFGeometryLimit
                 current_clip = _clip_polygon(current_clip, clip_path)
             current_path = []
+            current_path_uses_curve = False
             clip_pending = False
         elif operator == b"INLINE IMAGE":
             maximum_coverage = max(
                 maximum_coverage,
                 _image_coverage(current_matrix, current_clip, page_area),
             )
-        elif operator == b"Do" and operands:
+        elif operator == b"Do":
             xobjects = _resolve_pdf_object(
                 resources.get("/XObject", DictionaryObject())
             )
@@ -802,6 +897,7 @@ def _maximum_raster_coverage(
     page: Any,
     context: _RasterGeometryContext,
 ) -> float:
+    context.operation_count = 0
     content = page.get_contents()
     if content is None:
         return 0.0

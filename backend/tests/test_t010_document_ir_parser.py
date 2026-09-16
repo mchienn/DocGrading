@@ -526,7 +526,7 @@ def test_text_table_finder_accepts_eight_by_twenty() -> None:
     assert len(parsed.content["tables"][0]["rows"]) == len(rows)
 
 
-def test_dense_text_fails_before_text_strategy_find_tables(
+def test_dense_text_skips_expensive_table_finder_and_marks_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[Any] = []
@@ -547,10 +547,47 @@ def test_dense_text_fails_before_text_strategy_find_tables(
         x_positions=[20 + (28 * index) for index in range(15)],
         y_positions=[750 - (13 * index) for index in range(22)],
     )
-    with pytest.raises(PDFValidationError) as exc_info:
-        parse_document_ir(_make_operations_pdf(operations))
-    assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
+    parsed = parse_document_ir(_make_operations_pdf(operations))
+
     assert calls == []
+    assert parsed.content["tables"] == []
+    elements = [*parsed.content["sections"], *parsed.content["paragraphs"]]
+    assert elements
+    assert all(element["needs_review"] is True for element in elements)
+
+
+def test_dense_text_review_flag_survives_parsed_ruled_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[Any] = []
+    original_find_tables = document_ir.pdfplumber.page.Page.find_tables
+
+    def track_find_tables(page: Any, settings: Any = None) -> list[Any]:
+        calls.append(settings)
+        return original_find_tables(page, settings)
+
+    monkeypatch.setattr(
+        document_ir.pdfplumber.page.Page,
+        "find_tables",
+        track_find_tables,
+    )
+    dense_text = _make_borderless_table_page(
+        [[str(column) for column in range(15)] for _ in range(22)],
+        x_positions=[20 + (28 * index) for index in range(15)],
+        y_positions=[750 - (13 * index) for index in range(22)],
+    )
+    ruled_table = _make_ruled_table_page(
+        [["Name", "Value"], ["Alice", "1"]],
+        y_lines=[92, 142, 192],
+    )
+
+    parsed = parse_document_ir(_make_operations_pdf(ruled_table + dense_text))
+
+    assert calls == [None]
+    assert len(parsed.content["tables"]) == 1
+    elements = [*parsed.content["sections"], *parsed.content["paragraphs"]]
+    assert elements
+    assert all(element["needs_review"] is True for element in elements)
 
 
 def test_many_characters_in_few_text_clusters_are_allowed() -> None:

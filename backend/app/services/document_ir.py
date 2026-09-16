@@ -646,21 +646,25 @@ def _extract_tables(
     budget.consume(len(text_words))
     text_edges = _estimate_text_edges(text_words)
     estimated_text_intersections = (text_edges // 2) * (text_edges - (text_edges // 2))
-    if (
+    text_needs_review = (
         text_edges > _MAX_TABLE_EDGES
         or text_edges * text_edges > _MAX_TABLE_INTERSECTIONS
         or estimated_text_intersections * estimated_text_intersections
         > _MAX_TEXT_TABLE_FINDER_WORK
-        or budget.used + _TABLE_WORK_RESERVE > budget.limit
-    ):
+    )
+    if budget.used + _TABLE_WORK_RESERVE > budget.limit:
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
-    text_tables = text_page.find_tables(
-        {
-            "vertical_strategy": "text",
-            "horizontal_strategy": "text",
-            "min_words_vertical": _TEXT_TABLE_MIN_WORDS_VERTICAL,
-            "min_words_horizontal": _TEXT_TABLE_MIN_WORDS_HORIZONTAL,
-        }
+    text_tables = (
+        []
+        if text_needs_review
+        else text_page.find_tables(
+            {
+                "vertical_strategy": "text",
+                "horizontal_strategy": "text",
+                "min_words_vertical": _TEXT_TABLE_MIN_WORDS_VERTICAL,
+                "min_words_horizontal": _TEXT_TABLE_MIN_WORDS_HORIZONTAL,
+            }
+        )
     )
     for table in text_tables:
         table_bbox = _table_bbox(
@@ -804,7 +808,10 @@ def _extract_tables(
                 [table_bbox],
             )
         )
-    return parsed_tables, vector_needs_review and not parsed_tables
+    return (
+        parsed_tables,
+        text_needs_review or (vector_needs_review and not parsed_tables),
+    )
 
 
 def _is_heading(
@@ -871,7 +878,7 @@ def _parse_pages(
         ):
             raise PDFValidationError("PDF_IR_MALFORMED")
 
-        page_table_regions, vector_needs_review = _extract_tables(
+        page_table_regions, table_needs_review = _extract_tables(
             page,
             page_number=page_number,
             page_width=page_width,
@@ -1065,7 +1072,7 @@ def _parse_pages(
                 all_paragraphs,
                 page_paragraph_ids,
             )
-        if vector_needs_review:
+        if table_needs_review:
             for index in range(section_start, len(all_sections)):
                 all_sections[index]["needs_review"] = True
             for index in range(paragraph_start, len(all_paragraphs)):
