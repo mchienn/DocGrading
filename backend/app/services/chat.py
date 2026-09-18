@@ -142,6 +142,99 @@ def _authorize(user: User, course: Course | None) -> Course:
     return course
 
 
+async def _get_teacher_courses(db: AsyncSession, user: User) -> list[Course]:
+    """Get all courses owned by teacher."""
+    stmt = sa.select(Course).where(Course.owner_teacher_id == user.id)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _handle_summary_all_courses(db: AsyncSession, courses: list[Course]) -> str:
+    """Summary across all courses."""
+    if not courses:
+        return "Bạn chưa có lớp nào."
+
+    parts = []
+    for course in courses:
+        rows = await _latest_versions(db, course.id, None)
+        total = len(rows)
+        reviewed = sum(1 for _, status, _ in rows if status in _REVIEWED_STATUSES)
+        error = sum(1 for _, status, _ in rows if status in _ERROR_STATUSES)
+        students = await _active_student_count(db, course.id)
+
+        if total == 0:
+            parts.append(f'Lớp "{course.name}" chưa có bài nộp.')
+        else:
+            rate = round(reviewed / total * 100)
+            parts.append(
+                f'Lớp "{course.name}": {rate}% ({reviewed}/{total}) chấm xong, {students} sinh viên hoạt động.'
+            )
+
+    return "\n".join(parts)
+
+
+async def _handle_unreviewed_all_courses(db: AsyncSession, courses: list[Course]) -> str:
+    """Unreviewed submissions across all courses."""
+    if not courses:
+        return "Bạn chưa có lớp nào."
+
+    parts = []
+    for course in courses:
+        rows = await _latest_versions(db, course.id, None)
+        unreviewed = sum(1 for _, status, _ in rows if status not in _REVIEWED_STATUSES and status not in _ERROR_STATUSES)
+        parts.append(f'Lớp "{course.name}": {unreviewed} bài chờ duyệt')
+
+    total_unreviewed = sum(int(p.split(": ")[1].split(" ")[0]) for p in parts)
+    return f"Tổng cộng {total_unreviewed} bài chờ duyệt:\n" + "\n".join(parts)
+
+
+async def _handle_errors_all_courses(db: AsyncSession, courses: list[Course]) -> str:
+    """Error submissions across all courses."""
+    if not courses:
+        return "Bạn chưa có lớp nào."
+
+    parts = []
+    for course in courses:
+        rows = await _latest_versions(db, course.id, None)
+        errors = sum(1 for _, status, _ in rows if status in _ERROR_STATUSES)
+        if errors > 0:
+            parts.append(f'Lớp "{course.name}": {errors} bài lỗi')
+
+    if not parts:
+        return "Không có bài nộp nào bị lỗi."
+
+    return "Các bài nộp bị lỗi:\n" + "\n".join(parts)
+
+
+async def _handle_new_review_requests_all_courses(db: AsyncSession, courses: list[Course]) -> str:
+    """New review requests across all courses."""
+    if not courses:
+        return "Bạn chưa có lớp nào."
+
+    parts = []
+    cutoff = datetime.now(UTC) - timedelta(days=1)
+
+    for course in courses:
+        stmt = (
+            sa.select(sa.func.count())
+            .select_from(ReviewRequest)
+            .join(Submission, Submission.id == ReviewRequest.submission_id)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .where(
+                Assignment.course_id == course.id,
+                ReviewRequest.status == ReviewRequestStatus.SUBMITTED,
+                ReviewRequest.created_at >= cutoff,
+            )
+        )
+        count = int(await db.scalar(stmt) or 0)
+        if count > 0:
+            parts.append(f'Lớp "{course.name}": {count} yêu cầu xem lại mới')
+
+    if not parts:
+        return "Không có yêu cầu xem lại mới nào trong 24 giờ qua."
+
+    return "Yêu cầu xem lại mới hôm nay:\n" + "\n".join(parts)
+
+
 def _latest_version_subquery(
     course_id: uuid.UUID, assignment_id: uuid.UUID | None
 ) -> sa.Subquery:
@@ -328,13 +421,14 @@ async def handle_chat(
     *,
     user: User,
     message: str,
-    course_id: uuid.UUID | None,
+    course_id: uuid.UUID | str | None,
     assignment_id: uuid.UUID | None,
 ) -> ChatResponse:
     """Classify *message* and answer it, scoped to an owned course.
 
     Numbers always come from a live, authorization-checked query — the
     classifier only decides *which* query to run, never the answer itself.
+    If course_id is "all", aggregate data from all teacher's courses.
     """
     intent = classify_intent(message)
 
@@ -356,6 +450,36 @@ async def handle_chat(
             intent=Intent.NEEDS_COURSE,
         )
 
+    # Handle "all" - aggregate across all teacher's courses
+    if course_id == "all":
+        courses = await _get_teacher_courses(db, user)
+        if not courses:
+            return ChatResponse(
+                reply="Bạn chưa có lớp nào. Vui lòng tạo lớp trước rồi hỏi lại nhé.",
+                intent=Intent.UNKNOWN,
+            )
+        # Return aggregate summary for all courses
+        if intent is Intent.SUMMARY:
+            reply = await _handle_summary_all_courses(db, courses)
+            return ChatResponse(reply=reply, intent=intent)
+        if intent is Intent.UNREVIEWED:
+            reply = await _handle_unreviewed_all_courses(db, courses)
+            return ChatResponse(reply=reply, intent=intent)
+        if intent is Intent.ERRORS:
+            reply = await _handle_errors_all_courses(db, courses)
+            return ChatResponse(reply=reply, intent=intent)
+        if intent is Intent.NEW_REVIEW_REQUESTS:
+            reply = await _handle_new_review_requests_all_courses(db, courses)
+            return ChatResponse(reply=reply, intent=intent)
+        # NOT_SUBMITTED requires specific course
+        if intent is Intent.NOT_SUBMITTED:
+            return ChatResponse(
+                reply="Để kiểm tra sinh viên chưa nộp, bạn cần chọn một lớp cụ thể nhé.",
+                intent=Intent.UNKNOWN,
+            )
+        return ChatResponse(reply=_HELP_TEXT, intent=Intent.UNKNOWN)
+
+    # Single course mode
     course = _authorize(user, await db.get(Course, course_id))
 
     assignment: Assignment | None = None

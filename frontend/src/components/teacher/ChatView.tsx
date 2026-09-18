@@ -114,6 +114,7 @@ export const ChatView: React.FC = () => {
             className="border border-[#DDE2E8] rounded-lg px-3 py-2 text-sm bg-white min-w-[220px]"
           >
             <option value="">-- Chọn lớp --</option>
+            <option value="all">Tất cả lớp</option>
             {(coursesQuery.data ?? []).map((course) => (
               <option key={course.id} value={course.id}>
                 {course.code} - {course.name}
@@ -129,7 +130,7 @@ export const ChatView: React.FC = () => {
             id="chat-assignment"
             value={assignmentId}
             onChange={(event) => setAssignmentId(event.target.value)}
-            disabled={!courseId || assignmentsQuery.isLoading}
+            disabled={!courseId || courseId === 'all' || assignmentsQuery.isLoading}
             className="border border-[#DDE2E8] rounded-lg px-3 py-2 text-sm bg-white min-w-[220px] disabled:bg-[#F5F6F8]"
           >
             <option value="">Tất cả bài tập</option>

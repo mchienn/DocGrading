@@ -11,10 +11,11 @@ class ChatRequest(BaseModel):
     ``course_id``/``assignment_id`` carry the UI's currently selected context
     (see ``ChatView``). The chatbot never guesses this scope from free text -
     it always relies on explicit, authorization-checked identifiers.
+    ``course_id`` can be "all" to aggregate data across all teacher's courses.
     """
 
     message: str = Field(min_length=1, max_length=1000)
-    course_id: uuid.UUID | None = None
+    course_id: uuid.UUID | str | None = None
     assignment_id: uuid.UUID | None = None
 
 
