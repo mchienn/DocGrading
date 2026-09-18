@@ -26,7 +26,7 @@ An image paints the unit square. Transform its four corners into page space, cli
 
 The implementation intentionally does not rasterize pages or decode image pixels. Coverage depends on PDF placement geometry, not image resolution. No native renderer or new package is introduced.
 
-Applied clipping is exact for one simple convex path using either non-zero-winding `W` or even-odd `W*`; both rules produce the same region for that bounded case. Explicitly closed paths are normalized. Curved `W` paths use their control-point bounding box as a conservative upper bound. Compound, curved `W*`, self-intersecting, non-convex, degenerate, or over-limit clipping raises the geometry-limit boundary and is returned as `PDF_SCAN_ANALYSIS_UNSUPPORTED`; it is never interpreted as zero visible coverage. Unsupported paths used only for drawing remain accepted.
+Applied clipping is exact for one simple convex path using either non-zero-winding `W` or even-odd `W*`; both rules produce the same region for that bounded case. Explicitly closed paths are normalized. Curved `W` paths use their control-point bounding box only as a conservative upper bound: when that bound could reach the scan threshold, validation returns `PDF_SCAN_ANALYSIS_UNSUPPORTED` rather than treating the bound as exact evidence for `PDF_SCAN_ONLY`. Compound, curved `W*`, self-intersecting, non-convex, degenerate, or over-limit clipping raises the same geometry-limit boundary; unsupported paths used only for drawing remain accepted.
 
 ## Validation Flow
 

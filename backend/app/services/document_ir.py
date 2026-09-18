@@ -321,6 +321,7 @@ def _safe_bbox(
     *,
     page_width: float,
     page_height: float,
+    clip_to_page: bool = False,
 ) -> _BBox:
     if (
         not math.isfinite(page_width)
@@ -338,16 +339,20 @@ def _safe_bbox(
     if not all(math.isfinite(value) for value in coordinates):
         raise PDFValidationError("PDF_IR_MALFORMED")
     x0, top, x1, bottom = coordinates
-    if (
-        x0 < 0
-        or top < 0
-        or x1 < x0
-        or bottom < top
-        or x1 > page_width
-        or bottom > page_height
-    ):
+    if x1 < x0 or bottom < top:
         raise PDFValidationError("PDF_IR_MALFORMED")
-    return _BBox(*(round(value, 3) for value in coordinates))
+    if clip_to_page:
+        if x1 <= 0 or bottom <= 0 or x0 >= page_width or top >= page_height:
+            raise PDFValidationError("PDF_IR_MALFORMED")
+        x0 = min(max(x0, 0.0), page_width)
+        top = min(max(top, 0.0), page_height)
+        x1 = min(max(x1, 0.0), page_width)
+        bottom = min(max(bottom, 0.0), page_height)
+    elif x0 < 0 or top < 0 or x1 > page_width or bottom > page_height:
+        raise PDFValidationError("PDF_IR_MALFORMED")
+    if x1 < x0 or bottom < top:
+        raise PDFValidationError("PDF_IR_MALFORMED")
+    return _BBox(*(round(value, 3) for value in (x0, top, x1, bottom)))
 
 
 def _word_from_pdf(
@@ -356,7 +361,12 @@ def _word_from_pdf(
     page_width: float,
     page_height: float,
 ) -> _Word:
-    bbox = _safe_bbox(word, page_width=page_width, page_height=page_height)
+    bbox = _safe_bbox(
+        word,
+        page_width=page_width,
+        page_height=page_height,
+        clip_to_page=True,
+    )
     try:
         font_size = float(word.get("size", 0.0))
     except (TypeError, ValueError, OverflowError) as exc:
@@ -762,10 +772,15 @@ def _extract_tables(
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
     intersection_count = _count_ruled_table_intersections(edges)
     has_ruled_table_candidate = intersection_count >= _MIN_RULED_TABLE_INTERSECTIONS
-    if intersection_count * intersection_count > _MAX_TABLE_FINDER_WORK:
-        raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+    finder_needs_review = (
+        intersection_count * intersection_count > _MAX_TABLE_FINDER_WORK
+    )
 
-    ruled_tables = page.find_tables() if has_ruled_table_candidate else []
+    ruled_tables = (
+        []
+        if finder_needs_review or not has_ruled_table_candidate
+        else page.find_tables()
+    )
     ruled_bboxes = [
         _table_bbox(
             table.bbox,
@@ -818,7 +833,7 @@ def _extract_tables(
     budget.consume(len(text_words))
     text_edges = _estimate_text_edges(text_words)
     estimated_text_intersections = (text_edges // 2) * (text_edges - (text_edges // 2))
-    text_needs_review = (
+    text_needs_review = finder_needs_review or (
         text_edges > _MAX_TABLE_EDGES
         or text_edges * text_edges > _MAX_TABLE_INTERSECTIONS
         or estimated_text_intersections * estimated_text_intersections

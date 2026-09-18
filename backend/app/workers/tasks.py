@@ -18,6 +18,7 @@ from app.services.analysis_job import (
     claim_next_job,
     mark_done,
     mark_error,
+    processing_failure_report,
     update_heartbeat,
 )
 from app.services.document_ir import (
@@ -28,42 +29,6 @@ from app.services.file_integrity import evaluate_file_integrity
 from app.services.pdf_validation import PDFValidationError
 from app.services.storage import S3Storage
 from app.workers.celery_app import celery_app
-
-
-def _processing_failure_report(
-    code: str,
-    prior_report: object | None = None,
-) -> dict[str, object]:
-    diagnostics: list[object] = []
-    if isinstance(prior_report, dict):
-        prior_diagnostics = prior_report.get("diagnostics")
-        if isinstance(prior_diagnostics, list):
-            diagnostics.extend(
-                item.copy()
-                for item in prior_diagnostics
-                if isinstance(item, dict)
-                and item.get("category") != "SYSTEM"
-                and item.get("disposition") in {"WARN", "REVIEW"}
-            )
-    diagnostics = diagnostics[:24]
-    diagnostics.append(
-        {
-            "code": code,
-            "category": "SYSTEM",
-            "disposition": "RETRY",
-            "scope": "DOCUMENT",
-            "page_number": None,
-            "bbox": None,
-            "metrics": {},
-            "message_key": code.lower(),
-            "action_key": "pdf.retry_or_contact_support",
-        }
-    )
-    return {
-        "schema_version": 1,
-        "outcome": "PROCESSING_FAILED",
-        "diagnostics": diagnostics,
-    }
 
 
 @celery_app.task(name="app.workers.tasks.healthcheck")
@@ -188,7 +153,7 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             job.document_version.status = DocumentStatus.PROCESSING_FAILED
             job.document_version.failure_code = "PDF_IR_EXTRACTION_FAILED"
             job.document_version.failure_detail = "Document structure extraction failed"
-            job.document_version.validation_report = _processing_failure_report(
+            job.document_version.validation_report = processing_failure_report(
                 "PDF_IR_EXTRACTION_FAILED",
                 getattr(job.document_version, "validation_report", None),
             )
@@ -206,7 +171,7 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             job.document_version.status = DocumentStatus.PROCESSING_FAILED
             job.document_version.failure_code = "FILE_INTEGRITY_EVALUATION_FAILED"
             job.document_version.failure_detail = "File integrity evaluation failed"
-            job.document_version.validation_report = _processing_failure_report(
+            job.document_version.validation_report = processing_failure_report(
                 "FILE_INTEGRITY_EVALUATION_FAILED",
                 getattr(job.document_version, "validation_report", None),
             )
@@ -224,7 +189,7 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             job.document_version.status = DocumentStatus.PROCESSING_FAILED
             job.document_version.failure_code = "PDF_STORAGE_ERROR"
             job.document_version.failure_detail = "Object storage read failed"
-            job.document_version.validation_report = _processing_failure_report(
+            job.document_version.validation_report = processing_failure_report(
                 "PDF_STORAGE_ERROR",
                 getattr(job.document_version, "validation_report", None),
             )

@@ -81,6 +81,7 @@ async def evaluate_file_integrity(
     )
 
     created = 0
+    pending: list[tuple[Finding, Mapping[str, Any]]] = []
     for criterion in integrity_criteria:
         for link in links:
             element_id = link["id"]
@@ -96,14 +97,17 @@ async def evaluate_file_integrity(
                 proposed_score=None,
             )
             db.add(finding)
-            await db.flush()
+            pending.append((finding, link))
+            created += 1
+    if pending:
+        await db.flush()
+        for finding, link in pending:
             db.add(
                 EvidenceAnchor(
                     finding_id=finding.id,
                     document_ir_id=document_ir.id,
-                    element_id=element_id,
+                    element_id=link["id"],
                     page_number=link["page_number"],
                 )
             )
-            created += 1
     return created

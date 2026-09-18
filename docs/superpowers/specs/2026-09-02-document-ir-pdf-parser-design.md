@@ -158,7 +158,7 @@ The worker runs CPU-bound parsing in `asyncio.to_thread`. It does not log PDF by
 
 ## 6. Bounded untrusted-data handling
 
-Add a positive `pdf_ir_max_nodes` setting. One shared budget counts every visited or emitted page, layout object, word, line, heading, paragraph, table, region, row, and cell. Table source objects and edges count as table work only when they overlap a detected ruled-table region. Vector graphics have separate hard source-object and edge caps. Ruled and text-aligned table preflights also cap estimated quadratic finder work before calling pdfplumber. Exceeding any applicable bound raises `PDF_STRUCTURE_LIMIT` before further unbounded traversal.
+Add a positive `pdf_ir_max_nodes` setting. One shared budget counts every visited or emitted page, layout object, word, line, heading, paragraph, table, region, row, and cell. Table source objects and edges count as table work only when they overlap a detected ruled-table region. Vector graphics have separate hard source-object and edge caps. Ruled and text-aligned table preflights also cap estimated quadratic finder work before calling pdfplumber; a page above the safe finder-work estimate skips table discovery and marks its extracted elements `needs_review`, while exceeding hard source-object, edge, intersection, cell, or global node bounds raises `PDF_STRUCTURE_LIMIT`.
 
 `validate_pdf` performs an iterative `/Pages` preflight before touching `reader.pages`. It bounds page leaves, intermediate nodes, depth, cycles, and indirect-object dereferences, so forged page counts cannot force unbounded pypdf flattening.
 
@@ -170,8 +170,8 @@ Additional invariants:
 - Form XObject streams are preflighted before text extraction, charged once per document against the decoded-stream budget, and traversed under depth/work bounds before geometry analysis;
 - `/StructTreeRoot` uses a separate bounded, cycle-safe traversal so accessibility metadata does not consume the general active-content budget while `/AF`, `/EF`, and other active descendants still fail closed;
 - section-stack depth is bounded by the shared node budget;
-- non-finite or out-of-page coordinates are rejected;
-- ruled and text-aligned table discovery is bounded; vector-heavy pages below the vector cap do not spend table-edge budget when no table is detected;
+- non-finite or reversed coordinates are rejected; partially visible word boxes are clipped to page bounds, while table geometry remains strictly in-page;
+- ruled and text-aligned table discovery is bounded; pages above safe finder-work estimates skip table discovery and retain bounded text with `needs_review`;
 - pypdf/pdfminer/pdfplumber records are filtered only during untrusted validation/extraction; application records and filter state remain intact.
 
 `PDFValidationError` and `PDF_STRUCTURE_LIMIT` mark the document invalid with stable, non-sensitive details. Unexpected extractor/storage failures mark processing failed with sanitized details and no PDF content.
@@ -227,8 +227,8 @@ This checklist is a hard gate before creating migration `20260902_0008`.
 - malformed/out-of-page coordinates fail closed.
 - safe `/URI` links and direct `/A` `/GoToR` actions of `/Link` annotations directly inside a page `/Annots` array pass validation and parsing; `/GoToR` `/F` must be a PDF string or real non-stream `/Filespec`, whose descendants remain fully scanned; bounded targets persist only in Document IR for local comparison and are never resolved or fetched;
 - JavaScript, Launch, embedded files, XFA, populated forms, `/GoToE`, and automatic remote actions through `/OpenAction`, `/AA`, or `/Next` remain rejected as `PDF_ACTIVE_CONTENT`; empty AcroForm stubs and internal `/GoTo` open destinations pass;
-- vector-heavy pages with no table keep text and coordinates and mark extracted elements `needs_review`;
-- real dense tables and global node bombs still raise `PDF_STRUCTURE_LIMIT`;
+- vector-heavy pages and pages above safe table-finder work estimates keep bounded text and coordinates, skip unsafe table discovery, and mark extracted elements `needs_review`;
+- hard vector, intersection, cell, and global node bombs still raise `PDF_STRUCTURE_LIMIT`;
 
 ### Data Integrity & Integration
 

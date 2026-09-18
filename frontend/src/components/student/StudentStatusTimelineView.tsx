@@ -212,6 +212,20 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
           {retryError ?? getErrorMessage(jobQuery.error)}
         </div>
       )}
+      {reportQuery.error && (
+        <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
+          <p>{getErrorMessage(reportQuery.error)}</p>
+          <button
+            type="button"
+            disabled={reportQuery.isFetching}
+            onClick={() => void reportQuery.refetch()}
+            className="inline-flex items-center gap-2 mt-3 font-semibold underline disabled:opacity-50"
+          >
+            <RotateCcw className="w-4 h-4" />
+            {reportQuery.isFetching ? 'Retrying...' : 'Retry validation report'}
+          </button>
+        </div>
+      )}
 
       {!content ? (
         jobQuery.error ? null : <p className="text-sm text-slate-500">Loading job...</p>
@@ -258,6 +272,7 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
             const markerId = diagnostic.page_number
               ? `${diagnostic.code}-${index}`
               : undefined;
+            const metrics = diagnostic.metrics ?? {};
             return (
               <article
                 key={`${diagnostic.code}-${index}`}
@@ -283,9 +298,9 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
                     {diagnostic.disposition}
                   </span>
                 </div>
-                {Object.keys(diagnostic.metrics).length > 0 && (
+                {Object.keys(metrics).length > 0 && (
                   <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {Object.entries(diagnostic.metrics).map(([name, value]) => (
+                    {Object.entries(metrics).map(([name, value]) => (
                       <div key={name} className="rounded-lg bg-white/70 p-2">
                         <dt className="text-xs text-slate-500">{name.replaceAll('_', ' ')}</dt>
                         <dd className="text-sm font-semibold text-slate-900">{value}</dd>

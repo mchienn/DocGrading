@@ -28,6 +28,42 @@ from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.audit import record_audit, record_system_audit
 
 
+def processing_failure_report(
+    code: str,
+    prior_report: object | None = None,
+) -> dict[str, object]:
+    diagnostics: list[object] = []
+    if isinstance(prior_report, dict):
+        prior_diagnostics = prior_report.get("diagnostics")
+        if isinstance(prior_diagnostics, list):
+            diagnostics.extend(
+                item.copy()
+                for item in prior_diagnostics
+                if isinstance(item, dict)
+                and item.get("category") != "SYSTEM"
+                and item.get("disposition") in {"WARN", "REVIEW"}
+            )
+    diagnostics = diagnostics[:24]
+    diagnostics.append(
+        {
+            "code": code,
+            "category": "SYSTEM",
+            "disposition": "RETRY",
+            "scope": "DOCUMENT",
+            "page_number": None,
+            "bbox": None,
+            "metrics": {},
+            "message_key": code.lower(),
+            "action_key": "pdf.retry_or_contact_support",
+        }
+    )
+    return {
+        "schema_version": 1,
+        "outcome": "PROCESSING_FAILED",
+        "diagnostics": diagnostics,
+    }
+
+
 async def get_job(db: AsyncSession, job_id: uuid.UUID) -> AnalysisJob | None:
     return await db.get(AnalysisJob, job_id)
 
@@ -255,23 +291,10 @@ async def _handle_locked_job(
             doc.status = DocumentStatus.PROCESSING_FAILED
             doc.failure_code = "LEASE_EXPIRED"
             doc.failure_detail = "Job lease expired and retry limit reached"
-            doc.validation_report = {
-                "schema_version": 1,
-                "outcome": "PROCESSING_FAILED",
-                "diagnostics": [
-                    {
-                        "code": "LEASE_EXPIRED",
-                        "category": "SYSTEM",
-                        "disposition": "RETRY",
-                        "scope": "DOCUMENT",
-                        "page_number": None,
-                        "bbox": None,
-                        "metrics": {},
-                        "message_key": "lease_expired",
-                        "action_key": "pdf.retry_or_contact_support",
-                    }
-                ],
-            }
+            doc.validation_report = processing_failure_report(
+                "LEASE_EXPIRED",
+                getattr(doc, "validation_report", None),
+            )
             await record_system_audit(
                 db,
                 resource_type="DocumentVersion",

@@ -42,20 +42,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(sa.text("SET search_path TO public"))
-    bind = op.get_bind()
-    bind.execute(
-        sa.text("LOCK TABLE public.document_versions IN ACCESS EXCLUSIVE MODE")
-    )
-    if bind.scalar(
-        sa.text(
-            "SELECT EXISTS ("
-            "SELECT 1 FROM public.document_versions "
-            "WHERE validation_report <> " + _DEFAULT_REPORT + " LIMIT 1)"
-        )
-    ):
-        raise RuntimeError(
-            "Refusing downgrade: public.document_versions validation reports exist"
-        )
     op.drop_constraint(
         "ck_document_versions_validation_report_object",
         "document_versions",

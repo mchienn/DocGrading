@@ -507,7 +507,7 @@ class _Line:
     font_name: str
 ```
 
-`_safe_bbox` rejects non-finite, reversed, negative, or out-of-page coordinates with `PDFValidationError("PDF_IR_MALFORMED")`; output values use `round(value, 3)`.
+`_safe_bbox` rejects non-finite or reversed coordinates. Word boxes that overlap a visible page edge are clipped to the page because PDF renderers clip partially visible glyphs; table, row, and cell boxes remain strictly in-page. Output values use `round(value, 3)`.
 
 - [x] **Step 4: Implement heading and section stack**
 

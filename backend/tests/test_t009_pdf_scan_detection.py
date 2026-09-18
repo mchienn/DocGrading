@@ -263,7 +263,7 @@ def test_curved_clip_uses_conservative_bounds(curve_operation: str) -> None:
     assert validate_pdf(data).has_text is True
 
 
-def test_curved_clip_cannot_hide_scan_page() -> None:
+def test_curved_clip_bound_cannot_trigger_scan_rejection() -> None:
     data = _pdf_bytes(
         {
             "image_rect": (0, 0, 100, 100),
@@ -275,7 +275,7 @@ def test_curved_clip_cannot_hide_scan_page() -> None:
     with pytest.raises(PDFValidationError) as exc_info:
         validate_pdf(data)
 
-    assert exc_info.value.code == "PDF_SCAN_ONLY"
+    assert exc_info.value.code == "PDF_SCAN_ANALYSIS_UNSUPPORTED"
 
 
 def test_non_convex_applied_clip_fails_closed() -> None:

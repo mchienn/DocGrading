@@ -267,6 +267,15 @@ def test_claim_exhausts_stale_running_job_to_error_and_document_processing_faile
         status=DocumentStatus.PROCESSING,
         failure_code=None,
         failure_detail=None,
+        validation_report={
+            "diagnostics": [
+                {
+                    "code": "PDF_STRUCTURE_RECOVERED",
+                    "category": "COMPATIBILITY",
+                    "disposition": "WARN",
+                }
+            ]
+        },
     )
     job = SimpleNamespace(
         id=job_id,
@@ -326,6 +335,9 @@ def test_claim_exhausts_stale_running_job_to_error_and_document_processing_faile
     assert job.finished_at is not None
     assert document.status is DocumentStatus.PROCESSING_FAILED
     assert document.failure_code == "LEASE_EXPIRED"
+    assert [
+        diagnostic["code"] for diagnostic in document.validation_report["diagnostics"]
+    ] == ["PDF_STRUCTURE_RECOVERED", "LEASE_EXPIRED"]
 
     # Distinct audits recorded
     job_error_audit = next(

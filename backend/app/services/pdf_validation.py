@@ -823,6 +823,7 @@ def _walk_raster_coverage(
     *,
     initial_matrix: Matrix,
     clip_polygon: Polygon,
+    clip_is_conservative: bool,
     page_area: float,
     form_path: set[int],
     depth: int,
@@ -832,10 +833,11 @@ def _walk_raster_coverage(
     initial_clip = clip_polygon.copy()
     current_matrix = initial_matrix
     current_clip = initial_clip.copy()
+    current_clip_is_conservative = clip_is_conservative
     current_path: Polygon | None = []
     clip_pending = False
     current_path_uses_curve = False
-    graphics_stack: list[tuple[Matrix, Polygon]] = []
+    graphics_stack: list[tuple[Matrix, Polygon, bool]] = []
     maximum_coverage = 0.0
     operations = _bounded_content_operations(
         content,
@@ -849,13 +851,18 @@ def _walk_raster_coverage(
         if expected_arity is not None and len(operands) != expected_arity:
             raise _PDFGeometryLimit
         if operator == b"q":
-            graphics_stack.append((current_matrix, current_clip.copy()))
+            graphics_stack.append(
+                (current_matrix, current_clip.copy(), current_clip_is_conservative)
+            )
         elif operator == b"Q":
             if graphics_stack:
-                current_matrix, current_clip = graphics_stack.pop()
+                current_matrix, current_clip, current_clip_is_conservative = (
+                    graphics_stack.pop()
+                )
             else:
                 current_matrix = initial_matrix
                 current_clip = initial_clip.copy()
+                current_clip_is_conservative = clip_is_conservative
         elif operator == b"cm":
             matrix = tuple(map(float, operands[:6]))
             current_matrix = _multiply_matrix(
@@ -936,8 +943,9 @@ def _walk_raster_coverage(
                     raise _PDFGeometryLimit
                 clip_path = _without_repeated_closing_point(current_path)
                 if current_path_uses_curve:
-                    # Control-point bounds overestimate area, never hide scans.
+                    # Control-point bounds are safe only below the scan threshold.
                     clip_path = _bounding_box_polygon(clip_path)
+                    current_clip_is_conservative = True
                 elif not _is_convex_polygon(clip_path):
                     raise _PDFGeometryLimit
                 current_clip = _clip_polygon(current_clip, clip_path)
@@ -945,10 +953,10 @@ def _walk_raster_coverage(
             current_path_uses_curve = False
             clip_pending = False
         elif operator == b"INLINE IMAGE":
-            maximum_coverage = max(
-                maximum_coverage,
-                _image_coverage(current_matrix, current_clip, page_area),
-            )
+            coverage = _image_coverage(current_matrix, current_clip, page_area)
+            if current_clip_is_conservative and _coverage_reaches_threshold(coverage):
+                raise _PDFGeometryLimit
+            maximum_coverage = max(maximum_coverage, coverage)
         elif operator == b"Do":
             xobjects = _resolve_pdf_object(
                 resources.get("/XObject", DictionaryObject())
@@ -960,14 +968,16 @@ def _walk_raster_coverage(
                 continue
             subtype = str(xobject.get("/Subtype", ""))
             if subtype == "/Image":
-                maximum_coverage = max(
-                    maximum_coverage,
-                    _image_coverage(
-                        current_matrix,
-                        current_clip,
-                        page_area,
-                    ),
+                coverage = _image_coverage(
+                    current_matrix,
+                    current_clip,
+                    page_area,
                 )
+                if current_clip_is_conservative and _coverage_reaches_threshold(
+                    coverage
+                ):
+                    raise _PDFGeometryLimit
+                maximum_coverage = max(maximum_coverage, coverage)
             elif subtype == "/Form":
                 marker = id(xobject)
                 if marker in form_path:
@@ -1010,6 +1020,7 @@ def _walk_raster_coverage(
                         context,
                         initial_matrix=form_matrix,
                         clip_polygon=form_clip,
+                        clip_is_conservative=current_clip_is_conservative,
                         page_area=page_area,
                         form_path=form_path | {marker},
                         depth=depth + 1,
@@ -1040,6 +1051,7 @@ def _maximum_raster_coverage(
         context,
         initial_matrix=_IDENTITY_MATRIX,
         clip_polygon=page_polygon,
+        clip_is_conservative=False,
         page_area=page_area,
         form_path=set(),
         depth=0,

@@ -247,7 +247,7 @@ def test_table_node_budget_remains_effective() -> None:
     assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
 
 
-def test_dense_ruled_table_hits_limit_before_table_discovery(
+def test_dense_ruled_table_skips_table_discovery_and_marks_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     called = False
@@ -255,7 +255,7 @@ def test_dense_ruled_table_hits_limit_before_table_discovery(
     def must_not_find_tables(_page: Any, _settings: Any = None) -> list[Any]:
         nonlocal called
         called = True
-        raise AssertionError("find_tables called after intersection limit")
+        raise AssertionError("find_tables called after intersection work limit")
 
     monkeypatch.setattr(
         document_ir.pdfplumber.page.Page,
@@ -269,11 +269,13 @@ def test_dense_ruled_table_hits_limit_before_table_discovery(
         "BT /F1 12 Tf 72 700 Td (Dense table limit text.) Tj ET",
     ]
 
-    with pytest.raises(PDFValidationError) as exc_info:
-        parse_document_ir(_make_operations_pdf(operations))
+    parsed = parse_document_ir(_make_operations_pdf(operations))
 
-    assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
     assert called is False
+    assert parsed.content["tables"] == []
+    elements = [*parsed.content["sections"], *parsed.content["paragraphs"]]
+    assert elements
+    assert all(element["needs_review"] is True for element in elements)
 
 
 def test_vector_heavy_non_table_page_keeps_text_coordinates_and_review_flag() -> None:
@@ -1980,6 +1982,19 @@ def test_coordinates_are_finite_ordered_and_inside_page() -> None:
         )
         assert 0 <= bbox["x0"] <= bbox["x1"] <= page["width"]
         assert 0 <= bbox["top"] <= bbox["bottom"] <= page["height"]
+
+
+def test_partially_visible_word_bbox_is_clipped_to_page() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            ["BT /F1 12 Tf 500 700 Td " "(ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789) Tj ET"]
+        )
+    )
+
+    page = parsed.content["pages"][0]
+    paragraph = parsed.content["paragraphs"][0]
+    assert paragraph["bbox"]["x0"] < page["width"]
+    assert paragraph["bbox"]["x1"] == page["width"]
 
 
 def test_low_node_budget_fails_before_later_layout_objects() -> None:
