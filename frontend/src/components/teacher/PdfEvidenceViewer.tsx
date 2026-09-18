@@ -33,13 +33,13 @@ import type { components } from '../../api/schema'
 GlobalWorkerOptions.workerSrc = workerUrl
 
 type Finding = components['schemas']['FindingResponse']
-type Evidence = components['schemas']['EvidenceResponse']
+type BBox = components['schemas']['BBox']
 
-type EvidenceMarker = {
-  key: string
-  findingId: string
-  label: number
-  evidence: Evidence
+export type PdfMarker = {
+  id: string
+  label: string
+  pageNumber: number
+  bbox?: BBox
 }
 
 type SearchResult = {
@@ -47,19 +47,27 @@ type SearchResult = {
   count: number
 }
 
-const EMPTY_MARKERS: EvidenceMarker[] = []
+const EMPTY_MARKERS: PdfMarker[] = []
 
 type PageSurface = {
   width: number
   height: number
   markers: Array<
-    EvidenceMarker & {
+    PdfMarker & {
       left: number
       top: number
       width: number
       height: number
     }
   >
+}
+
+type PdfMarkerViewerProps = {
+  documentVersionId: string
+  markers: PdfMarker[]
+  selectedMarkerId?: string
+  onSelectMarker?: (markerId: string) => void
+  ariaLabel?: string
 }
 
 type PdfEvidenceViewerProps = {
@@ -223,8 +231,8 @@ function PdfPageSurface({
   fitWidth,
   availableWidth,
   markers,
-  selectedFindingId,
-  onSelectFinding,
+  selectedMarkerId,
+  onSelectMarker,
   onScaleResolved,
 }: {
   pdf: PDFDocumentProxy
@@ -232,9 +240,9 @@ function PdfPageSurface({
   zoom: number
   fitWidth: boolean
   availableWidth: number
-  markers: EvidenceMarker[]
-  selectedFindingId?: string
-  onSelectFinding: (findingId: string) => void
+  markers: PdfMarker[]
+  selectedMarkerId?: string
+  onSelectMarker?: (markerId: string) => void
   onScaleResolved: (scale: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -269,18 +277,19 @@ function PdfPageSurface({
         setSurface({
           width: viewport.width,
           height: viewport.height,
-          markers: markers.map((marker) => {
-            const bbox = marker.evidence.bbox
+          markers: markers.flatMap((marker) => {
+            const bbox = marker.bbox
+            if (!bbox) return []
             const first = viewport.convertToViewportPoint(xMin + bbox.x0, yMax - bbox.top)
             const second = viewport.convertToViewportPoint(xMin + bbox.x1, yMax - bbox.bottom)
 
-            return {
+            return [{
               ...marker,
               left: Math.min(first[0], second[0]),
               top: Math.min(first[1], second[1]),
               width: Math.abs(second[0] - first[0]),
               height: Math.abs(second[1] - first[1]),
-            }
+            }]
           }),
         })
         onScaleResolved(scale)
@@ -305,7 +314,7 @@ function PdfPageSurface({
       block: 'center',
       inline: 'center',
     })
-  }, [selectedFindingId, surface])
+  }, [selectedMarkerId, surface])
 
   return (
     <div
@@ -315,15 +324,15 @@ function PdfPageSurface({
       <canvas ref={canvasRef} role="img" aria-label={`PDF page ${pageNumber}`} />
 
       {surface?.markers.map((marker) => {
-        const selected = marker.findingId === selectedFindingId
+        const selected = marker.id === selectedMarkerId
         return (
           <button
-            key={marker.key}
+            key={marker.id}
             ref={selected ? selectedMarkerRef : undefined}
             type="button"
-            aria-label={`Open finding ${marker.label} at page ${pageNumber}`}
-            title={`Finding ${marker.label}`}
-            onClick={() => onSelectFinding(marker.findingId)}
+            aria-label={`Open evidence ${marker.label} at page ${pageNumber}`}
+            title={`Evidence ${marker.label}`}
+            onClick={() => onSelectMarker?.(marker.id)}
             className={`absolute border-2 transition focus:outline-none focus:ring-4 focus:ring-sky-300 ${
               selected
                 ? 'z-20 border-sky-600 bg-sky-300/35'
@@ -358,12 +367,13 @@ function PdfPageSurface({
   )
 }
 
-export function PdfEvidenceViewer({
+export function PdfMarkerViewer({
   documentVersionId,
-  findings,
-  selectedFindingId,
-  onSelectFinding,
-}: PdfEvidenceViewerProps) {
+  markers,
+  selectedMarkerId,
+  onSelectMarker,
+  ariaLabel = 'PDF evidence viewer',
+}: PdfMarkerViewerProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const searchRunRef = useRef(0)
   const [pdf, setPdf] = useState<PDFDocumentProxy>()
@@ -433,13 +443,14 @@ export function PdfEvidenceViewer({
   }, [downloadQuery.data?.url, reloadNonce])
 
   useEffect(() => {
-    const evidence = findings
-      .find((finding) => finding.id === selectedFindingId)
-      ?.evidence.at(0)
-    if (evidence && evidence.page_number <= (pdf?.numPages ?? Number.POSITIVE_INFINITY)) {
-      setPageNumber(evidence.page_number)
+    const marker = markers.find((candidate) => candidate.id === selectedMarkerId)
+    if (
+      marker &&
+      marker.pageNumber <= (pdf?.numPages ?? Number.POSITIVE_INFINITY)
+    ) {
+      setPageNumber(marker.pageNumber)
     }
-  }, [findings, pdf?.numPages, selectedFindingId])
+  }, [markers, pdf?.numPages, selectedMarkerId])
 
   useEffect(
     () => () => {
@@ -449,21 +460,14 @@ export function PdfEvidenceViewer({
   )
 
   const markersByPage = useMemo(() => {
-    const byPage = new Map<number, EvidenceMarker[]>()
-    findings.forEach((finding, findingIndex) => {
-      finding.evidence.forEach((evidence, evidenceIndex) => {
-        const pageMarkers = byPage.get(evidence.page_number) ?? []
-        pageMarkers.push({
-          key: `${finding.id}-${evidence.document_ir_id}-${evidence.element_id}-${evidenceIndex}`,
-          findingId: finding.id,
-          label: findingIndex + 1,
-          evidence,
-        })
-        byPage.set(evidence.page_number, pageMarkers)
-      })
+    const byPage = new Map<number, PdfMarker[]>()
+    markers.forEach((marker) => {
+      const pageMarkers = byPage.get(marker.pageNumber) ?? []
+      pageMarkers.push(marker)
+      byPage.set(marker.pageNumber, pageMarkers)
     })
     return byPage
-  }, [findings])
+  }, [markers])
 
   const submitSearch = async () => {
     if (!pdf) return
@@ -563,7 +567,7 @@ export function PdfEvidenceViewer({
 
   return (
     <section
-      aria-label="PDF evidence viewer"
+      aria-label={ariaLabel}
       className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white p-2">
@@ -710,12 +714,48 @@ export function PdfEvidenceViewer({
             fitWidth={fitWidth}
             availableWidth={availableWidth}
             markers={markersByPage.get(pageNumber) ?? EMPTY_MARKERS}
-            selectedFindingId={selectedFindingId}
-            onSelectFinding={onSelectFinding}
+            selectedMarkerId={selectedMarkerId}
+            onSelectMarker={onSelectMarker}
             onScaleResolved={setEffectiveScale}
           />
         </div>
       </div>
     </section>
+  )
+}
+
+export function PdfEvidenceViewer({
+  documentVersionId,
+  findings,
+  selectedFindingId,
+  onSelectFinding,
+}: PdfEvidenceViewerProps) {
+  const markers = useMemo(
+    () =>
+      findings.flatMap((finding, findingIndex) =>
+        finding.evidence.map((evidence, evidenceIndex) => ({
+          id: `${finding.id}-${evidence.document_ir_id}-${evidence.element_id}-${evidenceIndex}`,
+          label: String(findingIndex + 1),
+          pageNumber: evidence.page_number,
+          bbox: evidence.bbox,
+          findingId: finding.id,
+        })),
+      ),
+    [findings],
+  )
+  const selectedMarkerId = markers.find(
+    (marker) => marker.findingId === selectedFindingId,
+  )?.id
+
+  return (
+    <PdfMarkerViewer
+      documentVersionId={documentVersionId}
+      markers={markers}
+      selectedMarkerId={selectedMarkerId}
+      onSelectMarker={(markerId) => {
+        const findingId = markers.find((marker) => marker.id === markerId)?.findingId
+        if (findingId) onSelectFinding(findingId)
+      }}
+    />
   )
 }

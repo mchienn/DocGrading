@@ -14,6 +14,7 @@ from io import BytesIO
 from statistics import median
 from threading import RLock
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import pdfplumber
 import sqlalchemy as sa
@@ -24,14 +25,15 @@ from app.core.config import get_settings
 from app.models.analysis import DocumentIR
 from app.models.submission import DocumentVersion, Submission
 from app.services.pdf_validation import (
+    PDFLink,
     PDFValidationError,
     PDFValidationResult,
     _suppress_untrusted_pdf_logs,
     validate_pdf,
 )
 
-SCHEMA_VERSION: int = 1
-PARSER_VERSION: str = "pypdf-pdfplumber-v2"
+SCHEMA_VERSION: int = 2
+PARSER_VERSION: str = "pypdf-pdfplumber-v3"
 
 _TABLE_SOURCE_OBJECT_TYPES = ("line", "rect", "curve")
 _MAX_TABLE_SOURCE_OBJECTS = 256
@@ -104,7 +106,13 @@ def _validate_persisted_document_ir(ir: DocumentIR) -> None:
         or schema_version != ir.schema_version
         or any(
             not isinstance(content.get(field), list)
-            for field in ("pages", "sections", "paragraphs", "tables")
+            for field in (
+                "pages",
+                "sections",
+                "paragraphs",
+                "tables",
+                *(("links",) if schema_version >= 2 else ()),
+            )
         )
     ):
         raise DocumentIRExtractionError()
@@ -124,6 +132,63 @@ def _validate_persisted_document_ir(ir: DocumentIR) -> None:
         or page_count <= 0
     ):
         raise DocumentIRExtractionError()
+
+
+def _validation_report_with_links(
+    validation: PDFValidationResult,
+    content: Mapping[str, Any],
+) -> dict[str, Any]:
+    report = validation.report
+    diagnostics = list(report["diagnostics"])
+    for link in content.get("links", ()):
+        status = link.get("status")
+        if status not in {"MISMATCH", "NEEDS_REVIEW"} or len(diagnostics) >= 25:
+            continue
+        bbox = link.get("bbox")
+        diagnostics.append(
+            {
+                "code": (
+                    "PDF_LINK_TARGET_MISMATCH"
+                    if status == "MISMATCH"
+                    else "PDF_LINK_TARGET_UNVERIFIED"
+                ),
+                "category": "INTEGRITY",
+                "disposition": "REVIEW",
+                "scope": "REGION" if bbox is not None else "PAGE",
+                "page_number": link["page_number"],
+                "bbox": bbox,
+                "metrics": {},
+                "message_key": (
+                    "pdf_link_target_mismatch"
+                    if status == "MISMATCH"
+                    else "pdf_link_target_unverified"
+                ),
+                "action_key": "pdf.review_link_target",
+            }
+        )
+    if diagnostics:
+        report["outcome"] = "ACCEPTED_WITH_WARNINGS"
+    report["diagnostics"] = diagnostics
+    return report
+
+
+def _accepted_replay_report(report: object) -> dict[str, Any]:
+    diagnostics: list[dict[str, Any]] = []
+    if isinstance(report, Mapping):
+        stored_diagnostics = report.get("diagnostics")
+        if isinstance(stored_diagnostics, list):
+            diagnostics = [
+                item.copy()
+                for item in stored_diagnostics
+                if isinstance(item, dict)
+                and item.get("category") != "SYSTEM"
+                and item.get("disposition") in {"WARN", "REVIEW"}
+            ][:25]
+    return {
+        "schema_version": 1,
+        "outcome": "ACCEPTED_WITH_WARNINGS" if diagnostics else "ACCEPTED",
+        "diagnostics": diagnostics,
+    }
 
 
 async def get_or_build_document_ir(
@@ -157,6 +222,9 @@ async def get_or_build_document_ir(
     ).scalar_one_or_none()
     if existing is not None and not rebuild:
         _validate_persisted_document_ir(existing)
+        document.validation_report = _accepted_replay_report(
+            getattr(document, "validation_report", None)
+        )
         return existing
 
     settings = get_settings()
@@ -164,8 +232,13 @@ async def get_or_build_document_ir(
         parse_document_ir,
         data,
         max_size_bytes=settings.pdf_max_size_bytes,
+        max_decoded_bytes=settings.pdf_max_decoded_bytes,
         max_page_count=settings.pdf_max_page_count,
         max_nodes=settings.pdf_ir_max_nodes,
+    )
+    document.validation_report = _validation_report_with_links(
+        parsed.validation,
+        parsed.content,
     )
     if (
         document.declared_sha256 is not None
@@ -351,7 +424,7 @@ def _extract_lines(
     page_height: float,
     budget: _NodeBudget,
     excluded_bboxes: Sequence[_BBox] = (),
-) -> tuple[list[_Line], list[_Line]]:
+) -> tuple[list[_Line], list[_Line], list[_Word]]:
     extracted = page.extract_words(extra_attrs=["fontname", "size"])
     budget.consume(len(extracted))
     words = [
@@ -365,7 +438,7 @@ def _extract_lines(
     all_lines = _group_lines(words)
     budget.consume(len(all_lines))
     if not excluded_bboxes:
-        return all_lines, all_lines
+        return all_lines, all_lines, words
     content_words = [
         word
         for word in words
@@ -377,7 +450,106 @@ def _extract_lines(
     ]
     content_lines = _group_lines(content_words)
     budget.consume(len(content_lines))
-    return all_lines, content_lines
+    return all_lines, content_lines, words
+
+
+_VISIBLE_URL = re.compile(r"(?:https?://|www\.)[^\s<>()]+", re.IGNORECASE)
+
+
+def _link_display_text(words: Sequence[_Word], bbox: _BBox | None) -> str:
+    if bbox is None:
+        return ""
+    selected = [
+        word
+        for word in words
+        if bbox.x0 - 2 <= (word.bbox.x0 + word.bbox.x1) / 2 <= bbox.x1 + 2
+        and bbox.top - 2 <= (word.bbox.top + word.bbox.bottom) / 2 <= bbox.bottom + 2
+    ]
+    return " ".join(
+        word.text
+        for word in sorted(selected, key=lambda item: (item.bbox.top, item.bbox.x0))
+        if word.text
+    ).strip()
+
+
+def _normalize_url(value: str) -> str | None:
+    compact = re.sub(r"\s+", "", value).rstrip(".,;:!?)]}")
+    if compact.lower().startswith("www."):
+        compact = f"https://{compact}"
+    try:
+        parts = urlsplit(compact)
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
+        return None
+    return urlunsplit(
+        (
+            parts.scheme.lower(),
+            parts.netloc.lower(),
+            parts.path.rstrip("/"),
+            parts.query,
+            parts.fragment,
+        )
+    )
+
+
+def _link_status(link: PDFLink, display_text: str) -> str:
+    if link.target_truncated or not display_text or not link.target:
+        return "NEEDS_REVIEW"
+    visible_match = _VISIBLE_URL.search(display_text)
+    if visible_match is not None:
+        target_url = _normalize_url(link.target)
+        visible_parts = display_text[visible_match.start() :].split()
+        for part_count in range(1, len(visible_parts) + 1):
+            visible_url = _normalize_url("".join(visible_parts[:part_count]))
+            if target_url is not None and visible_url == target_url:
+                return "MATCH"
+        return "MISMATCH"
+    if (
+        link.action_type == "GoToR"
+        and re.sub(r"\s+", "", display_text).casefold()
+        == re.sub(r"\s+", "", link.target).casefold()
+    ):
+        return "MATCH"
+    return "NEEDS_REVIEW"
+
+
+def _document_link(
+    link: PDFLink,
+    *,
+    link_id: str,
+    words: Sequence[_Word],
+    page_width: float,
+    page_height: float,
+) -> dict[str, Any]:
+    bbox = (
+        _safe_bbox(
+            link.bbox,
+            page_width=page_width,
+            page_height=page_height,
+        )
+        if link.bbox is not None
+        else None
+    )
+    display_text = _link_display_text(words, bbox)
+    return {
+        "id": link_id,
+        "page_number": link.page_number,
+        "bbox": (
+            {
+                "x0": bbox.x0,
+                "top": bbox.top,
+                "x1": bbox.x1,
+                "bottom": bbox.bottom,
+            }
+            if bbox is not None
+            else None
+        ),
+        "display_text": display_text[:2_048],
+        "target": link.target,
+        "action_type": link.action_type,
+        "status": _link_status(link, display_text),
+    }
 
 
 def _table_bbox(
@@ -852,11 +1024,15 @@ def _parse_pages(
     sections: list[dict[str, Any]] | None = None,
     paragraphs: list[dict[str, Any]] | None = None,
     tables: list[dict[str, Any]] | None = None,
+    *,
+    pdf_links: Sequence[PDFLink] = (),
+    links: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Extract bounded page geometry and structural containers."""
     all_sections = sections if sections is not None else []
     all_paragraphs = paragraphs if paragraphs is not None else []
     all_tables = tables if tables is not None else []
+    all_links = links if links is not None else []
     parsed_pages: list[dict[str, Any]] = []
     section_stack: list[tuple[int, str]] = []
     previous_page_table: (
@@ -961,13 +1137,29 @@ def _parse_pages(
             for _local_table, _boundaries, _slot_count, bboxes in page_table_regions
             for bbox in bboxes
         ]
-        all_lines, content_lines = _extract_lines(
+        all_lines, content_lines, words = _extract_lines(
             page,
             page_width=page_width,
             page_height=page_height,
             budget=budget,
             excluded_bboxes=table_bboxes,
         )
+        page_link_ids: list[str] = []
+        for source_link in pdf_links:
+            if source_link.page_number != page_number:
+                continue
+            budget.consume()
+            link_id = f"link-{len(all_links) + 1}"
+            all_links.append(
+                _document_link(
+                    source_link,
+                    link_id=link_id,
+                    words=words,
+                    page_width=page_width,
+                    page_height=page_height,
+                )
+            )
+            page_link_ids.append(link_id)
         typography_ranks = {
             size: rank
             for rank, size in enumerate(
@@ -1086,6 +1278,7 @@ def _parse_pages(
                 "headings": page_heading_ids,
                 "paragraphs": page_paragraph_ids,
                 "tables": page_table_ids,
+                "links": page_link_ids,
             }
         )
     return parsed_pages
@@ -1125,6 +1318,7 @@ def _assemble_ir(
     sections: list[dict[str, Any]],
     paragraphs: list[dict[str, Any]],
     tables: list[dict[str, Any]],
+    links: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Assemble versioned root Document IR payload."""
     return {
@@ -1138,13 +1332,15 @@ def _assemble_ir(
         "sections": sections,
         "paragraphs": paragraphs,
         "tables": tables,
+        "links": links,
     }
 
 
 def parse_document_ir(
     data: bytes,
     *,
-    max_size_bytes: int = 50_000_000,
+    max_size_bytes: int = 100_000_000,
+    max_decoded_bytes: int = 50_000_000,
     max_page_count: int = 100,
     max_nodes: int = 100_000,
 ) -> ParsedDocumentIR:
@@ -1152,6 +1348,7 @@ def parse_document_ir(
     validation = validate_pdf(
         data,
         max_size_bytes=max_size_bytes,
+        max_decoded_bytes=max_decoded_bytes,
         max_page_count=max_page_count,
     )
     budget = _NodeBudget(limit=max_nodes)
@@ -1159,6 +1356,7 @@ def parse_document_ir(
     sections: list[dict[str, Any]] = []
     paragraphs: list[dict[str, Any]] = []
     tables: list[dict[str, Any]] = []
+    links: list[dict[str, Any]] = []
     try:
         with (
             _suppress_untrusted_pdf_logs(),
@@ -1171,6 +1369,8 @@ def parse_document_ir(
                 sections,
                 paragraphs,
                 tables,
+                pdf_links=validation.links,
+                links=links,
             )
     except PDFValidationError:
         raise
@@ -1179,5 +1379,5 @@ def parse_document_ir(
             if isinstance(nested, PDFValidationError):
                 raise nested from None
         raise DocumentIRExtractionError("Document IR extraction failed") from exc
-    content = _assemble_ir(validation, pages, sections, paragraphs, tables)
+    content = _assemble_ir(validation, pages, sections, paragraphs, tables, links)
     return ParsedDocumentIR(validation=validation, content=content)

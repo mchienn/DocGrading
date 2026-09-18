@@ -64,7 +64,8 @@ class Settings(BaseSettings):
         default="local-development-secret-key", min_length=1
     )
     storage_presign_expiry_seconds: int = Field(default=300, ge=1, le=300)
-    pdf_max_size_bytes: int = Field(default=50_000_000, gt=0)
+    pdf_max_size_bytes: int = Field(default=100_000_000, gt=0)
+    pdf_max_decoded_bytes: int = Field(default=50_000_000, gt=0)
     pdf_max_page_count: int = Field(default=100, gt=0)
     pdf_ir_max_nodes: int = Field(default=100_000, gt=0)
 

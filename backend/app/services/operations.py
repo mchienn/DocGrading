@@ -72,7 +72,7 @@ _SENSITIVE_ASSIGNMENT = re.compile(
     r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|"
     r"(?:(?:bearer|basic)\s+)?[^\s,;}\]\"']+)"
 )
-_STORAGE_PATH = re.compile(r"(?i)\buploads/[^\s'\",;}]+")
+_STORAGE_PATH = re.compile(r"(?i)\b(?:uploads|documents)/[^\s'\",;}]+")
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _KEY_SEPARATOR = re.compile(r"[-\s]+")
 _USER_ADMIN_MUTATION_LOCK_ID = 0x544F_3138

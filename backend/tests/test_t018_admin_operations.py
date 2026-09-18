@@ -42,6 +42,15 @@ requires_database = pytest.mark.skipif(
 )
 
 
+def test_storage_path_redaction_covers_staging_and_sealed_keys() -> None:
+    assert (
+        operations_svc._redact_text(
+            "uploads/student/staging.pdf documents/version/sealed.pdf"
+        )
+        == "[REDACTED] [REDACTED]"
+    )
+
+
 def test_admin_operation_contracts_are_explicit_and_admin_only() -> None:
     schema = app.openapi()
     methods = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}

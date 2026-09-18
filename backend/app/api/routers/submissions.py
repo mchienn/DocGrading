@@ -31,6 +31,7 @@ from app.api.schemas_submission import (
     SubmissionQueueResponse,
     SubmissionVersionListResponse,
     UnpublishRequest,
+    ValidationReportResponse,
     VersionComparisonResponse,
 )
 from app.db.session import get_db_session
@@ -107,6 +108,22 @@ async def download_document_version(
     db: AsyncSession = Depends(get_db_session),
 ) -> DocumentDownloadResponse:
     return await review_svc.get_document_download(
+        db,
+        version_id=version_id,
+        user=user,
+    )
+
+
+@router.get(
+    "/document-versions/{version_id}/validation-report",
+    response_model=ValidationReportResponse,
+)
+async def document_validation_report(
+    version_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ValidationReportResponse:
+    return await review_svc.get_document_validation_report(
         db,
         version_id=version_id,
         user=user,

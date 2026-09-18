@@ -82,6 +82,7 @@ def _valid_ir_content(sha256: str = "a" * 64) -> dict[str, Any]:
         "sections": [],
         "paragraphs": [],
         "tables": [],
+        "links": [],
     }
 
 
@@ -95,6 +96,11 @@ def _target(
         submission_id=uuid.uuid4(),
         sha256=sha256,
         declared_sha256=declared_sha256,
+        validation_report={
+            "schema_version": 1,
+            "outcome": "NOT_RUN",
+            "diagnostics": [],
+        },
     )
 
 
@@ -103,7 +109,10 @@ def _patch_settings(monkeypatch: pytest.MonkeyPatch) -> None:
         document_ir,
         "get_settings",
         lambda: SimpleNamespace(
-            pdf_max_size_bytes=50, pdf_max_page_count=100, pdf_ir_max_nodes=1000
+            pdf_max_size_bytes=50,
+            pdf_max_decoded_bytes=25,
+            pdf_max_page_count=100,
+            pdf_ir_max_nodes=1000,
         ),
     )
 
@@ -128,7 +137,10 @@ async def _test_first_statement_locks_document_version_and_first_build_adds_one_
         document_ir,
         "get_settings",
         lambda: SimpleNamespace(
-            pdf_max_size_bytes=11, pdf_max_page_count=12, pdf_ir_max_nodes=13
+            pdf_max_size_bytes=11,
+            pdf_max_decoded_bytes=10,
+            pdf_max_page_count=12,
+            pdf_ir_max_nodes=13,
         ),
     )
 
@@ -142,7 +154,11 @@ async def _test_first_statement_locks_document_version_and_first_build_adds_one_
     db.add.assert_called_once_with(ir)
     db.flush.assert_awaited_once()
     parser.assert_called_once_with(
-        b"pdf", max_size_bytes=11, max_page_count=12, max_nodes=13
+        b"pdf",
+        max_size_bytes=11,
+        max_decoded_bytes=10,
+        max_page_count=12,
+        max_nodes=13,
     )
     submission_statement = db.execute.call_args_list[0].args[0]
     statement = db.execute.call_args_list[1].args[0]
@@ -170,6 +186,22 @@ async def _test_existing_ir_replay_does_not_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = _target()
+    target.validation_report = {
+        "schema_version": 1,
+        "outcome": "PROCESSING_FAILED",
+        "diagnostics": [
+            {
+                "code": "PDF_STRUCTURE_RECOVERED",
+                "category": "COMPATIBILITY",
+                "disposition": "WARN",
+            },
+            {
+                "code": "FILE_INTEGRITY_EVALUATION_FAILED",
+                "category": "SYSTEM",
+                "disposition": "RETRY",
+            },
+        ],
+    }
     existing = SimpleNamespace(
         id=uuid.uuid4(),
         schema_version=SCHEMA_VERSION,
@@ -189,13 +221,26 @@ async def _test_existing_ir_replay_does_not_parse(
     parser.assert_not_called()
     db.flush.assert_not_awaited()
     assert db.execute.await_count == 3
+    assert target.validation_report == {
+        "schema_version": 1,
+        "outcome": "ACCEPTED_WITH_WARNINGS",
+        "diagnostics": [
+            {
+                "code": "PDF_STRUCTURE_RECOVERED",
+                "category": "COMPATIBILITY",
+                "disposition": "WARN",
+            }
+        ],
+    }
 
 
 def test_existing_ir_replay_does_not_parse(monkeypatch: pytest.MonkeyPatch) -> None:
     asyncio.run(_test_existing_ir_replay_does_not_parse(monkeypatch))
 
 
-@pytest.mark.parametrize("field", ("pages", "sections", "paragraphs", "tables"))
+@pytest.mark.parametrize(
+    "field", ("pages", "sections", "paragraphs", "tables", "links")
+)
 def test_existing_ir_replay_rejects_invalid_required_collection(
     field: str,
 ) -> None:
@@ -913,12 +958,18 @@ def _worker_job() -> tuple[SimpleNamespace, SimpleNamespace]:
         page_count=None,
         failure_code=None,
         failure_detail=None,
+        validation_report={
+            "schema_version": 1,
+            "outcome": "NOT_RUN",
+            "diagnostics": [],
+        },
     )
     job = SimpleNamespace(
         id=uuid.uuid4(),
         document_version_id=document.id,
         attempt_count=2,
         document_version=document,
+        rubric_version_id=uuid.uuid4(),
     )
     return job, document
 
@@ -940,7 +991,7 @@ def _patch_worker(
         "get_settings",
         lambda: SimpleNamespace(
             analysis_job_heartbeat_seconds=60,
-            pdf_max_size_bytes=50,
+            pdf_max_size_bytes=100,
         ),
     )
     monkeypatch.setattr(
@@ -949,6 +1000,11 @@ def _patch_worker(
         lambda: SimpleNamespace(get_bounded=lambda _key, _limit: b"bounded-pdf"),
     )
     monkeypatch.setattr(worker_tasks, "update_heartbeat", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        worker_tasks,
+        "evaluate_file_integrity",
+        AsyncMock(return_value=0),
+    )
 
 
 def test_worker_builds_ir_and_copies_source_metadata(
@@ -1073,6 +1129,17 @@ def test_worker_sanitizes_ir_extraction_failure(
     worker_tasks: object,
 ) -> None:
     job, document = _worker_job()
+    document.validation_report = {
+        "schema_version": 1,
+        "outcome": "ACCEPTED_WITH_WARNINGS",
+        "diagnostics": [
+            {
+                "code": "PDF_STRUCTURE_RECOVERED",
+                "category": "COMPATIBILITY",
+                "disposition": "WARN",
+            }
+        ],
+    }
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     _patch_worker(monkeypatch, db, job, worker_tasks)
     monkeypatch.setattr(
@@ -1097,6 +1164,10 @@ def test_worker_sanitizes_ir_extraction_failure(
         attempt_count=2,
     )
     assert "secret" not in document.failure_detail
+    assert [item["code"] for item in document.validation_report["diagnostics"]] == [
+        "PDF_STRUCTURE_RECOVERED",
+        "PDF_IR_EXTRACTION_FAILED",
+    ]
 
 
 def test_worker_reraises_database_error_without_persisting_storage_failure(
@@ -1125,7 +1196,7 @@ def test_worker_reraises_database_error_without_persisting_storage_failure(
     assert db.commit.await_count == 1
 
 
-def test_worker_marks_storage_failure_with_sanitized_detail(
+def test_worker_marks_unexpected_parser_failure_with_sanitized_detail(
     monkeypatch: pytest.MonkeyPatch,
     worker_tasks: object,
 ) -> None:
@@ -1144,8 +1215,44 @@ def test_worker_marks_storage_failure_with_sanitized_detail(
 
     assert result == str(job.id)
     assert document.status is DocumentStatus.PROCESSING_FAILED
+    assert document.failure_code == "PDF_IR_EXTRACTION_FAILED"
+    assert document.failure_detail == "Document structure extraction failed"
+    mark_error.assert_awaited_once_with(
+        db,
+        job,
+        "PDF_IR_EXTRACTION_FAILED",
+        "Document structure extraction failed",
+        attempt_count=2,
+    )
+    assert "signed URL" not in document.failure_detail
+
+
+def test_worker_marks_storage_failure_with_sanitized_detail(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+) -> None:
+    job, document = _worker_job()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    monkeypatch.setattr(
+        worker_tasks,
+        "S3Storage",
+        lambda: SimpleNamespace(
+            get_bounded=MagicMock(side_effect=RuntimeError("signed URL secret"))
+        ),
+    )
+    build_ir = AsyncMock()
+    monkeypatch.setattr(worker_tasks, "get_or_build_document_ir", build_ir)
+    mark_error = AsyncMock(return_value=True)
+    monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
+
+    result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result == str(job.id)
+    assert document.status is DocumentStatus.PROCESSING_FAILED
     assert document.failure_code == "PDF_STORAGE_ERROR"
     assert document.failure_detail == "Object storage read failed"
+    build_ir.assert_not_awaited()
     mark_error.assert_awaited_once_with(
         db,
         job,
@@ -1153,7 +1260,6 @@ def test_worker_marks_storage_failure_with_sanitized_detail(
         "Object storage read failed",
         attempt_count=2,
     )
-    assert "signed URL" not in document.failure_detail
 
 
 def test_worker_rolls_back_ir_when_done_is_fenced_out(

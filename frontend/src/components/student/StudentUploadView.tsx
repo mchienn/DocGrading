@@ -4,7 +4,7 @@ import { ArrowLeft, FileText, UploadCloud } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, apiData, getErrorMessage } from '../../api/client';
 
-const PDF_MAX_SIZE_BYTES = 50_000_000;
+const PDF_MAX_SIZE_BYTES = 100_000_000;
 
 function sha256Hex(file: File): Promise<string> {
   return file.arrayBuffer()
@@ -85,7 +85,7 @@ export const StudentUploadView: React.FC = () => {
     }
     if (selected.size > PDF_MAX_SIZE_BYTES) {
       setFile(undefined);
-      setError('PDF exceeds 50,000,000 bytes.');
+      setError('PDF exceeds 100,000,000 bytes.');
       return;
     }
     setFile(selected);
@@ -155,7 +155,7 @@ export const StudentUploadView: React.FC = () => {
         <label className="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-sky-400">
           <UploadCloud className="w-10 h-10 mx-auto text-slate-400" />
           <span className="block text-sm font-semibold text-slate-700 mt-3">Choose PDF</span>
-          <span className="block text-xs text-slate-500 mt-1">Maximum 50,000,000 bytes</span>
+          <span className="block text-xs text-slate-500 mt-1">Maximum 100,000,000 bytes</span>
           <input type="file" accept="application/pdf,.pdf" className="sr-only" disabled={uploading} onChange={(event) => chooseFile(event.target.files?.[0])} />
         </label>
 

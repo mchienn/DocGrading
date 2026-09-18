@@ -255,6 +255,23 @@ async def _handle_locked_job(
             doc.status = DocumentStatus.PROCESSING_FAILED
             doc.failure_code = "LEASE_EXPIRED"
             doc.failure_detail = "Job lease expired and retry limit reached"
+            doc.validation_report = {
+                "schema_version": 1,
+                "outcome": "PROCESSING_FAILED",
+                "diagnostics": [
+                    {
+                        "code": "LEASE_EXPIRED",
+                        "category": "SYSTEM",
+                        "disposition": "RETRY",
+                        "scope": "DOCUMENT",
+                        "page_number": None,
+                        "bbox": None,
+                        "metrics": {},
+                        "message_key": "lease_expired",
+                        "action_key": "pdf.retry_or_contact_support",
+                    }
+                ],
+            }
             await record_system_audit(
                 db,
                 resource_type="DocumentVersion",

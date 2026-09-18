@@ -2537,6 +2537,49 @@
         }
       }
     },
+    "/api/v1/document-versions/{version_id}/validation-report": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "Document Validation Report",
+        "operationId": "document_validation_report_api_v1_document_versions__version_id__validation_report_get",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/analysis-jobs/{job_id}": {
       "get": {
         "tags": [
@@ -7063,6 +7106,104 @@
         ],
         "title": "UserStatus"
       },
+      "ValidationDiagnosticResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Code"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Category"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "BLOCK",
+              "WARN",
+              "REVIEW",
+              "RETRY"
+            ],
+            "title": "Disposition"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "DOCUMENT",
+              "PAGE",
+              "REGION"
+            ],
+            "title": "Scope"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metrics": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Metrics"
+          },
+          "message_key": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Message Key"
+          },
+          "action_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "category",
+          "disposition",
+          "scope",
+          "message_key"
+        ],
+        "title": "ValidationDiagnosticResponse"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -7102,6 +7243,47 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ValidationReportResponse": {
+        "properties": {
+          "document_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Version Id"
+          },
+          "schema_version": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Schema Version"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "NOT_RUN",
+              "ACCEPTED",
+              "ACCEPTED_WITH_WARNINGS",
+              "REJECTED",
+              "PROCESSING_FAILED"
+            ],
+            "title": "Outcome"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationDiagnosticResponse"
+            },
+            "type": "array",
+            "maxItems": 25,
+            "title": "Diagnostics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_version_id",
+          "schema_version",
+          "outcome",
+          "diagnostics"
+        ],
+        "title": "ValidationReportResponse"
       },
       "VersionComparisonFindingResponse": {
         "properties": {

@@ -706,6 +706,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/document-versions/{version_id}/validation-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Document Validation Report */
+        get: operations["document_validation_report_api_v1_document_versions__version_id__validation_report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/analysis-jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -2372,6 +2389,34 @@ export interface components {
          * @enum {string}
          */
         UserStatus: "ACTIVE" | "LOCKED";
+        /** ValidationDiagnosticResponse */
+        ValidationDiagnosticResponse: {
+            /** Code */
+            code: string;
+            /** Category */
+            category: string;
+            /**
+             * Disposition
+             * @enum {string}
+             */
+            disposition: "BLOCK" | "WARN" | "REVIEW" | "RETRY";
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "DOCUMENT" | "PAGE" | "REGION";
+            /** Page Number */
+            page_number?: number | null;
+            bbox?: components["schemas"]["BBox"] | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: number;
+            };
+            /** Message Key */
+            message_key: string;
+            /** Action Key */
+            action_key?: string | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -2384,6 +2429,23 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** ValidationReportResponse */
+        ValidationReportResponse: {
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "NOT_RUN" | "ACCEPTED" | "ACCEPTED_WITH_WARNINGS" | "REJECTED" | "PROCESSING_FAILED";
+            /** Diagnostics */
+            diagnostics: components["schemas"]["ValidationDiagnosticResponse"][];
         };
         /** VersionComparisonFindingResponse */
         VersionComparisonFindingResponse: {
@@ -4035,6 +4097,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDownloadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    document_validation_report_api_v1_document_versions__version_id__validation_report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationReportResponse"];
                 };
             };
             /** @description Validation Error */

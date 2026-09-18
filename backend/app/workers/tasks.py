@@ -24,9 +24,46 @@ from app.services.document_ir import (
     DocumentIRExtractionError,
     get_or_build_document_ir,
 )
+from app.services.file_integrity import evaluate_file_integrity
 from app.services.pdf_validation import PDFValidationError
 from app.services.storage import S3Storage
 from app.workers.celery_app import celery_app
+
+
+def _processing_failure_report(
+    code: str,
+    prior_report: object | None = None,
+) -> dict[str, object]:
+    diagnostics: list[object] = []
+    if isinstance(prior_report, dict):
+        prior_diagnostics = prior_report.get("diagnostics")
+        if isinstance(prior_diagnostics, list):
+            diagnostics.extend(
+                item.copy()
+                for item in prior_diagnostics
+                if isinstance(item, dict)
+                and item.get("category") != "SYSTEM"
+                and item.get("disposition") in {"WARN", "REVIEW"}
+            )
+    diagnostics = diagnostics[:24]
+    diagnostics.append(
+        {
+            "code": code,
+            "category": "SYSTEM",
+            "disposition": "RETRY",
+            "scope": "DOCUMENT",
+            "page_number": None,
+            "bbox": None,
+            "metrics": {},
+            "message_key": code.lower(),
+            "action_key": "pdf.retry_or_contact_support",
+        }
+    )
+    return {
+        "schema_version": 1,
+        "outcome": "PROCESSING_FAILED",
+        "diagnostics": diagnostics,
+    }
 
 
 @celery_app.task(name="app.workers.tasks.healthcheck")
@@ -96,19 +133,36 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                     job.document_version.storage_key,
                     get_settings().pdf_max_size_bytes,
                 )
-                ir = await get_or_build_document_ir(db, job.document_version.id, data)
-                job_outcome = ("success", ir)
-            except PDFValidationError as exc:
-                job_outcome = ("validation_error", exc)
-            except DocumentIRExtractionError:
-                job_outcome = ("ir_extraction_error", None)
-            except SQLAlchemyError:
-                await db.rollback()
-                raise
             except Exception:
                 # Keep provider exceptions (which may include URLs/request metadata)
                 # out of logs and persisted student-visible detail.
                 job_outcome = ("storage_error", None)
+            else:
+                try:
+                    ir = await get_or_build_document_ir(
+                        db,
+                        job.document_version.id,
+                        data,
+                    )
+                except PDFValidationError as exc:
+                    job_outcome = ("validation_error", exc)
+                except DocumentIRExtractionError:
+                    job_outcome = ("ir_extraction_error", None)
+                except SQLAlchemyError:
+                    await db.rollback()
+                    raise
+                except Exception:
+                    job_outcome = ("ir_extraction_error", None)
+                else:
+                    try:
+                        await evaluate_file_integrity(db, job, ir)
+                    except SQLAlchemyError:
+                        await db.rollback()
+                        raise
+                    except Exception:
+                        job_outcome = ("evaluation_error", None)
+                    else:
+                        job_outcome = ("success", ir)
         finally:
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -119,6 +173,7 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             job.document_version.status = DocumentStatus.INVALID
             job.document_version.failure_code = exc.code
             job.document_version.failure_detail = exc.detail
+            job.document_version.validation_report = exc.report
             success = await mark_error(
                 db,
                 job,
@@ -133,6 +188,10 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             job.document_version.status = DocumentStatus.PROCESSING_FAILED
             job.document_version.failure_code = "PDF_IR_EXTRACTION_FAILED"
             job.document_version.failure_detail = "Document structure extraction failed"
+            job.document_version.validation_report = _processing_failure_report(
+                "PDF_IR_EXTRACTION_FAILED",
+                getattr(job.document_version, "validation_report", None),
+            )
             success = await mark_error(
                 db,
                 job,
@@ -143,10 +202,32 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
             if not success:
                 await db.rollback()
                 return None
+        elif job_outcome[0] == "evaluation_error":
+            job.document_version.status = DocumentStatus.PROCESSING_FAILED
+            job.document_version.failure_code = "FILE_INTEGRITY_EVALUATION_FAILED"
+            job.document_version.failure_detail = "File integrity evaluation failed"
+            job.document_version.validation_report = _processing_failure_report(
+                "FILE_INTEGRITY_EVALUATION_FAILED",
+                getattr(job.document_version, "validation_report", None),
+            )
+            success = await mark_error(
+                db,
+                job,
+                "FILE_INTEGRITY_EVALUATION_FAILED",
+                "File integrity evaluation failed",
+                attempt_count=claimed_attempt,
+            )
+            if not success:
+                await db.rollback()
+                return None
         elif job_outcome[0] == "storage_error":
             job.document_version.status = DocumentStatus.PROCESSING_FAILED
             job.document_version.failure_code = "PDF_STORAGE_ERROR"
             job.document_version.failure_detail = "Object storage read failed"
+            job.document_version.validation_report = _processing_failure_report(
+                "PDF_STORAGE_ERROR",
+                getattr(job.document_version, "validation_report", None),
+            )
             success = await mark_error(
                 db,
                 job,

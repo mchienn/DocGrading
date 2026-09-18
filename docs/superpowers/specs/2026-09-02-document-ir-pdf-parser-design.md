@@ -8,7 +8,7 @@
 
 ## 1. Goal
 
-Validate and parse each accepted, text-native PDF once into a durable Document IR shared by every evaluator. The IR preserves page text, headings and nested sections, paragraphs, tables including page-spanning tables, and verifiable page coordinates.
+Validate and parse each accepted, text-native PDF once into a durable Document IR shared by every evaluator. The IR preserves page text, headings and nested sections, paragraphs, tables including page-spanning tables, inert link annotations for local integrity checks, and verifiable page coordinates.
 
 A forced rebuild for the same `DocumentVersion` replaces the existing IR atomically. Normal processing reuses the existing IR without parsing the PDF again.
 
@@ -17,7 +17,7 @@ A forced rebuild for the same `DocumentVersion` replaces the existing IR atomica
 Included:
 
 - reuse `app.services.pdf_validation.validate_pdf` as the first parser step;
-- extract page text and top-left page coordinates;
+- extract page text, accepted link annotations, and top-left page coordinates;
 - infer headings, nested section ownership, and paragraphs;
 - extract ruled or text-aligned tables and join compatible page fragments;
 - persist one versioned IR payload per `DocumentVersion`;
@@ -64,7 +64,7 @@ This keeps replacement atomic and eliminates orphaned child rows during rebuild.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source": {
     "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "size_bytes": 1234,
@@ -73,7 +73,8 @@ This keeps replacement atomic and eliminates orphaned child rows during rebuild.
   "pages": [],
   "sections": [],
   "paragraphs": [],
-  "tables": []
+  "tables": [],
+  "links": []
 }
 ```
 
@@ -93,7 +94,7 @@ Each page stores:
 
 - `number`, `width`, `height`;
 - reading-order `text` reconstructed from accepted lines;
-- ordered IDs of headings, paragraphs, and logical tables that have a region on that page.
+- ordered IDs of headings, paragraphs, logical tables, and link annotations on that page.
 
 An accepted blank page remains present with empty text and block IDs.
 
@@ -134,7 +135,11 @@ Two table regions on consecutive pages form one logical table only when:
 
 The logical table stores ordered regions rather than fabricating one cross-page bounding box. Uncertain regions remain separate tables; false merging is worse than under-merging.
 
-### 4.6 Element-level review flag
+### 4.6 Links
+
+Each accepted direct page-link `/URI` or `/GoToR` annotation stores a deterministic ID, page number, nullable bbox, bounded display text, bounded target, action type, and `MATCH`, `MISMATCH`, or `NEEDS_REVIEW` status. Target values exist only for local File integrity comparison; no parser, evaluator, API, or worker resolves or fetches them.
+
+### 4.7 Element-level review flag
 
 Sections and paragraphs extracted from a vector-heavy page with no detected table may include `"needs_review": true`. The flag means diagram semantics were not interpreted; text, heading classification, page number, and bounding box remain valid. Its absence means the parser found no unsupported vector-diagram semantics for that element. Existing consumers must ignore unknown optional fields.
 
@@ -142,7 +147,7 @@ Sections and paragraphs extracted from a vector-heavy page with no detected tabl
 
 `parse_document_ir(data, limits)` is pure and synchronous:
 
-1. call `validate_pdf(data, max_size_bytes, max_page_count)`;
+1. call `validate_pdf(data, max_size_bytes, max_decoded_bytes, max_page_count)`;
 2. only after validation succeeds, open the same bytes with pdfplumber;
 3. traverse pages and layout nodes under one shared structure budget plus separate bounded vector and table work limits;
 4. extract words, lines, headings, paragraphs, and real table candidates; vector-heavy non-table pages keep their text and coordinates with element-level `needs_review`;
@@ -160,8 +165,10 @@ Add a positive `pdf_ir_max_nodes` setting. One shared budget counts every visite
 Additional invariants:
 
 - no unbounded traversal is added: page-tree preflight and active-content scanning use explicit node, depth, and cycle bounds;
-- active-content checks inspect action values in context; JavaScript, launch actions, remote/embedded actions, forms, attachments, and embedded files are rejected without opening or executing them;
-- `/URI` link actions are accepted as inert annotations: validation never fetches, executes, persists, or logs their URL, and dangerous `/Next` actions still fail closed;
+- active-content checks inspect action values in context; JavaScript, launch actions, embedded actions, forms, attachments, and embedded files are rejected without opening or executing them; direct user-clicked `/GoToR` actions are the only remote-action exception;
+- direct page-link `/URI` and `/GoToR` actions are accepted as inert annotations: validation never fetches, executes, or logs their target; parsing persists only bounded targets for local File integrity comparison, while `/OpenAction`, `/AA`, `/Next`, non-Link, and nested actions still fail closed;
+- Form XObject streams are preflighted before text extraction, charged once per document against the decoded-stream budget, and traversed under depth/work bounds before geometry analysis;
+- `/StructTreeRoot` uses a separate bounded, cycle-safe traversal so accessibility metadata does not consume the general active-content budget while `/AF`, `/EF`, and other active descendants still fail closed;
 - section-stack depth is bounded by the shared node budget;
 - non-finite or out-of-page coordinates are rejected;
 - ruled and text-aligned table discovery is bounded; vector-heavy pages below the vector cap do not spend table-edge budget when no table is detected;
@@ -218,8 +225,8 @@ This checklist is a hard gate before creating migration `20260902_0008`.
 - table fragments spanning consecutive pages become one logical table with page-specific regions and stable cell coordinates;
 - ordinary prose is not misclassified as headings;
 - malformed/out-of-page coordinates fail closed.
-- safe `/URI` link annotations pass validation and parsing;
-- JavaScript, Launch, embedded files, forms, and remote actions remain rejected as `PDF_ACTIVE_CONTENT`;
+- safe `/URI` links and direct `/A` `/GoToR` actions of `/Link` annotations directly inside a page `/Annots` array pass validation and parsing; `/GoToR` `/F` must be a PDF string or real non-stream `/Filespec`, whose descendants remain fully scanned; bounded targets persist only in Document IR for local comparison and are never resolved or fetched;
+- JavaScript, Launch, embedded files, XFA, populated forms, `/GoToE`, and automatic remote actions through `/OpenAction`, `/AA`, or `/Next` remain rejected as `PDF_ACTIVE_CONTENT`; empty AcroForm stubs and internal `/GoTo` open destinations pass;
 - vector-heavy pages with no table keep text and coordinates and mark extracted elements `needs_review`;
 - real dense tables and global node bombs still raise `PDF_STRUCTURE_LIMIT`;
 
@@ -237,7 +244,7 @@ This checklist is a hard gate before creating migration `20260902_0008`.
 
 - parser entrypoint proves `validate_pdf` runs before pdfplumber opens bytes;
 - node-budget exhaustion raises `PDF_STRUCTURE_LIMIT` without continuing traversal;
-- JavaScript/Launch/embedded-file PDFs are rejected by existing validation and never reach layout extraction; safe `/URI` annotations reach extraction but are never fetched or logged;
+- JavaScript/Launch/embedded-file/XFA/populated-form/automatic-remote-action PDFs are rejected by existing validation and never reach layout extraction; safe `/URI` links and direct page-annotation `/A` `/GoToR` actions with valid inert `/F` targets, empty AcroForm, and internal `/GoTo` metadata reach extraction; bounded link targets persist only for local integrity comparison and are never fetched or logged;
 - parser errors and logs contain no extracted text, PDF bytes, annotation URLs, signed fields, credentials, or storage URLs;
 - migration preserves append-only audit UPDATE/DELETE/TRUNCATE guards.
 

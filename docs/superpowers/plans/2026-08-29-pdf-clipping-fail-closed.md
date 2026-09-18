@@ -4,7 +4,7 @@
 
 **Goal:** Prevent BR-07 bypasses by rejecting PDFs whose applied clipping geometry cannot be measured exactly by the bounded raster-coverage walker.
 
-**Architecture:** Preserve exact page, Form, CTM, and single simple-convex-path clipping. Replace the current unknown-clip-as-zero behavior with fail-closed `_PDFGeometryLimit`, which `validate_pdf()` exposes as `PDF_MALFORMED`. Explicitly closed paths are normalized before validation; self-intersections and clip paths above the bounded vertex cap are rejected.
+**Architecture:** Preserve exact page, Form, CTM, and single simple-convex-path clipping for `W` and `W*`. Replace unknown-clip-as-zero behavior with fail-closed `_PDFGeometryLimit`, which `validate_pdf()` exposes as `PDF_SCAN_ANALYSIS_UNSUPPORTED`. Explicitly closed paths are normalized; self-intersections, compound paths, curved `W*`, and paths above the bounded vertex cap are rejected. Curved `W` uses conservative control-point bounds.
 
 **Tech Stack:** Python 3.13, pypdf 6.x, pytest, Ruff, Black.
 
@@ -34,7 +34,7 @@ def test_compound_clip_cannot_disable_scan_detection() -> None:
     with pytest.raises(PDFValidationError) as exc_info:
         validate_pdf(data)
 
-    assert exc_info.value.code == "PDF_MALFORMED"
+    assert exc_info.value.code == "PDF_SCAN_ANALYSIS_UNSUPPORTED"
 ```
 
 - [x] **Step 2: Change the even-odd regression to the fail-closed contract**
@@ -44,7 +44,7 @@ Replace the current assertion that accepts a self-overlapping `W*` path with:
 ```python
 with pytest.raises(PDFValidationError) as exc_info:
     validate_pdf(data)
-assert exc_info.value.code == "PDF_MALFORMED"
+assert exc_info.value.code == "PDF_SCAN_ANALYSIS_UNSUPPORTED"
 ```
 
 - [x] **Step 3: Add curved and non-convex clip regressions**
@@ -71,7 +71,7 @@ def test_unsupported_applied_clip_fails_closed(
     )
     with pytest.raises(PDFValidationError) as exc_info:
         validate_pdf(data)
-    assert exc_info.value.code == "PDF_MALFORMED"
+    assert exc_info.value.code == "PDF_SCAN_ANALYSIS_UNSUPPORTED"
 ```
 
 - [x] **Step 4: Verify RED**
@@ -82,7 +82,7 @@ Run from `backend/`:
 uv run pytest tests/test_t009_pdf_scan_detection.py -q
 ```
 
-Expected: the compound, even-odd, curved, and non-convex cases fail because unsupported applied clipping currently becomes zero coverage or is accepted.
+Expected: compound, self-overlapping even-odd, curved even-odd, and non-convex cases fail because unsupported applied clipping currently becomes zero coverage or is accepted.
 
 ### Task 2: Reject unsupported applied clipping
 
@@ -118,7 +118,7 @@ if clip_pending:
     current_clip = _clip_polygon(current_clip, current_path)
 ```
 
-A second `re`/`m`, curve operator, or `W*` continues to set `current_path = None`. Drawing an unsupported path without `W`/`W*` clears it normally and remains accepted.
+A second `re`/`m` subpath remains unsupported. A simple convex `W*` path follows the same exact polygon intersection as `W`; curved or otherwise ambiguous `W*` remains unsupported. Drawing an unsupported path without applying `W`/`W*` clears it normally and remains accepted.
 
 - [x] **Step 3: Keep Form clipping concrete**
 
@@ -166,9 +166,9 @@ Expected: both commands succeed. If Black reports changes, format only these two
 Replace wording that says unsupported clipping becomes unknown/zero coverage with the final contract:
 
 ```text
-Single convex W clipping is measured exactly. Compound, curved, even-odd,
-non-convex, or degenerate applied clipping is rejected as PDF_MALFORMED;
-it is never converted to zero raster coverage.
+Single convex `W` or `W*` clipping is measured exactly. Compound, curved
+`W*`, non-convex, or degenerate applied clipping is rejected as
+PDF_SCAN_ANALYSIS_UNSUPPORTED; it is never converted to zero raster coverage.
 ```
 
 - [x] **Step 2: Preserve the review handoff**

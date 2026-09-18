@@ -116,6 +116,10 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "approved_snapshot IS NULL OR jsonb_typeof(approved_snapshot) = 'object'",
             name="ck_document_versions_approved_snapshot_object",
         ),
+        sa.CheckConstraint(
+            "jsonb_typeof(validation_report) = 'object'",
+            name="ck_document_versions_validation_report_object",
+        ),
     )
 
     submission_id: Mapped[uuid.UUID] = mapped_column(
@@ -158,6 +162,18 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     failure_code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     failure_detail: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    validation_report: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=lambda: {
+            "schema_version": 1,
+            "outcome": "NOT_RUN",
+            "diagnostics": [],
+        },
+        server_default=sa.text(
+            """'{"schema_version":1,"outcome":"NOT_RUN","diagnostics":[]}'::jsonb"""
+        ),
+        nullable=False,
+    )
     approved_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )

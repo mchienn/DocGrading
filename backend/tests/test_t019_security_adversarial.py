@@ -749,7 +749,11 @@ def _pdf_with_form() -> bytes:
     writer = PdfWriter()
     writer.clone_document_from_reader(PdfReader(BytesIO(_make_active_pdf())))
     writer._root_object[NameObject("/AcroForm")] = DictionaryObject(
-        {NameObject("/Fields"): ArrayObject()}
+        {
+            NameObject("/Fields"): ArrayObject(
+                [DictionaryObject({NameObject("/FT"): NameObject("/Tx")})]
+            )
+        }
     )
     output = BytesIO()
     writer.write(output)
@@ -762,19 +766,27 @@ def test_declared_pdf_upload_with_non_pdf_bytes_is_rejected() -> None:
     assert rejected.value.code == "NOT_A_PDF"
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        _make_active_pdf(js=True),
-        _make_active_pdf(launch=True),
-        _make_active_pdf(attachment=True),
-        _pdf_with_form(),
-    ],
-    ids=["javascript", "launch", "embedded", "form"],
-)
-def test_active_pdf_content_never_reaches_document_ir(payload: bytes) -> None:
+def test_javascript_pdf_never_reaches_document_ir() -> None:
     with pytest.raises(PDFValidationError) as rejected:
-        parse_document_ir(payload)
+        parse_document_ir(_make_active_pdf(js=True))
+    assert rejected.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_launch_pdf_never_reaches_document_ir() -> None:
+    with pytest.raises(PDFValidationError) as rejected:
+        parse_document_ir(_make_active_pdf(launch=True))
+    assert rejected.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_embedded_file_pdf_never_reaches_document_ir() -> None:
+    with pytest.raises(PDFValidationError) as rejected:
+        parse_document_ir(_make_active_pdf(attachment=True))
+    assert rejected.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_populated_form_pdf_never_reaches_document_ir() -> None:
+    with pytest.raises(PDFValidationError) as rejected:
+        parse_document_ir(_pdf_with_form())
     assert rejected.value.code == "PDF_ACTIVE_CONTENT"
 
 
@@ -801,7 +813,11 @@ def test_compressed_pdf_cannot_bypass_decoded_content_limit() -> None:
     payload = _make_pdf_with_stream([decoded], compress=True)
     assert len(payload) < 1_500
     with pytest.raises(PDFValidationError) as rejected:
-        validate_pdf(payload, max_size_bytes=1_500)
+        validate_pdf(
+            payload,
+            max_size_bytes=1_500,
+            max_decoded_bytes=1_500,
+        )
     assert rejected.value.code == "PDF_DECODED_TOO_LARGE"
 
 
@@ -818,7 +834,7 @@ async def _run_head_truncate_guards() -> None:
                 revision = await connection.scalar(
                     text("SELECT version_num FROM public.alembic_version")
                 )
-                assert revision == "20260916_0015"
+                assert revision == "20260918_0016"
                 for table in ("audit_events", "published_result_versions"):
                     with pytest.raises(exc.DBAPIError, match="append-only"):
                         async with connection.begin_nested():
