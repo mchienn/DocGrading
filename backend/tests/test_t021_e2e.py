@@ -37,7 +37,7 @@ from app.models.identity import User
 from app.models.review import EvidenceAnchor, Finding
 from app.services import submission as submission_service
 from app.services.auth import auth_cookie_names, hash_password
-from app.services.storage import ObjectHead, StorageObjectNotFound
+from app.services.storage import ObjectHead, StorageObjectChanged, StorageObjectNotFound
 from tests.test_t010_document_ir_parser import _make_text_pdf
 
 pytestmark = pytest.mark.skipif(
@@ -55,6 +55,7 @@ class MemoryStorage:
 
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.sealed_keys: dict[str, str] = {}
         self.fail_reads: set[str] = set()
         self.block_key: str | None = None
         self.read_started = threading.Event()
@@ -74,7 +75,24 @@ class MemoryStorage:
             data = self.objects[key]
         except KeyError as exc:
             raise StorageObjectNotFound from exc
-        return ObjectHead(content_type="application/pdf", content_length=len(data))
+        return ObjectHead(
+            content_type="application/pdf",
+            content_length=len(data),
+            etag=hashlib.sha256(data).hexdigest(),
+        )
+
+    def seal_upload(
+        self,
+        source_key: str,
+        destination_key: str,
+        expected_etag: str,
+    ) -> ObjectHead:
+        source = self.head(source_key)
+        if source.etag != expected_etag:
+            raise StorageObjectChanged
+        self.objects[destination_key] = self.objects[source_key]
+        self.sealed_keys[source_key] = destination_key
+        return self.head(destination_key)
 
     def get_bounded(self, key: str, max_size: int) -> bytes:
         if key == self.block_key:
@@ -282,7 +300,9 @@ async def _upload(
     assert completion["submission_id"] == payload["submission_id"], label
     assert completion["document_version_id"] == payload["document_version_id"], label
     assert completion["status"] == "QUEUED", label
-    return {**payload, **completion}
+    sealed_key = storage.sealed_keys[payload["object_key"]]
+    assert sealed_key != payload["object_key"], label
+    return {**payload, **completion, "object_key": sealed_key}
 
 
 async def _process_and_track(

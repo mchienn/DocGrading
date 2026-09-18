@@ -15,9 +15,14 @@ from app.core.config import Settings, get_settings
 class ObjectHead:
     content_type: str
     content_length: int
+    etag: str = ""
 
 
 class StorageObjectNotFound(Exception):
+    pass
+
+
+class StorageObjectChanged(Exception):
     pass
 
 
@@ -68,6 +73,34 @@ class S3Storage:
             ExpiresIn=self.expiry_seconds,
         )
 
+    def seal_upload(
+        self,
+        source_key: str,
+        destination_key: str,
+        expected_etag: str,
+    ) -> ObjectHead:
+        if not expected_etag:
+            raise RuntimeError("Object storage did not return an ETag")
+        try:
+            self._internal.copy_object(
+                Bucket=self.bucket,
+                Key=destination_key,
+                CopySource={"Bucket": self.bucket, "Key": source_key},
+                CopySourceIfMatch=expected_etag,
+                ContentType="application/pdf",
+                MetadataDirective="REPLACE",
+            )
+        except Exception as exc:
+            response = getattr(exc, "response", {})
+            error = response.get("Error", {})
+            if (
+                error.get("Code") in {"PreconditionFailed", "412"}
+                or response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 412
+            ):
+                raise StorageObjectChanged from exc
+            raise
+        return self.head(destination_key)
+
     def head(self, key: str) -> ObjectHead:
         try:
             result = self._internal.head_object(Bucket=self.bucket, Key=key)
@@ -79,6 +112,7 @@ class S3Storage:
         return ObjectHead(
             content_type=str(result.get("ContentType", "")),
             content_length=int(result.get("ContentLength", 0)),
+            etag=str(result.get("ETag", "")),
         )
 
     def get_bounded(self, key: str, max_size: int) -> bytes:

@@ -25,19 +25,18 @@ Upload completion and job retry commit `AnalysisJob.status = QUEUED` before publ
 
 ## Decision 1: Fail Closed for Unsupported PDF Clipping
 
-The validator continues exact geometry for the supported case: one simple convex path applied with the non-zero winding operator `W`. Page crop boxes, Form bounding boxes, CTM composition, graphics-state save/restore, and supported content clipping remain polygon intersections. Explicitly closed paths are normalized before this validation.
+The validator computes exact geometry for one simple convex path applied with either `W` or `W*`; the winding rules are equivalent for that bounded case. Page crop boxes, Form bounding boxes, CTM composition, graphics-state save/restore, and supported content clipping remain polygon intersections. Explicitly closed paths are normalized before validation. Curved `W` paths use their control-point bounding box as a conservative upper bound.
 
-The walker raises `_PDFGeometryLimit` when a clipping operation is pending and its path is not representable exactly by the supported geometry. This includes:
+The walker raises `_PDFGeometryLimit` when a clipping operation is pending and its path is not representable safely by the supported geometry. This includes:
 
 - a second `re` or `m` subpath;
-- a curved segment (`c`, `v`, or `y`);
-- even-odd clipping (`W*`);
+- a curved segment (`c`, `v`, or `y`) used with `W*`;
 - a non-convex, self-intersecting, degenerate, or over-limit polygon;
 - inherited unsupported clipping state.
 
-`validate_pdf()` already maps `_PDFGeometryLimit` through the malformed-input boundary to `PDF_MALFORMED`. Unsupported clipping is therefore rejected explicitly instead of being treated as zero raster coverage. Paths used only for drawing do not fail validation; the failure occurs only when an unsupported path is applied as a clip.
+`validate_pdf()` maps `_PDFGeometryLimit` to `PDF_SCAN_ANALYSIS_UNSUPPORTED`. Unsupported clipping is rejected explicitly instead of being treated as zero raster coverage or malformed syntax.
 
-This design deliberately prefers a bounded false rejection of an unsupported PDF over a BR-07 bypass. It does not add a general-purpose PDF boolean-geometry engine or a new geometry dependency.
+This design keeps a bounded, dependency-free geometry model: common rectangular/convex even-odd clips are measured, while ambiguous geometry still fails closed.
 
 ## Decision 2: Transactional Analysis-Job Dispatch Outbox
 
@@ -130,8 +129,8 @@ Exactly-once broker delivery is neither required nor claimed.
 ### PDF regression tests
 
 - two rectangle subpaths whose union covers at least 80% cannot be accepted;
-- `W*`, curved, and non-convex clipping used as a clip fail with `PDF_MALFORMED`;
-- one supported rectangular clip still reduces visible raster coverage correctly;
+- one rectangular or simple-convex `W*` clip is measured exactly;
+- curved `W` uses conservative bounds, while curved `W*` and non-convex clipping fail with `PDF_SCAN_ANALYSIS_UNSUPPORTED`;
 - graphics-state save/restore, Form clipping, exact 80% comparison, and nested decode bounds remain green.
 
 ### Outbox tests

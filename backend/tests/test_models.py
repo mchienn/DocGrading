@@ -99,6 +99,7 @@ def test_user_roles_and_json_snapshots_use_postgresql_types() -> None:
     assert isinstance(AuditEvent.__table__.c.after.type, JSONB)
     assert isinstance(DocumentIR.__table__.c.content.type, JSONB)
     assert isinstance(DocumentVersion.__table__.c.approved_snapshot.type, JSONB)
+    assert isinstance(DocumentVersion.__table__.c.validation_report.type, JSONB)
     assert isinstance(PublishedResultVersion.__table__.c.snapshot.type, JSONB)
     assert isinstance(ReviewCommand.__table__.c.response.type, JSONB)
     assert isinstance(Notification.__table__.c.payload.type, JSONB)
@@ -276,6 +277,17 @@ def test_assignment_first_submission_metadata_is_nullable_timezone() -> None:
     assert column.nullable
     assert isinstance(column.type, sa.DateTime)
     assert column.type.timezone
+
+
+def test_document_version_validation_report_is_required_json_object() -> None:
+    configure_mappers()
+    table = Base.metadata.tables["document_versions"]
+    assert not table.c.validation_report.nullable
+    assert "ck_document_versions_validation_report_object" in {
+        constraint.name
+        for constraint in table.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
 
 
 def test_document_version_declared_sha256_hint_is_nullable() -> None:

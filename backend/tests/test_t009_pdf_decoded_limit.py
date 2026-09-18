@@ -47,14 +47,14 @@ def test_valid_pdf_passes_validation() -> None:
 
 
 def test_pdf_decoded_too_large_raises_error_before_extract_text() -> None:
-    # 2500 bytes decoded content, compressed to ~600 bytes. File limit is 1500 bytes.
-    # Raw file size is < 1500 bytes, but decoded stream size > 1500 bytes.
+    # 2500 bytes decoded content, compressed to ~600 bytes.
+    # Raw file size is below its limit; decoded stream size exceeds its own budget.
     large_stream = b"BT /F1 12 Tf 10 10 Td (" + b"A" * 2500 + b") Tj ET"
     pdf_bytes = _make_pdf_with_stream([large_stream], compress=True)
     assert len(pdf_bytes) < 1500
 
     with pytest.raises(PDFValidationError) as exc_info:
-        validate_pdf(pdf_bytes, max_size_bytes=1500)
+        validate_pdf(pdf_bytes, max_size_bytes=1500, max_decoded_bytes=1500)
 
     assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
 
@@ -75,7 +75,7 @@ def test_flate_limit_is_applied_before_decompression(
     monkeypatch.setattr(pdf_filters, "_decompress_with_limit", observe_limit)
 
     with pytest.raises(PDFValidationError) as exc_info:
-        validate_pdf(pdf_bytes, max_size_bytes=1500)
+        validate_pdf(pdf_bytes, max_size_bytes=1500, max_decoded_bytes=1500)
 
     assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
     assert observed_limits
@@ -91,7 +91,7 @@ def test_decoded_limit_is_cumulative_across_pages() -> None:
     assert len(pdf_bytes) < 1000
 
     with pytest.raises(PDFValidationError) as exc_info:
-        validate_pdf(pdf_bytes, max_size_bytes=1000)
+        validate_pdf(pdf_bytes, max_size_bytes=1000, max_decoded_bytes=1000)
 
     assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
 
@@ -105,6 +105,6 @@ def test_decoded_limit_fails_if_any_single_page_exceeds() -> None:
     assert len(pdf_bytes) < 1000
 
     with pytest.raises(PDFValidationError) as exc_info:
-        validate_pdf(pdf_bytes, max_size_bytes=1000)
+        validate_pdf(pdf_bytes, max_size_bytes=1000, max_decoded_bytes=1000)
 
     assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"

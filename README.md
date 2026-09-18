@@ -169,7 +169,7 @@ Compose host ports mặc định chỉ bind loopback, phù hợp development/UAT
 - đặt `APP_ENV` khác `development`;
 - đặt `FRONTEND_ORIGIN` thành public HTTPS origin;
 - đặt `JOIN_RATE_LIMIT_HASH_SECRET` thành secret ngẫu nhiên riêng, tối thiểu 32 ký tự;
-- dùng storage credentials thật và `STORAGE_PUBLIC_ENDPOINT_URL` HTTPS;
+- dùng private object storage credentials thật, `STORAGE_PUBLIC_ENDPOINT_URL` HTTPS, encryption at rest, least-privilege `s3:GetObject`/`s3:PutObject` cho runtime prefixes, CloudTrail data events và storage metrics/access logs; cấu hình lifecycle xóa prefix staging `uploads/` sau 1 ngày vì completion đã conditional-copy file hợp lệ sang `documents/`;
 - giữ API port `8000` private; browser gọi `/api` same-origin qua Caddy; nếu đổi Compose topology, đặt `FORWARDED_ALLOW_IPS` thành đúng IP Caddy thay vì CIDR private rộng;
 - chạy và kiểm tra migration trước khi nhận traffic.
 

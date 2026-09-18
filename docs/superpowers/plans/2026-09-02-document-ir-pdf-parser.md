@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Parse each validated text-native PDF once into one durable, idempotently replaceable Document IR containing pages, nested sections, paragraphs, tables, and page coordinates.
+**Goal:** Parse each validated text-native PDF once into one durable, idempotently replaceable Document IR containing pages, nested sections, paragraphs, tables, safe link annotations, and page coordinates.
 
-**Architecture:** Add one `DocumentIR` owner row per `DocumentVersion`, storing a versioned JSONB payload. A pure parser calls existing `validate_pdf` first, then uses bounded pypdf/pdfplumber extraction under one node budget. An async persistence service locks the owning `Submission` first, then the target `DocumentVersion` with `FOR UPDATE`, reuses existing IR by default, or atomically replaces it for an explicit rebuild. Only non-null `declared_sha256` is checksum-authoritative; worker success overwrites server-observed `sha256` metadata.
+**Architecture:** Add one `DocumentIR` owner row per `DocumentVersion`, storing a versioned JSONB payload. A pure parser calls `validate_pdf` first with separate 100 MB raw and 50 MB decoded budgets, then uses bounded pypdf/pdfplumber extraction under one node budget. Schema 2 stores safe `/URI` and `/GoToR` link metadata without resolving targets; the File integrity evaluator compares visible URL labels to targets and anchors mismatch findings to the link bbox. An async persistence service locks the owning `Submission` first, then the target `DocumentVersion` with `FOR UPDATE`, reuses existing IR by default, or atomically replaces it for an explicit rebuild. Only non-null `declared_sha256` is checksum-authoritative; worker success overwrites server-observed `sha256` metadata. `DocumentVersion.validation_report` is the bounded, student-safe source for validator diagnostics and repair actions.
 
 **Tech Stack:** Python 3.13, pypdf 6.x, pdfplumber 0.11.x, SQLAlchemy 2 async, PostgreSQL 17 JSONB, Alembic, pytest, Ruff, Black.
 
@@ -322,8 +322,8 @@ Expected: import fails because `app.services.document_ir` does not exist.
 Create constants and types:
 
 ```python
-SCHEMA_VERSION = 1
-PARSER_VERSION = "pypdf-pdfplumber-v1"
+SCHEMA_VERSION = 2
+PARSER_VERSION = "pypdf-pdfplumber-v3"
 
 
 class DocumentIRExtractionError(RuntimeError):
@@ -353,13 +353,15 @@ Add synchronous entrypoint:
 def parse_document_ir(
     data: bytes,
     *,
-    max_size_bytes: int = 50_000_000,
+    max_size_bytes: int = 100_000_000,
+    max_decoded_bytes: int = 50_000_000,
     max_page_count: int = 100,
     max_nodes: int = 100_000,
 ) -> ParsedDocumentIR:
     validation = validate_pdf(
         data,
         max_size_bytes=max_size_bytes,
+        max_decoded_bytes=max_decoded_bytes,
         max_page_count=max_page_count,
     )
     budget = _NodeBudget(max_nodes)
@@ -505,7 +507,7 @@ class _Line:
     font_name: str
 ```
 
-`_safe_bbox` rejects non-finite, reversed, negative, or out-of-page coordinates with `PDFValidationError("PDF_IR_MALFORMED")`; output values use `round(value, 3)`.
+`_safe_bbox` rejects non-finite or reversed coordinates. Word boxes that overlap a visible page edge are clipped to the page because PDF renderers clip partially visible glyphs; table, row, and cell boxes remain strictly in-page. Output values use `round(value, 3)`.
 
 - [x] **Step 4: Implement heading and section stack**
 

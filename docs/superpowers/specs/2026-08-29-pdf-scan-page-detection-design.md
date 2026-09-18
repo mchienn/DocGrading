@@ -26,18 +26,19 @@ An image paints the unit square. Transform its four corners into page space, cli
 
 The implementation intentionally does not rasterize pages or decode image pixels. Coverage depends on PDF placement geometry, not image resolution. No native renderer or new package is introduced.
 
-Applied clipping is exact only for the bounded supported case: one simple convex non-zero-winding path. Explicitly closed paths are normalized. Compound, curved, self-intersecting, non-convex, degenerate, over-limit, or even-odd clipping that is actually applied raises the geometry-limit boundary and is returned as `PDF_MALFORMED`; it is never interpreted as zero visible coverage. Unsupported paths used only for drawing remain accepted.
+Applied clipping is exact for one simple convex path using either non-zero-winding `W` or even-odd `W*`; both rules produce the same region for that bounded case. Explicitly closed paths are normalized. Curved `W` paths use their control-point bounding box only as a conservative upper bound: when that bound could reach the scan threshold, validation returns `PDF_SCAN_ANALYSIS_UNSUPPORTED` rather than treating the bound as exact evidence for `PDF_SCAN_ONLY`. Compound, curved `W*`, self-intersecting, non-convex, degenerate, or over-limit clipping raises the same geometry-limit boundary; unsupported paths used only for drawing remain accepted.
 
 ## Validation Flow
 
 For every page, inside the existing bounded pypdf context:
 
-1. Decode and cache page content using the cumulative byte budget.
-2. Extract text and count useful characters.
-3. Walk image placements recursively and calculate maximum visible coverage.
-4. Raise `PDF_MALFORMED` if an applied clip cannot be represented exactly by the bounded geometry walker.
-5. Raise `PDF_SCAN_ONLY` when coverage is at least 80% and useful text count is below 30.
-6. Ignore a true blank page for page-level scan detection.
+1. Decode page content and preflight unique Form XObject streams against the cumulative byte budget.
+2. Extract text and count useful characters only after Form preflight succeeds.
+3. Skip raster geometry when useful text count is at least 30.
+4. Otherwise walk image placements recursively and calculate maximum visible coverage.
+5. Raise `PDF_SCAN_ANALYSIS_UNSUPPORTED` if applied clipping or Form traversal cannot be represented safely by the bounded geometry walker.
+6. Raise `PDF_SCAN_ONLY` when coverage is at least 80% and useful text count is below 30.
+7. Ignore a true blank page for page-level scan detection.
 
 Existing active-content, encryption, raw-size, decoded-size, page-count, and malformed-PDF behavior remains unchanged.
 
@@ -45,7 +46,7 @@ Existing active-content, encryption, raw-size, decoded-size, page-count, and mal
 
 - Reuse resolved pypdf objects; never decode raster pixels.
 - Track visited Form objects on the current recursion path to stop cycles.
-- Cap recursive Form depth and total visited content operations. Exceeding either bound is treated as malformed input rather than allowing unbounded work.
+- Cap recursive Form depth and total visited content operations. Exceeding either bound returns `PDF_SCAN_ANALYSIS_UNSUPPORTED` rather than allowing unbounded work.
 - Keep all content access inside the existing pypdf decode lock and output limits.
 
 ## Tests

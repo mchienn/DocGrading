@@ -28,7 +28,11 @@ from app.models.identity import User
 from app.models.submission import DocumentVersion, Submission
 from app.services.analysis_dispatch import enqueue_analysis_job_dispatch
 from app.services.analysis_job import create_or_get_job
-from app.services.storage import S3Storage, StorageObjectNotFound
+from app.services.storage import (
+    S3Storage,
+    StorageObjectChanged,
+    StorageObjectNotFound,
+)
 
 
 def _fingerprint(
@@ -349,8 +353,41 @@ async def complete_upload(
         raise HTTPException(
             status_code=422, detail="Uploaded object size does not match"
         )
-    version.content_type = head.content_type
-    version.size_bytes = head.content_length
+    sealed_key = f"documents/{version.id}/{uuid.uuid4()}.pdf"
+    try:
+        sealed_head = await asyncio.to_thread(
+            storage.seal_upload,
+            version.storage_key,
+            sealed_key,
+            head.etag,
+        )
+        if (
+            sealed_head.content_type.lower().strip() != "application/pdf"
+            or sealed_head.content_length != head.content_length
+        ):
+            raise RuntimeError("Sealed object metadata does not match the upload")
+    except StorageObjectChanged as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Uploaded object changed during completion",
+        ) from exc
+    except StorageObjectNotFound as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Uploaded object not found",
+        ) from exc
+    except Exception as exc:
+        version.status = DocumentStatus.PROCESSING_FAILED
+        version.failure_code = "STORAGE_UNAVAILABLE"
+        version.failure_detail = "Object storage is temporarily unavailable"
+        await db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Object storage is temporarily unavailable",
+        ) from exc
+    version.storage_key = sealed_key
+    version.content_type = sealed_head.content_type
+    version.size_bytes = sealed_head.content_length
     version.status = DocumentStatus.QUEUED
     version.failure_code = None
     version.failure_detail = None

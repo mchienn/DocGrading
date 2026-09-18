@@ -107,6 +107,43 @@ class BBox(BaseModel):
         return self
 
 
+class ValidationDiagnosticResponse(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+    category: str = Field(min_length=1, max_length=32)
+    disposition: Literal["BLOCK", "WARN", "REVIEW", "RETRY"]
+    scope: Literal["DOCUMENT", "PAGE", "REGION"]
+    page_number: int | None = Field(default=None, gt=0)
+    bbox: BBox | None = None
+    metrics: dict[str, int | float] = Field(default_factory=dict)
+    message_key: str = Field(min_length=1, max_length=128)
+    action_key: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_location(self) -> ValidationDiagnosticResponse:
+        if self.scope == "DOCUMENT" and (
+            self.page_number is not None or self.bbox is not None
+        ):
+            raise ValueError("Document diagnostics cannot have page coordinates")
+        if self.scope in {"PAGE", "REGION"} and self.page_number is None:
+            raise ValueError("Page and region diagnostics require a page number")
+        if self.scope == "REGION" and self.bbox is None:
+            raise ValueError("Region diagnostics require a bounding box")
+        return self
+
+
+class ValidationReportResponse(BaseModel):
+    document_version_id: uuid.UUID
+    schema_version: int = Field(gt=0)
+    outcome: Literal[
+        "NOT_RUN",
+        "ACCEPTED",
+        "ACCEPTED_WITH_WARNINGS",
+        "REJECTED",
+        "PROCESSING_FAILED",
+    ]
+    diagnostics: list[ValidationDiagnosticResponse] = Field(max_length=25)
+
+
 class EvidenceResponse(BaseModel):
     document_ir_id: uuid.UUID
     element_id: str

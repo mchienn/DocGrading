@@ -15,14 +15,17 @@ from typing import Any
 
 from pypdf import PdfReader
 from pypdf import filters as pdf_filters
-from pypdf.errors import LimitReachedError
+from pypdf.errors import LimitReachedError, PdfReadError, PdfStreamError
 from pypdf.generic import (
     ArrayObject,
+    ByteStringObject,
     ContentStream,
     DictionaryObject,
     IndirectObject,
+    NameObject,
     NullObject,
     StreamObject,
+    TextStringObject,
 )
 
 _PYPDF_LOG_NAMESPACES = ("pypdf", "pdfminer", "pdfplumber")
@@ -88,19 +91,102 @@ def _suppress_untrusted_pdf_logs() -> Iterator[None]:
         _PDF_LOGGING_SUPPRESSED.reset(token)
 
 
+@dataclass(frozen=True, slots=True)
+class PDFDiagnostic:
+    code: str
+    category: str
+    disposition: str
+    scope: str = "DOCUMENT"
+    page_number: int | None = None
+    bbox: dict[str, float] | None = None
+    metrics: dict[str, int | float] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "category": self.category,
+            "disposition": self.disposition,
+            "scope": self.scope,
+            "page_number": self.page_number,
+            "bbox": self.bbox,
+            "metrics": self.metrics,
+            "message_key": self.code.lower(),
+            "action_key": _DIAGNOSTIC_ACTIONS.get(self.code),
+        }
+
+
+_DIAGNOSTIC_ACTIONS = {
+    "NOT_A_PDF": "pdf.choose_pdf",
+    "PDF_TOO_LARGE": "pdf.reduce_size",
+    "PDF_ENCRYPTED": "pdf.remove_password",
+    "PDF_PAGE_LIMIT": "pdf.reduce_pages",
+    "PDF_DECODED_TOO_LARGE": "pdf.export_clean_copy",
+    "PDF_STRUCTURE_UNRECOVERABLE": "pdf.export_clean_copy",
+    "PDF_STRUCTURE_RECOVERED": "pdf.export_clean_copy",
+    "PDF_ACTIVE_JAVASCRIPT": "pdf.remove_active_content",
+    "PDF_ACTIVE_LAUNCH": "pdf.remove_active_content",
+    "PDF_ACTIVE_FORM": "pdf.flatten_form",
+    "PDF_ACTIVE_MEDIA": "pdf.remove_active_content",
+    "PDF_ACTIVE_REMOTE_ACTION": "pdf.remove_active_content",
+    "PDF_ACTIVE_AUTOMATIC_ACTION": "pdf.remove_active_content",
+    "PDF_EMBEDDED_FILE": "pdf.remove_attachments",
+    "PDF_SCAN_DETECTED": "pdf.run_ocr",
+    "PDF_SCAN_ANALYSIS_UNSUPPORTED": "pdf.export_searchable_copy",
+    "PDF_TEXT_LAYER_MISSING": "pdf.run_ocr",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class PDFLink:
+    page_number: int
+    bbox: dict[str, float] | None
+    action_type: str
+    target: str
+    target_truncated: bool = False
+
+
 @dataclass(frozen=True)
 class PDFValidationResult:
     sha256: str
     size_bytes: int
     page_count: int
     has_text: bool
+    diagnostics: tuple[PDFDiagnostic, ...] = ()
+    links: tuple[PDFLink, ...] = ()
+
+    @property
+    def report(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "outcome": ("ACCEPTED_WITH_WARNINGS" if self.diagnostics else "ACCEPTED"),
+            "diagnostics": [item.to_dict() for item in self.diagnostics],
+        }
 
 
 class PDFValidationError(ValueError):
-    def __init__(self, code: str, detail: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: str | None = None,
+        *,
+        diagnostic: PDFDiagnostic | None = None,
+    ) -> None:
         self.code = code
         self.detail = detail or code
+        self.diagnostic = diagnostic or PDFDiagnostic(
+            code=code,
+            category="COMPATIBILITY",
+            disposition="BLOCK",
+        )
         super().__init__(self.detail)
+
+    @property
+    def report(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "outcome": "REJECTED",
+            "diagnostics": [self.diagnostic.to_dict()],
+        }
 
 
 class _PDFScanLimit(Exception):
@@ -148,6 +234,7 @@ _MAX_CLIP_VERTICES = 256
 _MAX_PAGE_TREE_NODES = 10_000
 _MAX_PAGE_TREE_DEPTH = 100
 _MAX_ACTIVE_CONTENT_NODES = 50_000
+_MAX_STRUCT_TREE_NODES = 250_000
 _GEOMETRY_OPERATOR_ARITY = {
     b"q": 0,
     b"Q": 0,
@@ -192,56 +279,51 @@ def _resolve_page_tree_object(value: Any, work: list[int]) -> Any:
 
 def _preflight_page_tree(reader: PdfReader, max_page_count: int) -> int:
     """Count page leaves without invoking pypdf's flattening machinery."""
-    try:
-        work = [0]
-        pages = _resolve_page_tree_object(reader.root_object.get("/Pages"), work)
-        if not isinstance(pages, dict):
-            raise PDFValidationError("PDF_MALFORMED")
-        count = _resolve_page_tree_object(pages.get("/Count"), work)
-        if (
-            isinstance(count, int)
-            and not isinstance(count, bool)
-            and count > max_page_count
-        ):
-            raise PDFValidationError("PDF_PAGE_LIMIT")
+    work = [0]
+    pages = _resolve_page_tree_object(reader.root_object.get("/Pages"), work)
+    if not isinstance(pages, dict):
+        raise PDFValidationError("PDF_MALFORMED")
+    count = _resolve_page_tree_object(pages.get("/Count"), work)
+    if (
+        isinstance(count, int)
+        and not isinstance(count, bool)
+        and count > max_page_count
+    ):
+        raise PDFValidationError("PDF_PAGE_LIMIT")
 
-        pending: list[tuple[Any, int]] = [(pages, 0)]
-        seen: set[int] = set()
-        page_count = 0
-        node_count = 0
-        while pending:
-            value, depth = pending.pop()
-            if depth > _MAX_PAGE_TREE_DEPTH:
-                raise PDFValidationError("PDF_MALFORMED")
-            resolved = _resolve_page_tree_object(value, work)
-            marker = id(resolved)
-            if marker in seen:
-                raise PDFValidationError("PDF_MALFORMED")
-            seen.add(marker)
-            node_count += 1
-            if node_count + work[0] > _MAX_PAGE_TREE_NODES:
-                raise PDFValidationError("PDF_MALFORMED")
-            if not isinstance(resolved, dict):
-                raise PDFValidationError("PDF_MALFORMED")
-            object_type = str(_resolve_page_tree_object(resolved.get("/Type"), work))
-            if object_type == "/Page":
-                page_count += 1
-                if page_count > max_page_count:
-                    raise PDFValidationError("PDF_PAGE_LIMIT")
-                continue
-            if object_type != "/Pages":
-                raise PDFValidationError("PDF_MALFORMED")
-            kids = _resolve_page_tree_object(resolved.get("/Kids"), work)
-            if not isinstance(kids, (ArrayObject, list, tuple)):
-                raise PDFValidationError("PDF_MALFORMED")
-            if len(kids) > (_MAX_PAGE_TREE_NODES - node_count - len(pending) - work[0]):
-                raise PDFValidationError("PDF_MALFORMED")
-            pending.extend((child, depth + 1) for child in kids)
-        return page_count
-    except PDFValidationError:
-        raise
-    except Exception as exc:
-        raise PDFValidationError("PDF_MALFORMED") from exc
+    pending: list[tuple[Any, int]] = [(pages, 0)]
+    seen: set[int] = set()
+    page_count = 0
+    node_count = 0
+    while pending:
+        value, depth = pending.pop()
+        if depth > _MAX_PAGE_TREE_DEPTH:
+            raise PDFValidationError("PDF_MALFORMED")
+        resolved = _resolve_page_tree_object(value, work)
+        marker = id(resolved)
+        if marker in seen:
+            raise PDFValidationError("PDF_MALFORMED")
+        seen.add(marker)
+        node_count += 1
+        if node_count + work[0] > _MAX_PAGE_TREE_NODES:
+            raise PDFValidationError("PDF_MALFORMED")
+        if not isinstance(resolved, dict):
+            raise PDFValidationError("PDF_MALFORMED")
+        object_type = str(_resolve_page_tree_object(resolved.get("/Type"), work))
+        if object_type == "/Page":
+            page_count += 1
+            if page_count > max_page_count:
+                raise PDFValidationError("PDF_PAGE_LIMIT")
+            continue
+        if object_type != "/Pages":
+            raise PDFValidationError("PDF_MALFORMED")
+        kids = _resolve_page_tree_object(resolved.get("/Kids"), work)
+        if not isinstance(kids, (ArrayObject, list, tuple)):
+            raise PDFValidationError("PDF_MALFORMED")
+        if len(kids) > (_MAX_PAGE_TREE_NODES - node_count - len(pending) - work[0]):
+            raise PDFValidationError("PDF_MALFORMED")
+        pending.extend((child, depth + 1) for child in kids)
+    return page_count
 
 
 @dataclass
@@ -649,17 +731,13 @@ def _coverage_reaches_threshold(coverage: float) -> bool:
     )
 
 
-def _load_form_content(
+def _account_form_stream(
     xobject: StreamObject,
-    pdf: Any,
     context: _RasterGeometryContext,
-) -> tuple[ContentStream, int]:
+) -> int:
     marker = id(xobject)
-    if marker in context.form_contents:
-        return (
-            context.form_contents[marker],
-            context.form_decoded_sizes[marker],
-        )
+    if marker in context.form_decoded_sizes:
+        return context.form_decoded_sizes[marker]
     remaining = context.remaining_decoded_bytes
     _ensure_unbounded_filter_stages_fit(xobject, remaining)
     with _bounded_pypdf_decode(remaining):
@@ -671,10 +749,56 @@ def _load_form_content(
     if decoded_size > remaining:
         raise PDFValidationError("PDF_DECODED_TOO_LARGE")
     context.remaining_decoded_bytes -= decoded_size
-    content = ContentStream(xobject, pdf, "bytes")
-    context.form_contents[marker] = content
     context.form_decoded_sizes[marker] = decoded_size
+    return decoded_size
+
+
+def _load_form_content(
+    xobject: StreamObject,
+    pdf: Any,
+    context: _RasterGeometryContext,
+) -> tuple[ContentStream, int]:
+    marker = id(xobject)
+    if marker in context.form_contents:
+        return (
+            context.form_contents[marker],
+            context.form_decoded_sizes[marker],
+        )
+    decoded_size = _account_form_stream(xobject, context)
+    with _bounded_pypdf_decode(decoded_size):
+        content = ContentStream(xobject, pdf, "bytes")
+    context.form_contents[marker] = content
     return content, decoded_size
+
+
+def _preflight_form_streams(page: Any, context: _RasterGeometryContext) -> None:
+    pending: list[tuple[Any, int]] = [(page, 0)]
+    seen: set[int] = set()
+    while pending:
+        container, depth = pending.pop()
+        if depth > _MAX_FORM_DEPTH:
+            raise _PDFGeometryLimit
+        resources = _resolve_pdf_object(container.get("/Resources"))
+        if not isinstance(resources, dict):
+            continue
+        xobjects = _resolve_pdf_object(resources.get("/XObject"))
+        if not isinstance(xobjects, dict):
+            continue
+        for raw_xobject in xobjects.values():
+            xobject = _resolve_pdf_object(raw_xobject)
+            if not isinstance(xobject, StreamObject):
+                continue
+            subtype = _resolve_pdf_object(xobject.get("/Subtype"))
+            if str(subtype) != "/Form":
+                continue
+            marker = id(xobject)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            if len(seen) > _MAX_PAGE_TREE_NODES:
+                raise _PDFGeometryLimit
+            _account_form_stream(xobject, context)
+            pending.append((xobject, depth + 1))
 
 
 def _bounded_content_operations(
@@ -699,6 +823,7 @@ def _walk_raster_coverage(
     *,
     initial_matrix: Matrix,
     clip_polygon: Polygon,
+    clip_is_conservative: bool,
     page_area: float,
     form_path: set[int],
     depth: int,
@@ -708,10 +833,11 @@ def _walk_raster_coverage(
     initial_clip = clip_polygon.copy()
     current_matrix = initial_matrix
     current_clip = initial_clip.copy()
+    current_clip_is_conservative = clip_is_conservative
     current_path: Polygon | None = []
     clip_pending = False
     current_path_uses_curve = False
-    graphics_stack: list[tuple[Matrix, Polygon]] = []
+    graphics_stack: list[tuple[Matrix, Polygon, bool]] = []
     maximum_coverage = 0.0
     operations = _bounded_content_operations(
         content,
@@ -725,13 +851,18 @@ def _walk_raster_coverage(
         if expected_arity is not None and len(operands) != expected_arity:
             raise _PDFGeometryLimit
         if operator == b"q":
-            graphics_stack.append((current_matrix, current_clip.copy()))
+            graphics_stack.append(
+                (current_matrix, current_clip.copy(), current_clip_is_conservative)
+            )
         elif operator == b"Q":
             if graphics_stack:
-                current_matrix, current_clip = graphics_stack.pop()
+                current_matrix, current_clip, current_clip_is_conservative = (
+                    graphics_stack.pop()
+                )
             else:
                 current_matrix = initial_matrix
                 current_clip = initial_clip.copy()
+                current_clip_is_conservative = clip_is_conservative
         elif operator == b"cm":
             matrix = tuple(map(float, operands[:6]))
             current_matrix = _multiply_matrix(
@@ -793,7 +924,8 @@ def _walk_raster_coverage(
             clip_pending = True
         elif operator == b"W*":
             clip_pending = True
-            current_path = None
+            if current_path_uses_curve:
+                current_path = None
         elif operator in {
             b"S",
             b"s",
@@ -811,8 +943,9 @@ def _walk_raster_coverage(
                     raise _PDFGeometryLimit
                 clip_path = _without_repeated_closing_point(current_path)
                 if current_path_uses_curve:
-                    # Control-point bounds overestimate area, never hide scans.
+                    # Control-point bounds are safe only below the scan threshold.
                     clip_path = _bounding_box_polygon(clip_path)
+                    current_clip_is_conservative = True
                 elif not _is_convex_polygon(clip_path):
                     raise _PDFGeometryLimit
                 current_clip = _clip_polygon(current_clip, clip_path)
@@ -820,10 +953,10 @@ def _walk_raster_coverage(
             current_path_uses_curve = False
             clip_pending = False
         elif operator == b"INLINE IMAGE":
-            maximum_coverage = max(
-                maximum_coverage,
-                _image_coverage(current_matrix, current_clip, page_area),
-            )
+            coverage = _image_coverage(current_matrix, current_clip, page_area)
+            if current_clip_is_conservative and _coverage_reaches_threshold(coverage):
+                raise _PDFGeometryLimit
+            maximum_coverage = max(maximum_coverage, coverage)
         elif operator == b"Do":
             xobjects = _resolve_pdf_object(
                 resources.get("/XObject", DictionaryObject())
@@ -835,14 +968,16 @@ def _walk_raster_coverage(
                 continue
             subtype = str(xobject.get("/Subtype", ""))
             if subtype == "/Image":
-                maximum_coverage = max(
-                    maximum_coverage,
-                    _image_coverage(
-                        current_matrix,
-                        current_clip,
-                        page_area,
-                    ),
+                coverage = _image_coverage(
+                    current_matrix,
+                    current_clip,
+                    page_area,
                 )
+                if current_clip_is_conservative and _coverage_reaches_threshold(
+                    coverage
+                ):
+                    raise _PDFGeometryLimit
+                maximum_coverage = max(maximum_coverage, coverage)
             elif subtype == "/Form":
                 marker = id(xobject)
                 if marker in form_path:
@@ -885,6 +1020,7 @@ def _walk_raster_coverage(
                         context,
                         initial_matrix=form_matrix,
                         clip_polygon=form_clip,
+                        clip_is_conservative=current_clip_is_conservative,
                         page_area=page_area,
                         form_path=form_path | {marker},
                         depth=depth + 1,
@@ -915,6 +1051,7 @@ def _maximum_raster_coverage(
         context,
         initial_matrix=_IDENTITY_MATRIX,
         clip_polygon=page_polygon,
+        clip_is_conservative=False,
         page_area=page_area,
         form_path=set(),
         depth=0,
@@ -938,10 +1075,13 @@ def _bounded_pypdf_decode(max_output_length: int) -> Iterator[None]:
                 setattr(pdf_filters, name, value)
 
 
+_MAX_LINK_ANNOTATIONS = 500
+_MAX_LINK_TARGET_CHARACTERS = 2_048
+
+
 _ACTIVE_CONTENT_KEYS = {
     "/JS",
     "/JavaScript",
-    "/OpenAction",
     "/AA",
     "/Launch",
     "/EmbeddedFiles",
@@ -951,7 +1091,6 @@ _ACTIVE_CONTENT_KEYS = {
     "/RF",
     "/AF",
     "/XFA",
-    "/AcroForm",
     "/RichMedia",
     "/RichMediaConfiguration",
     "/RichMediaAssets",
@@ -969,7 +1108,6 @@ _ACTIVE_CONTENT_SUBTYPES = {
 _ACTIVE_ACTION_TYPES = {
     "/JavaScript",
     "/Launch",
-    "/GoToR",
     "/GoToE",
     "/SubmitForm",
     "/ImportData",
@@ -981,157 +1119,701 @@ _ACTIVE_ACTION_TYPES = {
     "/Hide",
     "/SetOCGState",
 }
-_ACTION_CHILD_KEYS = {"/A", "/AA", "/OpenAction", "/Next"}
 
 
-def _resolve_active_object(value: Any, nodes: list[int]) -> Any:
+def _active_diagnostic_code(value: str) -> str:
+    if value in {"/JS", "/JavaScript"}:
+        return "PDF_ACTIVE_JAVASCRIPT"
+    if value == "/Launch":
+        return "PDF_ACTIVE_LAUNCH"
+    if value in {
+        "/EmbeddedFiles",
+        "/EmbeddedFile",
+        "/Filespec",
+        "/EF",
+        "/RF",
+        "/AF",
+        "/FileAttachment",
+    }:
+        return "PDF_EMBEDDED_FILE"
+    if value in {"/AcroForm", "/XFA", "/SubmitForm", "/ImportData", "/ResetForm"}:
+        return "PDF_ACTIVE_FORM"
+    if value in {
+        "/RichMedia",
+        "/RichMediaConfiguration",
+        "/RichMediaAssets",
+        "/RichMediaExecute",
+        "/Rendition",
+        "/3D",
+        "/Screen",
+        "/Movie",
+        "/Sound",
+    }:
+        return "PDF_ACTIVE_MEDIA"
+    if value in {"/URI", "/GoToR", "/GoToE"}:
+        return "PDF_ACTIVE_REMOTE_ACTION"
+    if value in {"/AA", "/OpenAction", "/Next"}:
+        return "PDF_ACTIVE_AUTOMATIC_ACTION"
+    return "PDF_ACTIVE_CONTENT"
+
+
+def _active_result(detected: list[str] | None, value: str) -> bool:
+    if detected is not None and not detected:
+        detected.append(_active_diagnostic_code(value))
+    return True
+
+
+def _resolve_active_object(
+    value: Any,
+    nodes: list[int],
+    max_nodes: int | None = None,
+) -> Any:
+    if max_nodes is None:
+        max_nodes = _MAX_ACTIVE_CONTENT_NODES
     seen: set[int] = set()
     while isinstance(value, IndirectObject):
         nodes[0] += 1
-        if nodes[0] > _MAX_ACTIVE_CONTENT_NODES:
+        if nodes[0] > max_nodes:
             raise _PDFScanLimit
         marker = id(value)
         if marker in seen:
             raise PDFValidationError("PDF_MALFORMED")
         seen.add(marker)
-        try:
-            value = value.get_object()
-        except Exception as exc:
-            raise PDFValidationError("PDF_MALFORMED") from exc
+        value = value.get_object()
     return value
+
+
+@dataclass(slots=True)
+class _ActiveScanFrame:
+    children: Iterator[Any]
+    dictionary_children: bool
+    is_page: bool = False
+    is_link_annotation: bool = False
+    clicked_gotor: bool = False
+    annots_array_context: bool = False
 
 
 def _contains_active_content(
     value: Any,
-    seen: dict[tuple[int, bool], Any] | None = None,
+    seen: dict[tuple[Any, ...], Any] | None = None,
     *,
     nodes: list[int] | None = None,
-    _action_context: bool = False,
+    detected: list[str] | None = None,
+    max_nodes: int | None = None,
+    scan_struct_tree: bool = False,
 ) -> bool:
     if seen is None:
         seen = {}
     if nodes is None:
         nodes = [0]
-    frames: list[tuple[Iterator[Any], bool, bool]] = []
+    if max_nodes is None:
+        max_nodes = _MAX_ACTIVE_CONTENT_NODES
+    frames: list[_ActiveScanFrame] = []
     current = value
-    action_context = _action_context
+    direct_link_action_context = False
+    gotor_file_context = False
+    annots_array_context = False
+    page_annotation_context = False
     key_name: str | None = None
-    parent_is_action = False
     while True:
         visit_current = True
         if key_name is not None:
-            current = _resolve_active_object(current, nodes)
-            if current is None or isinstance(current, NullObject):
+            if key_name == "/StructTreeRoot" and not scan_struct_tree:
+                if _contains_active_content(
+                    current,
+                    nodes=[0],
+                    detected=detected,
+                    max_nodes=_MAX_STRUCT_TREE_NODES,
+                    scan_struct_tree=True,
+                ):
+                    return True
                 visit_current = False
-            elif key_name in _ACTIVE_CONTENT_KEYS or (
-                key_name == "/S"
-                and parent_is_action
-                and str(current) in _ACTIVE_ACTION_TYPES
+            elif key_name in {"/P", "/Parent", "/Dest", "/D"} or (
+                scan_struct_tree and key_name in {"/Pg", "/Obj"}
             ):
-                return True
+                visit_current = False
+            else:
+                current = _resolve_active_object(current, nodes, max_nodes)
+                if current is None or isinstance(current, NullObject):
+                    visit_current = False
+                elif key_name == "/AcroForm":
+                    if not isinstance(current, dict):
+                        return _active_result(detected, key_name)
+                    fields = _resolve_active_object(
+                        current.get("/Fields"),
+                        nodes,
+                        max_nodes,
+                    )
+                    if (
+                        fields is not None
+                        and not isinstance(fields, NullObject)
+                        and (not isinstance(fields, (list, tuple)) or fields)
+                    ):
+                        return _active_result(detected, key_name)
+                    for active_key in ("/XFA", "/JS"):
+                        active_value = _resolve_active_object(
+                            current.get(active_key),
+                            nodes,
+                            max_nodes,
+                        )
+                        if active_value is not None and not isinstance(
+                            active_value,
+                            NullObject,
+                        ):
+                            return _active_result(detected, active_key)
+                elif key_name == "/OpenAction":
+                    if isinstance(current, (list, tuple)):
+                        visit_current = False
+                    elif isinstance(current, dict):
+                        action_type = _resolve_active_object(
+                            current.get("/S"),
+                            nodes,
+                            max_nodes,
+                        )
+                        if not (
+                            isinstance(action_type, NameObject)
+                            and action_type == "/GoTo"
+                        ):
+                            return _active_result(
+                                detected, str(action_type or key_name)
+                            )
+                elif key_name in _ACTIVE_CONTENT_KEYS:
+                    return _active_result(detected, key_name)
 
         if visit_current:
             nodes[0] += 1
-            if nodes[0] > _MAX_ACTIVE_CONTENT_NODES:
+            if nodes[0] > max_nodes:
                 raise _PDFScanLimit
             if isinstance(current, IndirectObject):
-                current = _resolve_active_object(current, nodes)
-            marker = (id(current), action_context)
+                current = _resolve_active_object(current, nodes, max_nodes)
+            marker = (
+                id(current),
+                direct_link_action_context,
+                gotor_file_context,
+                annots_array_context,
+                page_annotation_context,
+            )
             if marker not in seen or seen[marker] is not current:
                 seen[marker] = current
                 if isinstance(current, dict):
-                    object_type = _resolve_active_object(current.get("/Type"), nodes)
-                    subtype = _resolve_active_object(current.get("/Subtype"), nodes)
+                    object_type = _resolve_active_object(
+                        current.get("/Type"),
+                        nodes,
+                        max_nodes,
+                    )
+                    subtype = _resolve_active_object(
+                        current.get("/Subtype"),
+                        nodes,
+                        max_nodes,
+                    )
                     object_type_name = str(object_type)
                     subtype_name = str(subtype)
-                    is_action = action_context or object_type_name == "/Action"
+                    is_page = (
+                        isinstance(object_type, NameObject) and object_type == "/Page"
+                    )
+                    is_link_annotation = (
+                        page_annotation_context
+                        and isinstance(subtype, NameObject)
+                        and subtype == "/Link"
+                    )
+                    filespec_exception = gotor_file_context and (
+                        (
+                            isinstance(object_type, NameObject)
+                            and object_type == "/Filespec"
+                        )
+                        or (isinstance(subtype, NameObject) and subtype == "/Filespec")
+                    )
                     if (
                         subtype_name in _ACTIVE_CONTENT_SUBTYPES
                         or object_type_name in _ACTIVE_CONTENT_SUBTYPES
-                    ):
-                        return True
-                    frames.append((iter(current.items()), is_action, True))
+                    ) and not filespec_exception:
+                        return _active_result(
+                            detected,
+                            (
+                                subtype_name
+                                if subtype_name in _ACTIVE_CONTENT_SUBTYPES
+                                else object_type_name
+                            ),
+                        )
+                    action_type = _resolve_active_object(
+                        current.get("/S"),
+                        nodes,
+                        max_nodes,
+                    )
+                    action_type_name = str(action_type)
+                    direct_link_action = (
+                        direct_link_action_context
+                        and isinstance(action_type, NameObject)
+                        and action_type_name in {"/URI", "/GoToR"}
+                    )
+                    if (
+                        action_type_name in _ACTIVE_ACTION_TYPES
+                        or action_type_name in {"/URI", "/GoToR"}
+                    ) and not direct_link_action:
+                        return _active_result(detected, action_type_name)
+                    clicked_gotor = direct_link_action and action_type_name == "/GoToR"
+                    if clicked_gotor:
+                        target = _resolve_active_object(
+                            current.get("/F"),
+                            nodes,
+                            max_nodes,
+                        )
+                        target_type = (
+                            _resolve_active_object(
+                                target.get("/Type"),
+                                nodes,
+                                max_nodes,
+                            )
+                            if isinstance(target, DictionaryObject)
+                            else None
+                        )
+                        if not (
+                            isinstance(target, (TextStringObject, ByteStringObject))
+                            or (
+                                isinstance(target, DictionaryObject)
+                                and not isinstance(target, StreamObject)
+                                and isinstance(target_type, NameObject)
+                                and target_type == "/Filespec"
+                            )
+                        ):
+                            return _active_result(detected, "/GoToR")
+                    frames.append(
+                        _ActiveScanFrame(
+                            children=iter(current.items()),
+                            dictionary_children=True,
+                            is_page=is_page,
+                            is_link_annotation=is_link_annotation,
+                            clicked_gotor=clicked_gotor,
+                        )
+                    )
                 elif isinstance(current, (list, tuple)):
-                    frames.append((iter(current), action_context, False))
+                    frames.append(
+                        _ActiveScanFrame(
+                            children=iter(current),
+                            dictionary_children=False,
+                            annots_array_context=annots_array_context,
+                        )
+                    )
 
         while frames:
-            children, child_context, dictionary_children = frames[-1]
+            frame = frames[-1]
             try:
-                child = next(children)
+                child = next(frame.children)
             except StopIteration:
                 frames.pop()
                 continue
-            if dictionary_children:
+            if frame.dictionary_children:
                 key, current = child
                 key_name = str(key)
-                action_context = key_name in _ACTION_CHILD_KEYS
-                parent_is_action = child_context
+                direct_link_action_context = (
+                    frame.is_link_annotation and key_name == "/A"
+                )
+                gotor_file_context = frame.clicked_gotor and key_name == "/F"
+                annots_array_context = frame.is_page and key_name == "/Annots"
+                page_annotation_context = False
             else:
                 current = child
-                action_context = child_context
+                direct_link_action_context = False
+                gotor_file_context = False
+                annots_array_context = False
+                page_annotation_context = frame.annots_array_context
                 key_name = None
-                parent_is_action = False
             break
         else:
             return False
 
 
-def validate_pdf(
+def _page_geometry(page: Any) -> tuple[float, float, float, float, int] | None:
+    try:
+        width = float(page.mediabox.width)
+        height = float(page.mediabox.height)
+        left = float(page.mediabox.left)
+        bottom = float(page.mediabox.bottom)
+        rotation = int(page.rotation) % 360
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None
+    if (
+        not all(isfinite(value) for value in (width, height, left, bottom))
+        or width <= 0
+        or height <= 0
+        or rotation not in {0, 90, 180, 270}
+    ):
+        return None
+    return width, height, left, bottom, rotation
+
+
+def _page_bbox(page: Any) -> dict[str, float] | None:
+    geometry = _page_geometry(page)
+    if geometry is None:
+        return None
+    width, height, _left, _bottom, rotation = geometry
+    if rotation in {90, 270}:
+        width, height = height, width
+    return {"x0": 0.0, "top": 0.0, "x1": width, "bottom": height}
+
+
+def _annotation_bbox(
+    annotation: dict[str, Any],
+    page: Any,
+    nodes: list[int],
+) -> dict[str, float] | None:
+    geometry = _page_geometry(page)
+    page_bbox = _page_bbox(page)
+    if geometry is None or page_bbox is None:
+        return None
+    rect = _resolve_active_object(annotation.get("/Rect"), nodes)
+    if not isinstance(rect, (list, tuple)) or len(rect) != 4:
+        return None
+    try:
+        coordinates = [float(value) for value in rect]
+    except (TypeError, ValueError, OverflowError):
+        return None
+    width, height, page_left, page_bottom, rotation = geometry
+    if not all(isfinite(value) for value in coordinates):
+        return None
+    first_x, first_y, second_x, second_y = coordinates
+    x0 = min(first_x, second_x) - page_left
+    x1 = max(first_x, second_x) - page_left
+    y0 = min(first_y, second_y) - page_bottom
+    y1 = max(first_y, second_y) - page_bottom
+    if x0 < 0 or y0 < 0 or x1 > width or y1 > height or x0 > x1 or y0 > y1:
+        return None
+    if rotation == 0:
+        transformed = (x0, height - y1, x1, height - y0)
+    elif rotation == 90:
+        transformed = (y0, x0, y1, x1)
+    elif rotation == 180:
+        transformed = (width - x1, y0, width - x0, y1)
+    else:
+        transformed = (height - y1, width - x1, height - y0, width - x0)
+    left, top, right, bottom = transformed
+    if (
+        left < 0
+        or top < 0
+        or right > page_bbox["x1"]
+        or bottom > page_bbox["bottom"]
+        or left > right
+        or top > bottom
+    ):
+        return None
+    return {"x0": left, "top": top, "x1": right, "bottom": bottom}
+
+
+def _pdf_string(value: Any) -> str | None:
+    if isinstance(value, TextStringObject):
+        return str(value)
+    if isinstance(value, ByteStringObject):
+        return bytes(value).decode("utf-8", errors="replace")
+    return None
+
+
+def _safe_link(
+    annotation: dict[str, Any],
+    page: Any,
+    page_number: int,
+    nodes: list[int],
+) -> PDFLink | None:
+    subtype = _resolve_active_object(annotation.get("/Subtype"), nodes)
+    if not isinstance(subtype, NameObject) or subtype != "/Link":
+        return None
+    action = _resolve_active_object(annotation.get("/A"), nodes)
+    if not isinstance(action, dict):
+        return None
+    action_type = _resolve_active_object(action.get("/S"), nodes)
+    if not isinstance(action_type, NameObject) or action_type not in {
+        "/URI",
+        "/GoToR",
+    }:
+        return None
+    if action_type == "/URI":
+        target = _pdf_string(_resolve_active_object(action.get("/URI"), nodes))
+    else:
+        raw_target = _resolve_active_object(action.get("/F"), nodes)
+        target = _pdf_string(raw_target)
+        if isinstance(raw_target, dict):
+            target = _pdf_string(
+                _resolve_active_object(
+                    raw_target.get("/UF", raw_target.get("/F")),
+                    nodes,
+                )
+            )
+    if target is None:
+        target = ""
+    truncated = len(target) > _MAX_LINK_TARGET_CHARACTERS
+    return PDFLink(
+        page_number=page_number,
+        bbox=_annotation_bbox(annotation, page, nodes),
+        action_type=str(action_type).removeprefix("/"),
+        target=target[:_MAX_LINK_TARGET_CHARACTERS],
+        target_truncated=truncated,
+    )
+
+
+def _active_content_and_links(
+    reader: PdfReader,
+    pages: Any,
+) -> tuple[PDFDiagnostic | None, tuple[PDFLink, ...]]:
+    nodes = [0]
+    links: list[PDFLink] = []
+    for page_number, page in enumerate(pages, start=1):
+        annots = _resolve_active_object(page.get("/Annots"), nodes)
+        if annots is None or isinstance(annots, NullObject):
+            continue
+        if not isinstance(annots, (list, tuple)):
+            raise PDFValidationError("PDF_MALFORMED")
+        for raw_annotation in annots:
+            annotation = _resolve_active_object(raw_annotation, nodes)
+            if not isinstance(annotation, dict):
+                raise PDFValidationError("PDF_MALFORMED")
+            detected: list[str] = []
+            local_annotation = DictionaryObject(
+                {
+                    key: value
+                    for key, value in annotation.items()
+                    if str(key) not in {"/P", "/Parent"}
+                }
+            )
+            wrapped_page = {
+                NameObject("/Type"): NameObject("/Page"),
+                NameObject("/Annots"): [local_annotation],
+            }
+            if _contains_active_content(
+                wrapped_page,
+                nodes=nodes,
+                detected=detected,
+            ):
+                bbox = _annotation_bbox(annotation, page, nodes)
+                return (
+                    PDFDiagnostic(
+                        code=detected[0] if detected else "PDF_ACTIVE_CONTENT",
+                        category="SECURITY",
+                        disposition="BLOCK",
+                        scope="REGION" if bbox is not None else "PAGE",
+                        page_number=page_number,
+                        bbox=bbox or _page_bbox(page),
+                    ),
+                    tuple(links),
+                )
+            link = _safe_link(annotation, page, page_number, nodes)
+            if link is not None:
+                if len(links) >= _MAX_LINK_ANNOTATIONS:
+                    raise PDFValidationError("PDF_STRUCTURE_LIMIT")
+                links.append(link)
+
+    detected = []
+    if _contains_active_content(reader.trailer, detected=detected):
+        return (
+            PDFDiagnostic(
+                code=detected[0] if detected else "PDF_ACTIVE_CONTENT",
+                category="SECURITY",
+                disposition="BLOCK",
+            ),
+            tuple(links),
+        )
+    return None, tuple(links)
+
+
+def _validate_pdf_once(
     data: bytes,
     *,
-    max_size_bytes: int = 50_000_000,
-    max_page_count: int = 100,
-) -> PDFValidationResult:
-    if len(data) > max_size_bytes:
-        raise PDFValidationError("PDF_TOO_LARGE")
-    if not data.startswith(b"%PDF-"):
-        raise PDFValidationError("NOT_A_PDF")
+    strict: bool,
+    max_page_count: int,
+    max_decoded_bytes: int,
+) -> tuple[int, bool, tuple[PDFLink, ...]]:
     try:
         with (
             _suppress_untrusted_pdf_logs(),
-            _bounded_pypdf_decode(max_size_bytes),
+            _bounded_pypdf_decode(max_decoded_bytes),
         ):
-            reader = PdfReader(BytesIO(data), strict=True)
+            reader = PdfReader(BytesIO(data), strict=strict)
             if reader.is_encrypted:
-                raise PDFValidationError("PDF_ENCRYPTED")
+                raise PDFValidationError(
+                    "PDF_ENCRYPTED",
+                    diagnostic=PDFDiagnostic(
+                        code="PDF_ENCRYPTED",
+                        category="SECURITY",
+                        disposition="BLOCK",
+                    ),
+                )
             page_count = _preflight_page_tree(reader, max_page_count)
             pages = reader.pages
-            if _contains_active_content(reader.trailer):
-                raise PDFValidationError("PDF_ACTIVE_CONTENT")
+            active_diagnostic, links = _active_content_and_links(reader, pages)
+            if active_diagnostic is not None:
+                raise PDFValidationError(
+                    "PDF_ACTIVE_CONTENT",
+                    diagnostic=active_diagnostic,
+                )
+
             text_found = False
-            geometry_context = _RasterGeometryContext(max_size_bytes)
-            for page in pages:
+            geometry_context = _RasterGeometryContext(max_decoded_bytes)
+            for page_number, page in enumerate(pages, start=1):
                 page_content_size = _decode_page_content_size(
                     page,
                     geometry_context.remaining_decoded_bytes,
                 )
                 geometry_context.remaining_decoded_bytes -= page_content_size
-                image_coverage = _maximum_raster_coverage(
-                    page,
-                    geometry_context,
-                )
-                text = page.extract_text() or ""
-                useful_character_count = sum(
-                    not character.isspace() for character in text
-                )
-                if (
-                    _coverage_reaches_threshold(image_coverage)
-                    and useful_character_count < _MIN_USEFUL_TEXT_CHARACTERS
-                ):
-                    raise PDFValidationError("PDF_SCAN_ONLY")
-                if useful_character_count:
-                    text_found = True
+                useful_character_count = 0
+                try:
+                    _preflight_form_streams(page, geometry_context)
+                    text = page.extract_text() or ""
+                    useful_character_count = sum(
+                        not character.isspace() for character in text
+                    )
+                    if useful_character_count:
+                        text_found = True
+                    if useful_character_count >= _MIN_USEFUL_TEXT_CHARACTERS:
+                        continue
+                    image_coverage = _maximum_raster_coverage(
+                        page,
+                        geometry_context,
+                    )
+                except _PDFGeometryLimit as exc:
+                    raise PDFValidationError(
+                        "PDF_SCAN_ANALYSIS_UNSUPPORTED",
+                        diagnostic=PDFDiagnostic(
+                            code="PDF_SCAN_ANALYSIS_UNSUPPORTED",
+                            category="COMPATIBILITY",
+                            disposition="BLOCK",
+                            scope="PAGE",
+                            page_number=page_number,
+                            bbox=_page_bbox(page),
+                            metrics={"useful_characters": useful_character_count},
+                        ),
+                    ) from exc
+                if _coverage_reaches_threshold(image_coverage):
+                    raise PDFValidationError(
+                        "PDF_SCAN_ONLY",
+                        diagnostic=PDFDiagnostic(
+                            code="PDF_SCAN_DETECTED",
+                            category="COMPATIBILITY",
+                            disposition="BLOCK",
+                            scope="PAGE",
+                            page_number=page_number,
+                            bbox=_page_bbox(page),
+                            metrics={
+                                "useful_characters": useful_character_count,
+                                "image_coverage_percent": round(
+                                    image_coverage * 100,
+                                    2,
+                                ),
+                            },
+                        ),
+                    )
             if not text_found:
-                raise PDFValidationError("PDF_SCAN_ONLY")
+                raise PDFValidationError(
+                    "PDF_SCAN_ONLY",
+                    diagnostic=PDFDiagnostic(
+                        code="PDF_TEXT_LAYER_MISSING",
+                        category="COMPATIBILITY",
+                        disposition="BLOCK",
+                    ),
+                )
+            return page_count, text_found, links
     except PDFValidationError:
         raise
     except _PDFScanLimit as exc:
-        raise PDFValidationError("PDF_SCAN_LIMIT") from exc
-    except Exception as exc:
+        raise PDFValidationError(
+            "PDF_SCAN_LIMIT",
+            diagnostic=PDFDiagnostic(
+                code="PDF_SCAN_LIMIT",
+                category="SECURITY",
+                disposition="BLOCK",
+            ),
+        ) from exc
+    except LimitReachedError as exc:
+        raise PDFValidationError("PDF_DECODED_TOO_LARGE") from exc
+    except (PdfReadError, PdfStreamError) as exc:
         raise PDFValidationError("PDF_MALFORMED") from exc
+
+
+def _caused_by_parser_error(error: BaseException) -> bool:
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (PdfReadError, PdfStreamError)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _unrecoverable(error: PDFValidationError) -> PDFValidationError:
+    return PDFValidationError(
+        "PDF_MALFORMED",
+        diagnostic=PDFDiagnostic(
+            code="PDF_STRUCTURE_UNRECOVERABLE",
+            category="COMPATIBILITY",
+            disposition="BLOCK",
+        ),
+    )
+
+
+def validate_pdf(
+    data: bytes,
+    *,
+    max_size_bytes: int = 100_000_000,
+    max_decoded_bytes: int = 50_000_000,
+    max_page_count: int = 100,
+) -> PDFValidationResult:
+    if len(data) > max_size_bytes:
+        raise PDFValidationError(
+            "PDF_TOO_LARGE",
+            diagnostic=PDFDiagnostic(
+                code="PDF_TOO_LARGE",
+                category="RESOURCE",
+                disposition="BLOCK",
+                metrics={"observed_bytes": len(data), "limit_bytes": max_size_bytes},
+            ),
+        )
+    if not data.startswith(b"%PDF-"):
+        raise PDFValidationError(
+            "NOT_A_PDF",
+            diagnostic=PDFDiagnostic(
+                code="NOT_A_PDF",
+                category="FORMAT",
+                disposition="BLOCK",
+            ),
+        )
+
+    diagnostics: tuple[PDFDiagnostic, ...] = ()
+    try:
+        page_count, text_found, links = _validate_pdf_once(
+            data,
+            strict=True,
+            max_page_count=max_page_count,
+            max_decoded_bytes=max_decoded_bytes,
+        )
+    except PDFValidationError as strict_error:
+        if strict_error.code != "PDF_MALFORMED" or not _caused_by_parser_error(
+            strict_error
+        ):
+            if strict_error.code == "PDF_MALFORMED":
+                raise _unrecoverable(strict_error) from strict_error
+            raise
+        try:
+            page_count, text_found, links = _validate_pdf_once(
+                data,
+                strict=False,
+                max_page_count=max_page_count,
+                max_decoded_bytes=max_decoded_bytes,
+            )
+        except PDFValidationError as lenient_error:
+            if lenient_error.code == "PDF_MALFORMED":
+                raise _unrecoverable(lenient_error) from lenient_error
+            raise
+        diagnostics = (
+            PDFDiagnostic(
+                code="PDF_STRUCTURE_RECOVERED",
+                category="COMPATIBILITY",
+                disposition="WARN",
+            ),
+        )
+
     return PDFValidationResult(
         sha256=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
         page_count=page_count,
         has_text=text_found,
+        diagnostics=diagnostics,
+        links=links,
     )

@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -100,7 +100,15 @@ def test_complete_upload_lock_query_semantics(
         head=lambda _key: ObjectHead(
             content_type="application/pdf",
             content_length=100,
-        )
+            etag='"staging-etag"',
+        ),
+        seal_upload=MagicMock(
+            return_value=ObjectHead(
+                content_type="application/pdf",
+                content_length=100,
+                etag='"sealed-etag"',
+            )
+        ),
     )
 
     user = SimpleNamespace(id=user_id, roles={UserRole.STUDENT})
@@ -134,6 +142,12 @@ def test_complete_upload_lock_query_semantics(
             sub_module.create_or_get_job = original_create_job
 
     asyncio.run(run_test())
+    assert version.storage_key.startswith(f"documents/{version.id}/")
+    storage.seal_upload.assert_called_once_with(
+        "uploads/test.pdf",
+        version.storage_key,
+        '"staging-etag"',
+    )
 
     assert len(executed_statements) >= 1
     select_stmt = executed_statements[0]
@@ -548,7 +562,13 @@ def test_complete_upload_storage_unavailable_retry_succeeds_when_assignment_open
         head=lambda _key: ObjectHead(
             content_type="application/pdf",
             content_length=100,
-        )
+            etag='"staging-etag"',
+        ),
+        seal_upload=lambda _source, _destination, _etag: ObjectHead(
+            content_type="application/pdf",
+            content_length=100,
+            etag='"sealed-etag"',
+        ),
     )
 
     user = SimpleNamespace(id=user_id, roles={UserRole.STUDENT})
@@ -924,7 +944,13 @@ def test_complete_upload_expired_uploading_rejected_but_expired_storage_retry_al
         head=lambda _key: ObjectHead(
             content_type="application/pdf",
             content_length=100,
-        )
+            etag='"staging-etag"',
+        ),
+        seal_upload=lambda _source, _destination, _etag: ObjectHead(
+            content_type="application/pdf",
+            content_length=100,
+            etag='"sealed-etag"',
+        ),
     )
 
     created_job = SimpleNamespace(id=uuid.uuid4(), status=AnalysisJobStatus.QUEUED)

@@ -14,6 +14,11 @@ def test_settings_defaults_lease_and_heartbeat() -> None:
     assert settings.analysis_job_heartbeat_seconds == 30
 
 
+def test_settings_separate_raw_and_decoded_pdf_budget_defaults() -> None:
+    assert Settings.model_fields["pdf_max_size_bytes"].default == 100_000_000
+    assert Settings.model_fields["pdf_max_decoded_bytes"].default == 50_000_000
+
+
 def test_settings_enforces_heartbeat_strictly_shorter_than_lease() -> None:
     with pytest.raises(ValidationError, match="heartbeat"):
         Settings(

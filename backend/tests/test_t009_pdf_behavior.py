@@ -17,8 +17,9 @@ from app.models.enums import (
     UserRole,
 )
 from app.services import analysis_job as job_service
+from app.services import pdf_validation
 from app.services.pdf_validation import PDFValidationError, validate_pdf
-from app.services.storage import ObjectHead, S3Storage
+from app.services.storage import ObjectHead, S3Storage, StorageObjectChanged
 from app.services.submission import _reused_response, complete_upload, initiate_upload
 
 
@@ -32,6 +33,65 @@ def _blank_pdf(*, active: bool = False, attachment: bool = False) -> bytes:
     stream = BytesIO()
     writer.write(stream)
     return stream.getvalue()
+
+
+def _duplicate_key_text_pdf() -> bytes:
+    text = b"Recovered structure still contains enough useful text."
+    content = b"BT /F1 12 Tf 10 40 Td (" + text + b") Tj ET"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (
+            b"<< /Type /Page /Type /Page /Parent 2 0 R "
+            b"/MediaBox [0 0 300 100] "
+            b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+        ),
+        b"<< /Length "
+        + str(len(content)).encode()
+        + b" >>\nstream\n"
+        + content
+        + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    data = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(data))
+        data.extend(f"{number} 0 obj\n".encode())
+        data.extend(body)
+        data.extend(b"\nendobj\n")
+    xref_offset = len(data)
+    data.extend(f"xref\n0 {len(objects) + 1}\n".encode())
+    data.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        data.extend(f"{offset:010d} 00000 n \n".encode())
+    data.extend(
+        (
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode()
+    )
+    return bytes(data)
+
+
+def test_strict_structure_failure_uses_bounded_lenient_fallback() -> None:
+    result = validate_pdf(_duplicate_key_text_pdf())
+
+    assert result.has_text is True
+    assert result.report["outcome"] == "ACCEPTED_WITH_WARNINGS"
+    assert [item.code for item in result.diagnostics] == ["PDF_STRUCTURE_RECOVERED"]
+
+
+def test_unexpected_page_tree_failure_is_not_reported_as_malformed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*_args: object) -> int:
+        raise RuntimeError("parser runtime failure")
+
+    monkeypatch.setattr(pdf_validation, "_preflight_page_tree", fail)
+
+    with pytest.raises(RuntimeError, match="parser runtime failure"):
+        validate_pdf(_blank_pdf())
 
 
 def test_invalid_magic_and_oversize_have_stable_errors() -> None:
@@ -142,6 +202,65 @@ def test_download_presign_is_inline_pdf_and_short_lived() -> None:
             300,
         )
     ]
+
+
+def test_seal_upload_conditionally_copies_to_uncredentialed_key() -> None:
+    calls: list[dict[str, object]] = []
+
+    class InternalClient:
+        def copy_object(self, **kwargs: object) -> None:
+            calls.append(kwargs)
+
+        def head_object(self, **_kwargs: object) -> dict[str, object]:
+            return {
+                "ContentType": "application/pdf",
+                "ContentLength": 128,
+                "ETag": '"sealed-etag"',
+            }
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage._internal = InternalClient()
+
+    head = storage.seal_upload(
+        "uploads/student/staging.pdf",
+        "documents/version/sealed.pdf",
+        '"staging-etag"',
+    )
+
+    assert calls == [
+        {
+            "Bucket": "docgrading",
+            "Key": "documents/version/sealed.pdf",
+            "CopySource": {
+                "Bucket": "docgrading",
+                "Key": "uploads/student/staging.pdf",
+            },
+            "CopySourceIfMatch": '"staging-etag"',
+            "ContentType": "application/pdf",
+            "MetadataDirective": "REPLACE",
+        }
+    ]
+    assert head.etag == '"sealed-etag"'
+
+
+def test_seal_upload_rejects_changed_source_etag() -> None:
+    class PreconditionFailed(Exception):
+        response = {
+            "Error": {"Code": "PreconditionFailed"},
+            "ResponseMetadata": {"HTTPStatusCode": 412},
+        }
+
+    class InternalClient:
+        def copy_object(self, **_kwargs: object) -> None:
+            raise PreconditionFailed
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage._internal = InternalClient()
+
+    with pytest.raises(StorageObjectChanged):
+        storage.seal_upload("uploads/staging.pdf", "documents/sealed.pdf", '"old"')
 
 
 def test_duplicate_sha_reuses_active_upload_instead_of_inserting(

@@ -34,6 +34,7 @@ from app.api.schemas_submission import (
     SubmissionQueueResponse,
     SubmissionVersionListResponse,
     SubmissionVersionResponse,
+    ValidationReportResponse,
     VersionComparisonFindingResponse,
     VersionComparisonResponse,
     VersionComparisonSideResponse,
@@ -262,7 +263,7 @@ def _anchor_index(
                 )
 
         candidates: list[tuple[tuple[str, int], object]] = []
-        for collection_name in ("sections", "paragraphs"):
+        for collection_name in ("sections", "paragraphs", "links"):
             for element in content.get(collection_name, ()):
                 if not isinstance(element, Mapping):
                     continue
@@ -1548,6 +1549,30 @@ async def get_document_download(
         url=storage.create_presigned_get(version.storage_key),
         expires_in=storage.expiry_seconds,
     )
+
+
+async def get_document_validation_report(
+    db: AsyncSession,
+    *,
+    version_id: uuid.UUID,
+    user: User,
+) -> ValidationReportResponse:
+    version = await db.get(DocumentVersion, version_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Document version not found")
+    await _submission_for_read(db, version.submission_id, user)
+    try:
+        return ValidationReportResponse.model_validate(
+            {
+                "document_version_id": version.id,
+                **version.validation_report,
+            }
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Persisted validation report is invalid",
+        ) from exc
 
 
 async def _versions_with_latest_published_result(

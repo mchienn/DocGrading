@@ -15,6 +15,7 @@ from pypdf.generic import (
     IndirectObject,
     NameObject,
     NullObject,
+    NumberObject,
     RectangleObject,
     TextStringObject,
 )
@@ -246,7 +247,7 @@ def test_table_node_budget_remains_effective() -> None:
     assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
 
 
-def test_dense_ruled_table_hits_limit_before_table_discovery(
+def test_dense_ruled_table_skips_table_discovery_and_marks_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     called = False
@@ -254,7 +255,7 @@ def test_dense_ruled_table_hits_limit_before_table_discovery(
     def must_not_find_tables(_page: Any, _settings: Any = None) -> list[Any]:
         nonlocal called
         called = True
-        raise AssertionError("find_tables called after intersection limit")
+        raise AssertionError("find_tables called after intersection work limit")
 
     monkeypatch.setattr(
         document_ir.pdfplumber.page.Page,
@@ -268,11 +269,13 @@ def test_dense_ruled_table_hits_limit_before_table_discovery(
         "BT /F1 12 Tf 72 700 Td (Dense table limit text.) Tj ET",
     ]
 
-    with pytest.raises(PDFValidationError) as exc_info:
-        parse_document_ir(_make_operations_pdf(operations))
+    parsed = parse_document_ir(_make_operations_pdf(operations))
 
-    assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
     assert called is False
+    assert parsed.content["tables"] == []
+    elements = [*parsed.content["sections"], *parsed.content["paragraphs"]]
+    assert elements
+    assert all(element["needs_review"] is True for element in elements)
 
 
 def test_vector_heavy_non_table_page_keeps_text_coordinates_and_review_flag() -> None:
@@ -650,7 +653,23 @@ def _make_active_pdf(
     launch: bool = False,
     attachment: bool = False,
     uri: bool = False,
+    text: str = "Valid text body for active test",
+    uri_target: str = "https://example.test/requirements",
+    gotor_link: bool = False,
+    gotor_filespec: bool = False,
+    gotor_embedded_file: bool = False,
+    chained_gotor: bool = False,
+    chained_uri: bool = False,
+    non_link_gotor: bool = False,
+    automatic_gotor: bool = False,
     safe_nodes: int = 0,
+    open_action: str | None = None,
+    open_action_destination: bool = False,
+    open_action_next_uri: bool = False,
+    acroform: str | None = None,
+    struct_tree_nodes: int = 0,
+    struct_tree_attachment: bool = False,
+    rotation: int = 0,
 ) -> bytes:
     writer = PdfWriter()
     font = DictionaryObject(
@@ -666,7 +685,7 @@ def _make_active_pdf(
     page = writer.add_blank_page(width=612, height=792)
     page[NameObject("/Resources")] = resources
     content = DecodedStreamObject()
-    content.set_data(b"BT /F1 12 Tf 72 700 Td (Valid text body for active test) Tj ET")
+    content.set_data(f"BT /F1 12 Tf 72 700 Td ({text}) Tj ET".encode("ascii"))
     page[NameObject("/Contents")] = writer._add_object(content)
     if js:
         writer.add_js("app.alert('malicious')")
@@ -692,13 +711,237 @@ def _make_active_pdf(
     if uri:
         writer.add_uri(
             0,
-            "https://example.test/requirements",
-            RectangleObject((72, 680, 240, 710)),
+            uri_target,
+            RectangleObject((72, 680, 360, 710)),
+        )
+    if gotor_link:
+        gotor_target: Any = TextStringObject("link.pdf")
+        if gotor_filespec or gotor_embedded_file:
+            gotor_target = DictionaryObject(
+                {
+                    NameObject("/Type"): NameObject("/Filespec"),
+                    NameObject("/F"): TextStringObject("link.pdf"),
+                }
+            )
+            if gotor_embedded_file:
+                embedded_file = DecodedStreamObject()
+                embedded_file.set_data(b"embedded")
+                gotor_target[NameObject("/EF")] = DictionaryObject(
+                    {NameObject("/F"): embedded_file}
+                )
+        writer.add_annotation(
+            0,
+            DictionaryObject(
+                {
+                    NameObject("/Type"): NameObject("/Annot"),
+                    NameObject("/Subtype"): NameObject("/Link"),
+                    NameObject("/Rect"): RectangleObject((72, 640, 240, 670)),
+                    NameObject("/A"): DictionaryObject(
+                        {
+                            NameObject("/S"): NameObject("/GoToR"),
+                            NameObject("/F"): gotor_target,
+                            NameObject("/D"): ArrayObject(
+                                [NumberObject(0), NameObject("/Fit")]
+                            ),
+                        }
+                    ),
+                }
+            ),
+        )
+    if chained_gotor or chained_uri:
+        first_action = DictionaryObject(
+            {
+                NameObject("/S"): NameObject("/URI"),
+                NameObject("/URI"): TextStringObject("https://example.test"),
+            }
+        )
+        next_action = DictionaryObject(
+            {
+                NameObject("/S"): NameObject("/GoToR"),
+                NameObject("/F"): TextStringObject("link.pdf"),
+                NameObject("/D"): ArrayObject([NumberObject(0), NameObject("/Fit")]),
+            }
+        )
+        if chained_uri:
+            first_action, next_action = next_action, first_action
+        first_action[NameObject("/Next")] = next_action
+        writer.add_annotation(
+            0,
+            DictionaryObject(
+                {
+                    NameObject("/Type"): NameObject("/Annot"),
+                    NameObject("/Subtype"): NameObject("/Link"),
+                    NameObject("/Rect"): RectangleObject((72, 600, 240, 630)),
+                    NameObject("/A"): first_action,
+                }
+            ),
+        )
+    if non_link_gotor:
+        writer.add_annotation(
+            0,
+            DictionaryObject(
+                {
+                    NameObject("/Type"): NameObject("/Annot"),
+                    NameObject("/Subtype"): NameObject("/Text"),
+                    NameObject("/Rect"): RectangleObject((72, 560, 240, 590)),
+                    NameObject("/A"): DictionaryObject(
+                        {
+                            NameObject("/S"): NameObject("/GoToR"),
+                            NameObject("/F"): TextStringObject("link.pdf"),
+                            NameObject("/D"): ArrayObject(
+                                [NumberObject(0), NameObject("/Fit")]
+                            ),
+                        }
+                    ),
+                }
+            ),
+        )
+    if automatic_gotor:
+        page[NameObject("/AA")] = DictionaryObject(
+            {
+                NameObject("/O"): DictionaryObject(
+                    {
+                        NameObject("/S"): NameObject("/GoToR"),
+                        NameObject("/F"): TextStringObject("link.pdf"),
+                        NameObject("/D"): ArrayObject(
+                            [NumberObject(0), NameObject("/Fit")]
+                        ),
+                    }
+                )
+            }
         )
     if safe_nodes:
         writer._root_object[NameObject("/SafeGraph")] = ArrayObject(
             [DictionaryObject() for _ in range(safe_nodes)]
         )
+    if open_action_destination:
+        writer._root_object[NameObject("/OpenAction")] = ArrayObject(
+            [page.indirect_reference, NameObject("/Fit")]
+        )
+    elif open_action is not None:
+        action = DictionaryObject({NameObject("/S"): NameObject(open_action)})
+        if open_action == "/GoTo":
+            action[NameObject("/D")] = ArrayObject(
+                [page.indirect_reference, NameObject("/Fit")]
+            )
+            if open_action_next_uri:
+                action[NameObject("/Next")] = DictionaryObject(
+                    {
+                        NameObject("/S"): NameObject("/URI"),
+                        NameObject("/URI"): TextStringObject(
+                            "https://example.test/automatic"
+                        ),
+                    }
+                )
+        elif open_action == "/GoToR":
+            action[NameObject("/F")] = TextStringObject("link.pdf")
+            action[NameObject("/D")] = ArrayObject(
+                [NumberObject(0), NameObject("/Fit")]
+            )
+        elif open_action == "/Launch":
+            action[NameObject("/F")] = TextStringObject("external-document.pdf")
+        elif open_action == "/JavaScript":
+            action[NameObject("/JS")] = TextStringObject("app.alert('malicious')")
+        elif open_action == "/URI":
+            action[NameObject("/URI")] = TextStringObject(
+                "https://example.test/automatic"
+            )
+        elif open_action in {"/SubmitForm", "/ImportData"}:
+            action[NameObject("/F")] = TextStringObject("https://example.test")
+        writer._root_object[NameObject("/OpenAction")] = action
+    if acroform is not None:
+        if acroform == "empty":
+            form = DictionaryObject({NameObject("/Fields"): ArrayObject()})
+        elif acroform == "stub":
+            form = DictionaryObject(
+                {
+                    NameObject("/DA"): TextStringObject("/Helv 0 Tf 0 g"),
+                    NameObject("/DR"): DictionaryObject(),
+                }
+            )
+        elif acroform == "field":
+            form = DictionaryObject(
+                {
+                    NameObject("/Fields"): ArrayObject(
+                        [
+                            DictionaryObject(
+                                {
+                                    NameObject("/FT"): NameObject("/Tx"),
+                                    NameObject("/T"): TextStringObject("student_name"),
+                                }
+                            )
+                        ]
+                    )
+                }
+            )
+        elif acroform == "xfa":
+            form = DictionaryObject(
+                {
+                    NameObject("/Fields"): ArrayObject(),
+                    NameObject("/XFA"): TextStringObject("<xfa />"),
+                }
+            )
+        elif acroform == "javascript":
+            form = DictionaryObject(
+                {
+                    NameObject("/Fields"): ArrayObject(),
+                    NameObject("/JS"): TextStringObject("app.alert('malicious')"),
+                }
+            )
+        elif acroform == "nested_javascript":
+            form = DictionaryObject(
+                {
+                    NameObject("/Fields"): ArrayObject(),
+                    NameObject("/CO"): ArrayObject(
+                        [
+                            DictionaryObject(
+                                {
+                                    NameObject("/A"): DictionaryObject(
+                                        {
+                                            NameObject("/S"): NameObject("/JavaScript"),
+                                            NameObject("/JS"): TextStringObject(
+                                                "app.alert('malicious')"
+                                            ),
+                                        }
+                                    )
+                                }
+                            )
+                        ]
+                    ),
+                }
+            )
+        else:
+            raise AssertionError(f"Unknown AcroForm fixture: {acroform}")
+        writer._root_object[NameObject("/AcroForm")] = form
+    if struct_tree_nodes or struct_tree_attachment:
+        struct_children = [DictionaryObject() for _ in range(struct_tree_nodes)]
+        if struct_tree_attachment:
+            struct_children.append(
+                DictionaryObject(
+                    {
+                        NameObject("/AF"): ArrayObject(
+                            [
+                                DictionaryObject(
+                                    {
+                                        NameObject("/Type"): NameObject("/Filespec"),
+                                        NameObject("/F"): TextStringObject(
+                                            "embedded.pdf"
+                                        ),
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            )
+        writer._root_object[NameObject("/StructTreeRoot")] = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/StructTreeRoot"),
+                NameObject("/K"): ArrayObject(struct_children),
+            }
+        )
+    if rotation:
+        page.rotate(rotation)
     output = BytesIO()
     writer.write(output)
     return output.getvalue()
@@ -728,6 +971,183 @@ def test_real_safe_uri_pdf_parses_normally() -> None:
 
     assert parsed.validation.page_count == 1
     assert parsed.content["pages"][0]["text"] == "Valid text body for active test"
+    assert parsed.content["links"] == [
+        {
+            "id": "link-1",
+            "page_number": 1,
+            "bbox": {
+                "x0": 72.0,
+                "top": 82.0,
+                "x1": 360.0,
+                "bottom": 112.0,
+            },
+            "display_text": "Valid text body for active test",
+            "target": "https://example.test/requirements",
+            "action_type": "URI",
+            "status": "NEEDS_REVIEW",
+        }
+    ]
+    assert parsed.content["pages"][0]["links"] == ["link-1"]
+
+
+def test_uri_label_target_mismatch_has_region_evidence() -> None:
+    parsed = parse_document_ir(
+        _make_active_pdf(
+            uri=True,
+            text="https://trusted.example/report",
+            uri_target="https://other.example/report",
+        )
+    )
+
+    assert parsed.content["links"][0]["status"] == "MISMATCH"
+    assert (
+        parsed.content["links"][0]["display_text"] == "https://trusted.example/report"
+    )
+    report = document_ir._validation_report_with_links(
+        parsed.validation,
+        parsed.content,
+    )
+    assert report["outcome"] == "ACCEPTED_WITH_WARNINGS"
+    assert report["diagnostics"][0]["code"] == "PDF_LINK_TARGET_MISMATCH"
+    assert report["diagnostics"][0]["bbox"] == parsed.content["links"][0]["bbox"]
+
+
+def test_uri_label_ignores_words_after_matching_url() -> None:
+    parsed = parse_document_ir(
+        _make_active_pdf(
+            uri=True,
+            text="https://example.test/requirements details",
+        )
+    )
+
+    assert parsed.content["links"][0]["status"] == "MATCH"
+
+
+@pytest.mark.parametrize(
+    ("rotation", "expected_bbox"),
+    [
+        (90, {"x0": 680.0, "top": 72.0, "x1": 710.0, "bottom": 360.0}),
+        (180, {"x0": 252.0, "top": 680.0, "x1": 540.0, "bottom": 710.0}),
+        (270, {"x0": 82.0, "top": 252.0, "x1": 112.0, "bottom": 540.0}),
+    ],
+)
+def test_rotated_uri_link_uses_display_page_coordinates(
+    rotation: int,
+    expected_bbox: dict[str, float],
+) -> None:
+    parsed = parse_document_ir(
+        _make_active_pdf(
+            uri=True,
+            text="https://trusted.example/report",
+            uri_target="https://other.example/report",
+            rotation=rotation,
+        )
+    )
+
+    link = parsed.content["links"][0]
+    assert link["display_text"]
+    assert link["bbox"] == expected_bbox
+
+
+def test_clickable_gotor_link_parses_normally() -> None:
+    parsed = parse_document_ir(_make_active_pdf(gotor_link=True))
+
+    assert parsed.validation.page_count == 1
+    assert parsed.content["pages"][0]["text"] == "Valid text body for active test"
+
+
+def test_clickable_gotor_filespec_link_parses_normally() -> None:
+    parsed = parse_document_ir(_make_active_pdf(gotor_link=True, gotor_filespec=True))
+
+    assert parsed.validation.page_count == 1
+    assert parsed.content["pages"][0]["text"] == "Valid text body for active test"
+
+
+def test_clickable_gotor_embedded_file_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(
+            _make_active_pdf(
+                gotor_link=True,
+                gotor_embedded_file=True,
+            )
+        )
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_chained_gotor_action_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(chained_gotor=True))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_chained_uri_action_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(chained_uri=True))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_non_link_gotor_action_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(non_link_gotor=True))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_open_action_goto_dictionary_parses_normally() -> None:
+    parsed = parse_document_ir(_make_active_pdf(open_action="/GoTo"))
+
+    assert parsed.validation.page_count == 1
+    assert parsed.content["pages"][0]["text"] == "Valid text body for active test"
+
+
+def test_open_action_destination_array_parses_normally() -> None:
+    parsed = parse_document_ir(_make_active_pdf(open_action_destination=True))
+
+    assert parsed.validation.page_count == 1
+    assert parsed.content["pages"][0]["text"] == "Valid text body for active test"
+
+
+def test_empty_acroform_is_accepted() -> None:
+    result = pdf_validation.validate_pdf(_make_active_pdf(acroform="empty"))
+
+    assert result.has_text is True
+
+
+def test_acroform_resource_stub_without_fields_is_accepted() -> None:
+    result = pdf_validation.validate_pdf(_make_active_pdf(acroform="stub"))
+
+    assert result.has_text is True
+
+
+def test_populated_acroform_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(acroform="field"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_acroform_xfa_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(acroform="xfa"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_acroform_javascript_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(acroform="javascript"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_acroform_nested_javascript_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(acroform="nested_javascript"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
 
 
 def test_large_safe_object_graph_is_not_reported_as_active_content() -> None:
@@ -744,6 +1164,35 @@ def test_active_content_scan_budget_has_distinct_error(
 
     with pytest.raises(PDFValidationError) as exc_info:
         pdf_validation.validate_pdf(_make_active_pdf(safe_nodes=101))
+
+    assert exc_info.value.code == "PDF_SCAN_LIMIT"
+
+
+def test_struct_tree_root_does_not_consume_active_content_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pdf_validation, "_MAX_ACTIVE_CONTENT_NODES", 200)
+
+    result = pdf_validation.validate_pdf(_make_active_pdf(struct_tree_nodes=1_000))
+
+    assert result.has_text is True
+
+
+def test_struct_tree_root_still_rejects_embedded_files() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(struct_tree_attachment=True))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+    assert exc_info.value.diagnostic.code == "PDF_EMBEDDED_FILE"
+
+
+def test_struct_tree_root_has_independent_scan_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pdf_validation, "_MAX_STRUCT_TREE_NODES", 10)
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(struct_tree_nodes=20))
 
     assert exc_info.value.code == "PDF_SCAN_LIMIT"
 
@@ -832,6 +1281,16 @@ def test_real_launch_pdf_rejected_before_pdfplumber_open(
         parse_document_ir(_make_active_pdf(launch=True))
 
     assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+    diagnostic = exc_info.value.report["diagnostics"][0]
+    assert diagnostic["code"] == "PDF_ACTIVE_LAUNCH"
+    assert diagnostic["scope"] == "REGION"
+    assert diagnostic["page_number"] == 1
+    assert diagnostic["bbox"] == {
+        "x0": 72.0,
+        "top": 82.0,
+        "x1": 240.0,
+        "bottom": 112.0,
+    }
     assert calls == []
 
 
@@ -852,6 +1311,67 @@ def test_real_attachment_pdf_rejected_before_pdfplumber_open(
 
     assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
     assert calls == []
+
+
+def test_open_action_gotor_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(open_action="/GoToR"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_page_additional_gotor_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(automatic_gotor=True))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_open_action_launch_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(open_action="/Launch"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_open_action_javascript_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(open_action="/JavaScript"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_open_action_uri_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(open_action="/URI"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_open_action_goto_with_chained_uri_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(
+            _make_active_pdf(
+                open_action="/GoTo",
+                open_action_next_uri=True,
+            )
+        )
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_open_action_submit_form_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(open_action="/SubmitForm"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
+
+
+def test_open_action_import_data_is_rejected() -> None:
+    with pytest.raises(PDFValidationError) as exc_info:
+        pdf_validation.validate_pdf(_make_active_pdf(open_action="/ImportData"))
+
+    assert exc_info.value.code == "PDF_ACTIVE_CONTENT"
 
 
 def test_page_tree_root_count_fails_before_pages_access(
@@ -965,13 +1485,109 @@ def test_page_tree_cycles_depth_and_structural_node_limits_fail_closed() -> None
     assert node_error.value.code == "PDF_MALFORMED"
 
 
-def test_safe_action_and_structural_s_values_are_not_rejected() -> None:
+def test_safe_internal_action_and_structural_s_values_are_not_rejected() -> None:
     assert not _contains_active_content({"/Type": "/Action", "/S": "/GoTo"})
-    assert not _contains_active_content(
+
+
+@pytest.mark.parametrize(
+    ("subtype", "action_type"),
+    [
+        (TextStringObject("/Link"), NameObject("/GoToR")),
+        (NameObject("/Link"), TextStringObject("/GoToR")),
+    ],
+)
+def test_gotor_requires_real_page_link_names(
+    subtype: object,
+    action_type: object,
+) -> None:
+    assert _contains_active_content(
         {
-            "/Type": "/Action",
-            "/S": "/URI",
-            "/URI": "https://example.test/requirements",
+            "/Type": NameObject("/Page"),
+            "/Annots": [
+                {
+                    "/Subtype": subtype,
+                    "/A": {
+                        "/S": action_type,
+                        "/F": TextStringObject("link.pdf"),
+                        "/D": [0, NameObject("/Fit")],
+                    },
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.parametrize("nested_action", ["/GoToR", "/URI"])
+def test_gotor_filespec_does_not_authorize_type_optional_nested_actions(
+    nested_action: str,
+) -> None:
+    filespec = DictionaryObject(
+        {
+            NameObject("/Type"): NameObject("/Filespec"),
+            NameObject("/F"): DictionaryObject(
+                {
+                    NameObject("/S"): NameObject(nested_action),
+                    NameObject("/F"): TextStringObject("nested.pdf"),
+                }
+            ),
+        }
+    )
+    assert _contains_active_content(
+        {
+            "/Type": NameObject("/Page"),
+            "/Annots": [
+                {
+                    "/Subtype": NameObject("/Link"),
+                    "/A": {
+                        "/S": NameObject("/GoToR"),
+                        "/F": filespec,
+                        "/D": [0, NameObject("/Fit")],
+                    },
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        None,
+        {},
+        DictionaryObject({NameObject("/Type"): NameObject("/Action")}),
+        NameObject("/remote.pdf"),
+        DecodedStreamObject(),
+    ],
+)
+def test_gotor_rejects_invalid_file_targets(target: object) -> None:
+    assert _contains_active_content(
+        {
+            "/Type": NameObject("/Page"),
+            "/Annots": [
+                {
+                    "/Subtype": NameObject("/Link"),
+                    "/A": {
+                        "/S": NameObject("/GoToR"),
+                        "/F": target,
+                        "/D": [0, NameObject("/Fit")],
+                    },
+                }
+            ],
+        }
+    )
+
+
+def test_type_optional_navigation_action_is_rejected() -> None:
+    assert _contains_active_content(
+        {
+            "/Type": NameObject("/Page"),
+            "/PresSteps": {
+                "/Type": NameObject("/NavNode"),
+                "/NA": {
+                    "/S": NameObject("/URI"),
+                    "/URI": TextStringObject("https://example.test/automatic"),
+                },
+            },
         }
     )
 
@@ -982,7 +1598,6 @@ def test_safe_action_and_structural_s_values_are_not_rejected() -> None:
         {"/A": {"/S": "/Launch"}},
         {"/Filespec": {}},
         {"/EF": {}},
-        {"/AcroForm": {}},
         {"/XFA": {}},
         {"/AF": {}},
         {"/Subtype": "/FileAttachment"},
@@ -1134,7 +1749,7 @@ def test_extraction_library_logs_are_suppressed_and_restored(
     monkeypatch.setattr(
         document_ir,
         "_parse_pages",
-        lambda *args: [],
+        lambda *args, **kwargs: [],
     )
     with caplog.at_level(logging.WARNING):
         parse_document_ir(b"data")
@@ -1369,6 +1984,19 @@ def test_coordinates_are_finite_ordered_and_inside_page() -> None:
         assert 0 <= bbox["top"] <= bbox["bottom"] <= page["height"]
 
 
+def test_partially_visible_word_bbox_is_clipped_to_page() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            ["BT /F1 12 Tf 500 700 Td " "(ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789) Tj ET"]
+        )
+    )
+
+    page = parsed.content["pages"][0]
+    paragraph = parsed.content["paragraphs"][0]
+    assert paragraph["bbox"]["x0"] < page["width"]
+    assert paragraph["bbox"]["x1"] == page["width"]
+
+
 def test_low_node_budget_fails_before_later_layout_objects() -> None:
     parsed_pdf = _make_operations_pdf(
         [
@@ -1551,8 +2179,8 @@ def test_minimal_valid_text_pdf_returns_ir_payload() -> None:
 
     content = parsed.content
     assert content["schema_version"] == SCHEMA_VERSION
-    assert SCHEMA_VERSION == 1
-    assert PARSER_VERSION == "pypdf-pdfplumber-v2"
+    assert SCHEMA_VERSION == 2
+    assert PARSER_VERSION == "pypdf-pdfplumber-v3"
 
     assert content["source"] == {
         "sha256": parsed.validation.sha256,
