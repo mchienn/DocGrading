@@ -82,6 +82,11 @@ _AFFILIATION_AUTHOR_LINE = re.compile(
     rf"^\s*{_AFFILIATION_NAME}{_AFFILIATION_INDEX}"
     rf"(?:\s*,\s*{_AFFILIATION_NAME}{_AFFILIATION_INDEX})*\s*,?\s*$"
 )
+_AFFILIATION_CONTEXT = re.compile(
+    r"(?:\b(?:university|institute|department|faculty|college|school|academy|"
+    r"laboratory|lab)\b|(?:đại\s+học|trường|viện|khoa)\b|[\w.+-]+@[\w.-]+)",
+    re.IGNORECASE,
+)
 _NARRATIVE_AUTHOR_GROUP = (
     rf"{_NARRATIVE_NAME}" rf"(?:\s+(?:et\s+al\.|(?:&|and)\s+{_NARRATIVE_NAME}))?"
 )
@@ -390,26 +395,28 @@ def _section_membership(content: Mapping[str, Any]) -> set[str]:
         for section in content.get("sections", ())
         if isinstance(section, Mapping)
     ]
-    matches = {
-        str(section.get("id"))
-        for section in sections
-        if section.get("id") and _heading_matches(str(section.get("text", "")))
-    }
-    if not matches:
-        return set()
     by_id = {
         str(section.get("id")): section for section in sections if section.get("id")
     }
-    descendants = set(matches)
+    matches = {
+        section_id
+        for section_id, section in by_id.items()
+        if _heading_matches(str(section.get("text", "")))
+    }
+    if not matches:
+        return set()
+    children: dict[str, list[str]] = {}
     for section_id, section in by_id.items():
-        parent = section.get("parent_id")
-        seen: set[str] = set()
-        while isinstance(parent, str) and parent not in seen:
-            if parent in matches:
-                descendants.add(section_id)
-                break
-            seen.add(parent)
-            parent = by_id.get(parent, {}).get("parent_id")
+        parent_id = section.get("parent_id")
+        if isinstance(parent_id, str) and parent_id in by_id:
+            children.setdefault(parent_id, []).append(section_id)
+    descendants = set(matches)
+    pending = list(matches)
+    while pending:
+        for child_id in children.get(pending.pop(), ()):
+            if child_id not in descendants:
+                descendants.add(child_id)
+                pending.append(child_id)
     return descendants
 
 
@@ -619,8 +626,29 @@ def _author_year_mentions(
     return sorted(result, key=lambda item: (item[1], item[2], item[0]))
 
 
-def _is_title_affiliation_line(text: str, page_number: int) -> bool:
-    return page_number == 1 and _AFFILIATION_AUTHOR_LINE.fullmatch(text) is not None
+def _title_affiliation_paragraph_ids(
+    paragraphs: Sequence[Mapping[str, Any]],
+) -> set[str]:
+    result: set[str] = set()
+    for index, paragraph in enumerate(paragraphs):
+        if (
+            int(paragraph.get("page_number", 0) or 0) != 1
+            or _AFFILIATION_AUTHOR_LINE.fullmatch(str(paragraph.get("text", "")))
+            is None
+        ):
+            continue
+        for following in paragraphs[index + 1 : index + 5]:
+            if int(following.get("page_number", 0) or 0) != 1:
+                break
+            following_text = str(following.get("text", ""))
+            if _normalize(following_text) in {"abstract", "introduction"}:
+                break
+            if _AFFILIATION_CONTEXT.search(following_text):
+                paragraph_id = str(paragraph.get("id", ""))
+                if paragraph_id:
+                    result.add(paragraph_id)
+                break
+    return result
 
 
 _REFERENCE_START = re.compile(
@@ -629,11 +657,12 @@ _REFERENCE_START = re.compile(
 _UNNUMBERED_REFERENCE_START = re.compile(
     r"(?:•\s*|(?:^|\s)\s*-\s+)" r"(?=(?:[A-ZÀ-Ỹ]\.|[A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s|,)))"
 )
-_UNNUMBERED_AUTHOR_YEAR_START = re.compile(
-    r"(?=(?:[A-ZÀ-Ỹ][\wÀ-ỹ'’-]+,\s*(?:[A-ZÀ-Ỹ]\.\s*){1,4}"
-    r"(?:,\s*[A-ZÀ-Ỹ][\wÀ-ỹ'’-]+,\s*(?:[A-ZÀ-Ỹ]\.\s*){1,4})*"
-    r"(?:,?\s+(?:and|&)\s+[A-ZÀ-Ỹ][\wÀ-ỹ'’-]+,\s*"
-    r"(?:[A-ZÀ-Ỹ]\.\s*){1,4})?\((?:19|20)\d{2}[a-z]?\)))"
+_PARENTHESIZED_YEAR = re.compile(r"\((?:19|20)\d{2}[a-z]?\)")
+_UNNUMBERED_AUTHOR = rf"{_NARRATIVE_NAME},\s*(?:[A-ZÀ-Ỹ]\.\s*){{1,4}}"
+_UNNUMBERED_AUTHOR_PREFIX = re.compile(
+    rf"{_UNNUMBERED_AUTHOR}"
+    rf"(?:,\s*{_UNNUMBERED_AUTHOR}){{0,63}}"
+    rf"(?:,?\s+(?:and|&)\s+{_UNNUMBERED_AUTHOR})?\s*"
 )
 _FOOTNOTE_BIBLIOGRAPHY = re.compile(r"^\s*[1-9]\d{0,3}\s+[A-ZÀ-Ỹ]")
 
@@ -650,12 +679,24 @@ def _unnumbered_author_year_parts(
     *,
     limit: int,
 ) -> list[tuple[int | None, str, int]]:
+    if limit <= 0:
+        return []
     starts: list[int] = []
-    for match in _UNNUMBERED_AUTHOR_YEAR_START.finditer(text):
-        if match.start() == 0 or _previous_nonspace(text, match.start()) == ".":
-            starts.append(match.start())
-            if len(starts) >= limit:
+    for year_match in _PARENTHESIZED_YEAR.finditer(text):
+        window_start = max(0, year_match.start() - 2000)
+        boundary_starts = [
+            window_start + match.end()
+            for match in re.finditer(r"\.\s+", text[window_start : year_match.start()])
+        ][-64:]
+        if window_start == 0:
+            boundary_starts.insert(0, 0)
+        for start in reversed(boundary_starts):
+            if _UNNUMBERED_AUTHOR_PREFIX.fullmatch(text[start : year_match.start()]):
+                starts.append(start)
                 break
+        if len(starts) >= limit:
+            break
+    starts = sorted(set(starts))
     if len(starts) < 2 or starts[0] != 0:
         return []
     return [
@@ -971,6 +1012,7 @@ def parse_citations(document_ir: DocumentIR | Mapping[str, Any]) -> CitationRepo
         for paragraph in content.get("paragraphs", ())
         if isinstance(paragraph, Mapping)
     ]
+    affiliation_paragraph_ids = _title_affiliation_paragraph_ids(paragraphs)
     reference_sections = _section_membership(content)
     heading_pages = _reference_heading_pages(content)
     reference_paragraphs, bibliography_status, warnings = _reference_paragraphs(
@@ -1106,7 +1148,7 @@ def parse_citations(document_ir: DocumentIR | Mapping[str, Any]) -> CitationRepo
             superscript_markers, (str, bytes)
         ):
             superscript_markers = ()
-        if _is_title_affiliation_line(text, int(paragraph.get("page_number", 0) or 0)):
+        if element_id in affiliation_paragraph_ids:
             superscript_markers = ()
         for marker in superscript_markers:
             if not isinstance(marker, Mapping):

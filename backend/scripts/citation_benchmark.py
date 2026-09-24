@@ -161,6 +161,13 @@ def _sha256_file(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def _corpus_sources_by_hash() -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for path in sorted((_REPO_ROOT / "test_submissions").rglob("*.pdf")):
+        result.setdefault(_sha256_file(path), path)
+    return result
+
+
 def _run_corpus(expected_hashes: Sequence[str]) -> dict[str, Any]:
     files = sorted((_REPO_ROOT / "test_submissions").rglob("*.pdf"))
     actual_hashes = [_sha256_file(path) for path in files]
@@ -212,13 +219,14 @@ def _run_gold(documents: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     parse_seconds = 0.0
 
     unique = _unique_documents(documents)
+    sources_by_hash = _corpus_sources_by_hash()
     for document in unique:
         metadata = document["document"]
-        path = _REPO_ROOT / str(metadata["source_path"])
+        digest = str(metadata["source_sha256"])
+        path = sources_by_hash.get(digest)
+        if path is None:
+            raise ValueError(f"Gold source hash missing from corpus: {digest[:12]}")
         data = path.read_bytes()
-        digest = hashlib.sha256(data).hexdigest()
-        if digest != metadata["source_sha256"]:
-            raise ValueError(f"Gold source hash mismatch: {digest[:12]}")
         started = time.perf_counter()
         actual = citation.parse_citations(parse_document_ir(data))
         parse_seconds += time.perf_counter() - started
@@ -639,6 +647,7 @@ def _render_report(
             "- Duplicate PDF bytes count for corpus integration but are "
             "deduplicated by SHA-256 for quality metrics."
         ),
+        "- Gold annotations identify source PDFs by SHA-256 only; no paths stored.",
         "",
         "## Corpus integration",
         "",

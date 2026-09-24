@@ -338,7 +338,6 @@
   "documents": [
     {
       "document": {
-        "source_path": "test_submissions/anhtra╠é╠Çndie╠ú╠éu_1265_486366_[3][Practical, Automated Scenario-based Mobile App Testing]-3.pdf",
         "source_sha256": "b0cf754c50c37d1ebd0fdf3521e3f1237c88e775b5058b97480613911e26881b",
         "page_count": 41
       },
@@ -453,7 +452,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/co╠éngtra╠é╠Çnva╠ån_3904_486321_[Nho╠üm13] [LoFTR].pdf",
         "source_sha256": "8fb10f47d1acde3b03b473fb30211e86a6a35223560caf159315def43b27f430",
         "page_count": 23
       },
@@ -632,7 +630,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/huynguye╠é╠ântru╠¢o╠¢╠Çng_5398_485612_13 - LOFTR DETECTOR-FREE LOCAL FEATURE MATCHING WITH TRANSFORMERS.pdf",
         "source_sha256": "8fb10f47d1acde3b03b473fb30211e86a6a35223560caf159315def43b27f430",
         "page_count": 23
       },
@@ -811,7 +808,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/latex_pdfs/[N12] - Dialog2flow.pdf",
         "source_sha256": "7ea6b743a29744417f44e746122a50b703067e0a8ad3345fc83abf69787abff4",
         "page_count": 29
       },
@@ -1052,7 +1048,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/latex_pdfs/[N1] - HybridRAG.pdf",
         "source_sha256": "2ad6136dc4c6cba18ef902666d6a173cd9e1dca186de10d2eafdc4072f6f0c61",
         "page_count": 30
       },
@@ -1116,7 +1111,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/ma╠únhtra╠é╠Çntho╠ú_5010_486271_Nho╠üm14-SymQEMU Compilation-based symbolic execution for binaries.pdf",
         "source_sha256": "36c461bfa7360745ad79832e2bccbacba3e38f4f3d39cae775693abfdca41b3f",
         "page_count": 33
       },
@@ -1274,7 +1268,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/trangnguye╠é╠ânphu╠¢o╠¢ng_5213_486336_Nho╠üm 10 - PuVAE A Variational Autoencoder to Purify Adversarial Examples.pdf",
         "source_sha256": "ab1233bf40eb5eb2306720589252a100cc920a9acec3dc1168439c412f9805db",
         "page_count": 31
       },
@@ -2019,7 +2012,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/latex_pdfs/[N14] - EvoPrompt.pdf",
         "source_sha256": "b7a49bc932754f33b8a56130eb6e8de22c7ca94c03e9c7ece51cab37023f9e93",
         "page_count": 11
       },
@@ -2154,7 +2146,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/latex_pdfs/[N6] - ImprovedAPIO.pdf",
         "source_sha256": "83b91742dd65010a43f0638dc9384b5887d712cc8d833395d358d90c491eea0e",
         "page_count": 10
       },
@@ -2324,7 +2315,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/latex_pdfs/[N5] - FIFO_Improvement.pdf",
         "source_sha256": "8e4dd65a459054b7e6ce195435e0767c419ccb8247688994e3ab82264768de89",
         "page_count": 9
       },
@@ -2761,7 +2751,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/latex_pdfs/[N2]-Continuous_Improving_Chatbot.pdf",
         "source_sha256": "cfde3d8a1b748c23f546f9a5699884381b13210a8da51e86d604096ba07629cc",
         "page_count": 10
       },
@@ -3073,7 +3062,6 @@
     },
     {
       "document": {
-        "source_path": "test_submissions/so╠¢ntra╠é╠Çnminh_973_485670_12-ATTENTION base CNN LSTM and XGBOOST hybrid model for stock prediction.pdf",
         "source_sha256": "ee5e5581b682210536f1cd291142ac3b4f190945aeb2f5cca3540f070fbd343d",
         "page_count": 35
       },

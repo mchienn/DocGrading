@@ -1,6 +1,6 @@
 # Citation v0 benchmark report
 
-Generated: 2026-09-24T08:42:04.619101+00:00
+Generated: 2026-09-24T10:48:08.064695+00:00
 Runtime: Python 3.13.14 on Windows 11
 Document IR parser: `pypdf-pdfplumber-v5`
 
@@ -12,10 +12,11 @@ Document IR parser: `pypdf-pdfplumber-v5`
 - Linkage edge gold: 2 deterministic cases.
 - Annotation review: AI-assisted manual; `independent_human_review=false`. Regression baseline only; not evaluator activation or domain-review sign-off.
 - Duplicate PDF bytes count for corpus integration but are deduplicated by SHA-256 for quality metrics.
+- Gold annotations identify source PDFs by SHA-256 only; no paths stored.
 
 ## Corpus integration
 
-- Validation + Document IR + citation parse: **35/35 passed** in 169.78s.
+- Validation + Document IR + citation parse: **35/35 passed** in 226.35s.
 - Failed: 0.
 - Extracted across all corpus files: 433 references, 397 mentions.
 - Parser-uncertain documents: 10.
@@ -33,7 +34,7 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 - DOI/arXiv exact identifier accuracy: **98.33%**.
 - DOI positive recall: **100.00%** (1 positive labels).
 - arXiv positive recall: **95.45%** (22 positive labels).
-- Gold parse time: 42.20s.
+- Gold parse time: 64.89s.
 
 ## Identity metrics
 
@@ -63,7 +64,7 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 - DOI: `10.1109/sp40000.2020.00063`.
 - Adapter calls: 1 for 2 resolver attempts.
 - Cache hits/rate: 1 / 50.00%.
-- First resolution latency: 0.970s; cached latency: 0.000s.
+- First resolution latency: 1.084s; cached latency: 0.000s.
 - Live identity result: `VERIFIED`; cached external ID stable: `true`.
 
 ## Errors and limits

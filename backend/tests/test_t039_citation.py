@@ -799,12 +799,18 @@ def test_title_page_affiliation_superscripts_are_not_citations() -> None:
                     ],
                 },
                 {
+                    "id": "affiliation",
+                    "section_id": None,
+                    "page_number": 1,
+                    "text": "University of Engineering and Technology",
+                },
+                {
                     "id": "body",
                     "section_id": None,
                     "page_number": 1,
-                    "text": "Prior work 1 supports this result.",
+                    "text": "Prior Research Supports This 1",
                     "superscript_markers": [
-                        {"raw": "1", "number": 1, "start": 11, "end": 12}
+                        {"raw": "1", "number": 1, "start": 29, "end": 30}
                     ],
                 },
                 {
@@ -822,6 +828,36 @@ def test_title_page_affiliation_superscripts_are_not_citations() -> None:
         ("body", "1")
     ]
     assert report.mentions[0].status == citation.LINKED
+
+
+def test_reference_section_membership_handles_deep_tree() -> None:
+    sections = [
+        {
+            "id": "references",
+            "text": "References",
+            "parent_id": None,
+            "page_number": 1,
+        }
+    ]
+    sections.extend(
+        {
+            "id": f"section-{index}",
+            "text": f"Nested {index}",
+            "parent_id": "references" if index == 0 else f"section-{index - 1}",
+            "page_number": 1,
+        }
+        for index in range(5_000)
+    )
+
+    assert citation._section_membership({"sections": sections}) == {
+        section["id"] for section in sections
+    }
+
+
+def test_unnumbered_author_parser_bounds_missing_year_work() -> None:
+    text = " ".join("Nguyen, A.," for _ in range(2_000))
+
+    assert citation._unnumbered_author_year_parts(text, limit=2_049) == []
 
 
 def test_complex_layout_pdf_keeps_body_mentions_outside_table() -> None:
@@ -1120,6 +1156,9 @@ def test_citation_benchmark_gold_cases_are_self_consistent() -> None:
         )
     )
     unique_documents = citation_benchmark._unique_documents(annotations["documents"])
+    assert all(
+        "source_path" not in document["document"] for document in unique_documents
+    )
     identity = citation_benchmark._run_identity(annotations["identity_cases"])
     linkage = citation_benchmark._run_linkage_cases(annotations["linkage_cases"])
 
