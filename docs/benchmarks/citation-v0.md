@@ -1,6 +1,6 @@
 # Citation v0 benchmark report
 
-Generated: 2026-09-24T03:50:00.829892+00:00
+Generated: 2026-09-24T08:42:04.619101+00:00
 Runtime: Python 3.13.14 on Windows 11
 Document IR parser: `pypdf-pdfplumber-v5`
 
@@ -15,9 +15,9 @@ Document IR parser: `pypdf-pdfplumber-v5`
 
 ## Corpus integration
 
-- Validation + Document IR + citation parse: **35/35 passed** in 175.00s.
+- Validation + Document IR + citation parse: **35/35 passed** in 169.78s.
 - Failed: 0.
-- Extracted across all corpus files: 433 references, 401 mentions.
+- Extracted across all corpus files: 433 references, 397 mentions.
 - Parser-uncertain documents: 10.
 
 ## Extraction metrics
@@ -27,13 +27,13 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 | Metric | TP | FP | FN | Precision | Recall | F1 |
 |---|---:|---:|---:|---:|---:|---:|
 | Bibliography entries | 59 | 1 | 1 | 98.33% | 98.33% | 98.33% |
-| Citation mentions | 69 | 4 | 0 | 94.52% | 100.00% | 97.18% |
+| Citation mentions | 69 | 0 | 0 | 100.00% | 100.00% | 100.00% |
 
 - Bibliography status accuracy: **100.00%**.
 - DOI/arXiv exact identifier accuracy: **98.33%**.
 - DOI positive recall: **100.00%** (1 positive labels).
 - arXiv positive recall: **95.45%** (22 positive labels).
-- Gold parse time: 53.13s.
+- Gold parse time: 42.20s.
 
 ## Identity metrics
 
@@ -50,7 +50,7 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 ## Linkage metrics
 
 - Mention-to-reference exact mapping accuracy: **97.22%** (70/72).
-- Mention linkage-status accuracy: **92.11%**.
+- Mention linkage-status accuracy: **97.22%**.
 
 | Metric | TP | FP | FN | Precision | Recall | F1 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -63,13 +63,13 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 - DOI: `10.1109/sp40000.2020.00063`.
 - Adapter calls: 1 for 2 resolver attempts.
 - Cache hits/rate: 1 / 50.00%.
-- First resolution latency: 0.931s; cached latency: 0.000s.
+- First resolution latency: 0.970s; cached latency: 0.000s.
 - Live identity result: `VERIFIED`; cached external ID stable: `true`.
 
 ## Errors and limits
 
 - Corpus failures: []
-- Gold extraction mismatches: 6; SHA-256-prefix details: `[{"kind": "reference_fn", "gold_id": "reference-7", "best_similarity": 0.6314, "sha256_prefix": "8e4dd65a4590"}, {"kind": "reference_fp", "actual_id": "reference-7", "sha256_prefix": "8e4dd65a4590"}, {"kind": "mention_fp", "actual_id": "mention-31e06abeb6bfc566d403", "sha256_prefix": "cfde3d8a1b74"}, {"kind": "mention_fp", "actual_id": "mention-9d0e8f4b9c259181d61a", "sha256_prefix": "cfde3d8a1b74"}, {"kind": "mention_fp", "actual_id": "mention-91d7770b4e8d526d34ee", "sha256_prefix": "cfde3d8a1b74"}, {"kind": "mention_fp", "actual_id": "mention-6a905cc1484518fc82a9", "sha256_prefix": "cfde3d8a1b74"}]`
+- Gold extraction mismatches: 2; SHA-256-prefix details: `[{"kind": "reference_fn", "gold_id": "reference-7", "best_similarity": 0.6314, "sha256_prefix": "8e4dd65a4590"}, {"kind": "reference_fp", "actual_id": "reference-7", "sha256_prefix": "8e4dd65a4590"}]`
 - Live Crossref result is an operational probe, not gold truth. Offline identity metrics use fixed records.
 - No OCR, arbitrary URL fetching, semantic claim support, or style grading is included.
 

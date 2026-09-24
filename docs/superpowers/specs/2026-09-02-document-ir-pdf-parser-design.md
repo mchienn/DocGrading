@@ -147,8 +147,10 @@ numbers, and page-local line ranges. DOI/arXiv normalization removes layout
 whitespace. Parser uncertainty propagates to reference identity and mention mapping
 as review status and evidence, never as a hard citation error.
 Raised numeric footnote markers are linked through paragraph
-`superscript_markers`; merged unnumbered author-year bibliography text is split
-at validated author/year entry boundaries.
+`superscript_markers`. The citation layer ignores raised affiliation indices on
+first-page author-name lines while retaining prose footnote citations. Merged
+unnumbered author-year bibliography text is split at validated author/year entry
+boundaries.
 
 ### 4.6 Tables
 

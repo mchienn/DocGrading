@@ -76,6 +76,12 @@ _AUTHOR_YEAR_PART = re.compile(
     re.IGNORECASE,
 )
 _NARRATIVE_NAME = r"[A-ZÀ-Ỹ][\wÀ-ỹ'’-]*"
+_AFFILIATION_NAME = rf"{_NARRATIVE_NAME}(?:\s+{_NARRATIVE_NAME}){{1,5}}"
+_AFFILIATION_INDEX = r"\s+\d{1,3}(?:\s*[,;]\s*\d{1,3})*"
+_AFFILIATION_AUTHOR_LINE = re.compile(
+    rf"^\s*{_AFFILIATION_NAME}{_AFFILIATION_INDEX}"
+    rf"(?:\s*,\s*{_AFFILIATION_NAME}{_AFFILIATION_INDEX})*\s*,?\s*$"
+)
 _NARRATIVE_AUTHOR_GROUP = (
     rf"{_NARRATIVE_NAME}" rf"(?:\s+(?:et\s+al\.|(?:&|and)\s+{_NARRATIVE_NAME}))?"
 )
@@ -613,6 +619,10 @@ def _author_year_mentions(
     return sorted(result, key=lambda item: (item[1], item[2], item[0]))
 
 
+def _is_title_affiliation_line(text: str, page_number: int) -> bool:
+    return page_number == 1 and _AFFILIATION_AUTHOR_LINE.fullmatch(text) is not None
+
+
 _REFERENCE_START = re.compile(
     r"(?:^|\s)(?:\[\s*(?P<bracket>\d{1,4})\s*\]|(?P<bare>\d{1,3})\s*[.)])\s*"
 )
@@ -1095,6 +1105,8 @@ def parse_citations(document_ir: DocumentIR | Mapping[str, Any]) -> CitationRepo
         if not isinstance(superscript_markers, Sequence) or isinstance(
             superscript_markers, (str, bytes)
         ):
+            superscript_markers = ()
+        if _is_title_affiliation_line(text, int(paragraph.get("page_number", 0) or 0)):
             superscript_markers = ()
         for marker in superscript_markers:
             if not isinstance(marker, Mapping):

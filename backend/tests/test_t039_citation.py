@@ -766,6 +766,64 @@ def test_footnote_pdf_preserves_superscript_citation_identity() -> None:
     assert report.mentions[0].reference_ids == (report.references[0].id,)
 
 
+def test_title_page_affiliation_superscripts_are_not_citations() -> None:
+    author_line = "Trung Hien Nguyen 1 , Trung Duc Do 1 , Minh Hieu Dang Vu 1 ,"
+    report = citation.parse_citations(
+        {
+            "sections": [
+                {
+                    "id": "references",
+                    "text": "References",
+                    "page_number": 2,
+                }
+            ],
+            "paragraphs": [
+                {
+                    "id": "authors-1",
+                    "section_id": None,
+                    "page_number": 1,
+                    "text": author_line,
+                    "superscript_markers": [
+                        {"raw": "1", "number": 1, "start": 18, "end": 19},
+                        {"raw": "1", "number": 1, "start": 35, "end": 36},
+                        {"raw": "1", "number": 1, "start": 57, "end": 58},
+                    ],
+                },
+                {
+                    "id": "authors-2",
+                    "section_id": None,
+                    "page_number": 1,
+                    "text": "Tuan Nghia Le 1",
+                    "superscript_markers": [
+                        {"raw": "1", "number": 1, "start": 14, "end": 15}
+                    ],
+                },
+                {
+                    "id": "body",
+                    "section_id": None,
+                    "page_number": 1,
+                    "text": "Prior work 1 supports this result.",
+                    "superscript_markers": [
+                        {"raw": "1", "number": 1, "start": 11, "end": 12}
+                    ],
+                },
+                {
+                    "id": "reference",
+                    "section_id": "references",
+                    "page_number": 2,
+                    "text": "[1] Nguyen, A. (2024). Reliable systems.",
+                },
+            ],
+            "tables": [],
+        }
+    )
+
+    assert [(mention.element_id, mention.raw) for mention in report.mentions] == [
+        ("body", "1")
+    ]
+    assert report.mentions[0].status == citation.LINKED
+
+
 def test_complex_layout_pdf_keeps_body_mentions_outside_table() -> None:
     document, report = _parse_pdf_fixture("06_complex_layout.pdf")
 
