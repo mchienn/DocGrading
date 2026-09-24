@@ -40,6 +40,7 @@ export type PdfMarker = {
   label: string
   pageNumber: number
   bbox?: BBox
+  findingId?: string
 }
 
 type SearchResult = {
@@ -734,8 +735,8 @@ export function PdfEvidenceViewer({
     () =>
       findings.flatMap((finding, findingIndex) =>
         finding.evidence.map((evidence, evidenceIndex) => ({
-          id: `${finding.id}-${evidence.document_ir_id}-${evidence.element_id}-${evidenceIndex}`,
-          label: String(findingIndex + 1),
+          id: `${finding.id}:${evidence.document_ir_id}:${evidence.element_id}:${evidence.page_number}`,
+          label: `${findingIndex + 1}.${evidenceIndex + 1}`,
           pageNumber: evidence.page_number,
           bbox: evidence.bbox,
           findingId: finding.id,
@@ -743,9 +744,21 @@ export function PdfEvidenceViewer({
       ),
     [findings],
   )
-  const selectedMarkerId = markers.find(
-    (marker) => marker.findingId === selectedFindingId,
-  )?.id
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string>()
+
+  useEffect(() => {
+    if (!selectedFindingId) {
+      setSelectedMarkerId(undefined)
+      return
+    }
+    setSelectedMarkerId((current) =>
+      current && markers.some(
+        (marker) => marker.id === current && marker.findingId === selectedFindingId,
+      )
+        ? current
+        : markers.find((marker) => marker.findingId === selectedFindingId)?.id,
+    )
+  }, [markers, selectedFindingId])
 
   return (
     <PdfMarkerViewer
@@ -753,6 +766,7 @@ export function PdfEvidenceViewer({
       markers={markers}
       selectedMarkerId={selectedMarkerId}
       onSelectMarker={(markerId) => {
+        setSelectedMarkerId(markerId)
         const findingId = markers.find((marker) => marker.id === markerId)?.findingId
         if (findingId) onSelectFinding(findingId)
       }}

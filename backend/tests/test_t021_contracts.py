@@ -102,7 +102,12 @@ QUEUE_ITEM_FIELDS = {
     "submitted_at",
     "review_lock",
 }
-EVIDENCE_WORKSPACE_FIELDS = {"submission_id", "document_version_id", "findings"}
+EVIDENCE_WORKSPACE_FIELDS = {
+    "submission_id",
+    "document_version_id",
+    "findings",
+    "citation",
+}
 FINDING_FIELDS = {
     "id",
     "criterion_version_id",

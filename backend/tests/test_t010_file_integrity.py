@@ -48,7 +48,7 @@ def test_file_integrity_creates_region_finding_once() -> None:
             execute=AsyncMock(
                 side_effect=[
                     _result(scalars=[criterion]),
-                    _result(tuples=[]),
+                    _result(scalars=[]),
                 ]
             ),
             add=MagicMock(),
@@ -73,13 +73,17 @@ def test_file_integrity_creates_region_finding_once() -> None:
             execute=AsyncMock(
                 side_effect=[
                     _result(scalars=[criterion]),
-                    _result(tuples=[(criterion_id, "link-1")]),
+                    _result(scalars=[finding.id]),
+                    MagicMock(),
+                    MagicMock(),
                 ]
             ),
             add=MagicMock(),
             flush=AsyncMock(),
         )
+        document_ir.content["links"] = []
         assert await evaluate_file_integrity(replay_db, job, document_ir) == 0
         replay_db.add.assert_not_called()
+        assert replay_db.execute.await_count == 4
 
     asyncio.run(run())

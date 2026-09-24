@@ -1450,6 +1450,125 @@ export interface components {
             /** Results */
             results: components["schemas"]["PublishedResultResponse"][];
         };
+        /** CitationAnchorResponse */
+        CitationAnchorResponse: {
+            /** Element Id */
+            element_id: string;
+            /** Page Number */
+            page_number: number;
+            /** Line Start */
+            line_start?: number | null;
+            /** Line End */
+            line_end?: number | null;
+        };
+        /** CitationCountsResponse */
+        CitationCountsResponse: {
+            /** References */
+            references: number;
+            /** Mentions */
+            mentions: number;
+            /** Linked */
+            linked: number;
+            /** Linkage Rate */
+            linkage_rate: number;
+            /** Orphan Mentions */
+            orphan_mentions: number;
+            /** Ambiguous */
+            ambiguous: number;
+            /**
+             * Ambiguous Mapping
+             * @default 0
+             */
+            ambiguous_mapping: number;
+            /** Uncited References */
+            uncited_references: number;
+            /** Verified */
+            verified: number;
+            /** Verified Rate */
+            verified_rate: number;
+            /** Metadata Mismatch */
+            metadata_mismatch: number;
+            /** Unresolved */
+            unresolved: number;
+            /**
+             * Parser Uncertain
+             * @default 0
+             */
+            parser_uncertain: number;
+            /**
+             * Fragmented References
+             * @default 0
+             */
+            fragmented_references: number;
+            /**
+             * Bibliography Not Found
+             * @default 0
+             */
+            bibliography_not_found: number;
+            /** Duplicates */
+            duplicates: number;
+        };
+        /** CitationIdentityResponse */
+        CitationIdentityResponse: {
+            /** Id */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "VERIFIED" | "METADATA_MISMATCH" | "UNRESOLVED" | "PARSER_UNCERTAIN";
+            /** Mismatch Fields */
+            mismatch_fields?: string[];
+            /** Doi */
+            doi?: string | null;
+            /** Arxiv Id */
+            arxiv_id?: string | null;
+            /** Provider */
+            provider?: {
+                [key: string]: string;
+            } | null;
+        };
+        /** CitationIssueResponse */
+        CitationIssueResponse: {
+            /** Id */
+            id: string;
+            /** Status */
+            status: string;
+            /** Element Id */
+            element_id: string;
+            /** Page Number */
+            page_number: number;
+            /** Snippet */
+            snippet: string;
+            /** Anchors */
+            anchors?: components["schemas"]["CitationAnchorResponse"][];
+        };
+        /** CitationReportResponse */
+        CitationReportResponse: {
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Parser Status
+             * @default PARSED
+             * @enum {string}
+             */
+            parser_status: "PARSED" | "PARSER_UNCERTAIN";
+            /**
+             * Bibliography Status
+             * @default BIBLIOGRAPHY_NOT_FOUND
+             * @enum {string}
+             */
+            bibliography_status: "PARSED" | "PARSER_UNCERTAIN" | "BIBLIOGRAPHY_NOT_FOUND";
+            /** Parser Warnings */
+            parser_warnings?: string[];
+            counts: components["schemas"]["CitationCountsResponse"];
+            /** Duplicate Reference Ids */
+            duplicate_reference_ids?: string[];
+            /** Identity */
+            identity?: components["schemas"]["CitationIdentityResponse"][];
+            /** Issues */
+            issues?: components["schemas"]["CitationIssueResponse"][];
+        };
         /** CompletionResponse */
         CompletionResponse: {
             /**
@@ -1823,6 +1942,7 @@ export interface components {
             document_version_id: string;
             /** Findings */
             findings: components["schemas"]["FindingResponse"][];
+            citation?: components["schemas"]["CitationReportResponse"] | null;
         };
         /** FindingResponse */
         FindingResponse: {

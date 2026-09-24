@@ -39,7 +39,7 @@ async def evaluate_file_integrity(
     job: AnalysisJob,
     document_ir: DocumentIR,
 ) -> int:
-    """Create rubric findings for bounded link-integrity evidence."""
+    """Replace rubric findings with current bounded link-integrity evidence."""
     links = [
         link
         for link in document_ir.content.get("links", ())
@@ -49,9 +49,6 @@ async def evaluate_file_integrity(
         and isinstance(link.get("page_number"), int)
         and isinstance(link.get("bbox"), Mapping)
     ]
-    if not links:
-        return 0
-
     criteria = (
         await db.execute(
             sa.select(CriterionVersion).where(
@@ -67,26 +64,28 @@ async def evaluate_file_integrity(
         return 0
 
     criterion_ids = [criterion.id for criterion in integrity_criteria]
-    existing = set(
+    finding_ids = list(
         (
             await db.execute(
-                sa.select(Finding.criterion_version_id, EvidenceAnchor.element_id)
-                .join(EvidenceAnchor, EvidenceAnchor.finding_id == Finding.id)
-                .where(
+                sa.select(Finding.id).where(
                     Finding.analysis_job_id == job.id,
                     Finding.criterion_version_id.in_(criterion_ids),
                 )
             )
-        ).tuples()
+        ).scalars()
     )
+    if finding_ids:
+        await db.execute(
+            sa.delete(EvidenceAnchor).where(EvidenceAnchor.finding_id.in_(finding_ids))
+        )
+        await db.execute(sa.delete(Finding).where(Finding.id.in_(finding_ids)))
+    if not links:
+        return 0
 
     created = 0
     pending: list[tuple[Finding, Mapping[str, Any]]] = []
     for criterion in integrity_criteria:
         for link in links:
-            element_id = link["id"]
-            if (criterion.id, element_id) in existing:
-                continue
             description, suggestion = _finding_text(link)
             finding = Finding(
                 analysis_job_id=job.id,

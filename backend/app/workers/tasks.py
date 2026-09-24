@@ -21,6 +21,7 @@ from app.services.analysis_job import (
     processing_failure_report,
     update_heartbeat,
 )
+from app.services.citation import evaluate_citations
 from app.services.document_ir import (
     DocumentIRExtractionError,
     get_or_build_document_ir,
@@ -119,15 +120,38 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                 except Exception:
                     job_outcome = ("ir_extraction_error", None)
                 else:
-                    try:
-                        await evaluate_file_integrity(db, job, ir)
-                    except SQLAlchemyError:
-                        await db.rollback()
-                        raise
-                    except Exception:
-                        job_outcome = ("evaluation_error", None)
-                    else:
+                    if getattr(job, "rubric_version_id", None) is None:
                         job_outcome = ("success", ir)
+                    else:
+                        try:
+                            await evaluate_file_integrity(db, job, ir)
+                        except SQLAlchemyError:
+                            await db.rollback()
+                            raise
+                        except Exception:
+                            job_outcome = (
+                                "evaluation_error",
+                                (
+                                    "FILE_INTEGRITY_EVALUATION_FAILED",
+                                    "File integrity evaluation failed",
+                                ),
+                            )
+                        else:
+                            try:
+                                await evaluate_citations(db, job, ir)
+                            except SQLAlchemyError:
+                                await db.rollback()
+                                raise
+                            except Exception:
+                                job_outcome = (
+                                    "evaluation_error",
+                                    (
+                                        "CITATION_EVALUATION_FAILED",
+                                        "Citation evaluation failed",
+                                    ),
+                                )
+                            else:
+                                job_outcome = ("success", ir)
         finally:
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -168,18 +192,19 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                 await db.rollback()
                 return None
         elif job_outcome[0] == "evaluation_error":
+            code, detail = job_outcome[1]
             job.document_version.status = DocumentStatus.PROCESSING_FAILED
-            job.document_version.failure_code = "FILE_INTEGRITY_EVALUATION_FAILED"
-            job.document_version.failure_detail = "File integrity evaluation failed"
+            job.document_version.failure_code = code
+            job.document_version.failure_detail = detail
             job.document_version.validation_report = processing_failure_report(
-                "FILE_INTEGRITY_EVALUATION_FAILED",
+                code,
                 getattr(job.document_version, "validation_report", None),
             )
             success = await mark_error(
                 db,
                 job,
-                "FILE_INTEGRITY_EVALUATION_FAILED",
-                "File integrity evaluation failed",
+                code,
+                detail,
                 attempt_count=claimed_attempt,
             )
             if not success:

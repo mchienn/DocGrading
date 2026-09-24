@@ -93,9 +93,12 @@ Every coordinate-bearing object also stores a one-based `page_number`. Values ar
 Each page stores:
 
 - `number`, `width`, `height`;
-- reading-order `text` reconstructed from accepted lines;
+- reading-order `text` reconstructed from accepted lines, with detected two-column
+  pages emitted left column before right column;
 - ordered IDs of headings, paragraphs, logical tables, and link annotations on that page.
 
+Repeated short headers, footers, and page-number margin lines are excluded from
+heading and paragraph structure. Section ownership is rebuilt after this cleanup.
 An accepted blank page remains present with empty text and block IDs.
 
 ### 4.3 Sections and headings
@@ -118,11 +121,36 @@ A stack assigns each heading to the closest preceding lower-level parent. Missin
 
 ### 4.4 Paragraphs
 
-Words are grouped into lines by vertical tolerance and sorted left-to-right. Adjacent non-heading, non-table lines become one paragraph when alignment and vertical-gap tolerances match. Each paragraph stores deterministic ID, text, nullable section ID, page number, and union bounding box.
+Words are grouped into lines by vertical tolerance and sorted left-to-right within
+each detected column. Adjacent non-heading, non-table lines become one paragraph
+when alignment and vertical-gap tolerances match. Hanging-indent continuation lines
+within a paragraph may differ by up to 36 points. Each paragraph stores deterministic
+ID, text, nullable section ID, page number, line range, and union bounding box.
+Paragraphs may include optional `superscript_markers` entries for raised numeric
+footnote markers. Each entry preserves raw text, reference number, and paragraph
+character offsets without rewriting extracted text.
 
-Paragraphs never span pages. Page boundaries remain explicit evidence boundaries.
+Paragraphs never span pages. Downstream entity parsers may stitch a continued
+bibliography reference across page-local paragraphs and must retain every paragraph
+ID and page number as evidence anchors.
 
-### 4.5 Tables
+### 4.5 Citation extraction boundary
+
+The Document IR parser does not resolve citations. The citation parser consumes
+page-local paragraphs in their established reading order, recognizes explicit
+bibliography headings, and may use a trailing reference cluster as an explicitly
+uncertain fallback when no heading is detected. Bibliographies extracted by the
+layout engine as tables use the logical table ID as their resolvable evidence anchor.
+A bibliography entry continued in the next paragraph or page is stitched only in
+the citation layer. Every stitched entry retains aligned source element IDs, page
+numbers, and page-local line ranges. DOI/arXiv normalization removes layout
+whitespace. Parser uncertainty propagates to reference identity and mention mapping
+as review status and evidence, never as a hard citation error.
+Raised numeric footnote markers are linked through paragraph
+`superscript_markers`; merged unnumbered author-year bibliography text is split
+at validated author/year entry boundaries.
+
+### 4.6 Tables
 
 Use `pdfplumber.Page.find_tables()` and each table's cell geometry. A page table region stores page number, bounding box, rows, cell text, and cell bounding boxes. Missing cells remain explicit null values so column positions do not shift.
 
@@ -134,6 +162,10 @@ Two table regions on consecutive pages form one logical table only when:
 - optional repeated header rows are equal after whitespace normalization.
 
 The logical table stores ordered regions rather than fabricating one cross-page bounding box. Uncertain regions remain separate tables; false merging is worse than under-merging.
+Text-aligned candidates require a dominant, repeatable non-empty cell count.
+Ordinary prose and multi-column body text remain paragraphs when inferred cell
+occupancy is inconsistent; conservative under-detection is safer than removing
+body evidence as a false table.
 
 ### 4.6 Links
 
@@ -183,7 +215,7 @@ Additional invariants:
 1. lock the owning `Submission` row with `.with_for_update(of=Submission)` through the target `DocumentVersion`;
 2. lock the target `DocumentVersion` with `.with_for_update()`;
 3. read its one-to-one `DocumentIR` while both rows are locked;
-4. return the existing row immediately when present and `rebuild` is false;
+4. return the existing row immediately only when `rebuild` is false and both `schema_version` and `parser_version` match the current parser contract; otherwise rebuild it in place;
 5. otherwise parse exactly once while retaining both locks;
 6. compare the parser SHA-256 only with a non-null `declared_sha256`; the stored `sha256` field remains a client/server metadata hint until worker success updates it;
 7. check sibling versions for the parsed server SHA while the `Submission` lock is held;

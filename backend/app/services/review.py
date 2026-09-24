@@ -19,6 +19,7 @@ from app.api.schemas_submission import (
     ApprovalResponse,
     BBox,
     BulkPublishResponse,
+    CitationReportResponse,
     DocumentDownloadResponse,
     EvidenceResponse,
     EvidenceWorkspaceResponse,
@@ -377,10 +378,35 @@ async def get_evidence(
                 bbox=bbox,
             )
         )
+
+    snapshots = (
+        (
+            await db.execute(
+                sa.select(AnalysisJob.snapshot).where(
+                    AnalysisJob.document_version_id == document.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    citation = None
+    for snapshot in snapshots:
+        if not isinstance(snapshot, Mapping):
+            continue
+        raw_citation = snapshot.get("citation")
+        if not isinstance(raw_citation, Mapping):
+            continue
+        try:
+            citation = CitationReportResponse.model_validate(raw_citation)
+        except ValidationError:
+            continue
+        break
     return EvidenceWorkspaceResponse(
         submission_id=submission.id,
         document_version_id=document.id,
         findings=list(grouped.values()),
+        citation=citation,
     )
 
 

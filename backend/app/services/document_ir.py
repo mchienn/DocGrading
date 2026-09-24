@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import math
 import re
+import unicodedata
 import uuid
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from heapq import nsmallest
 from io import BytesIO
 from statistics import median
 from threading import RLock
@@ -33,7 +36,7 @@ from app.services.pdf_validation import (
 )
 
 SCHEMA_VERSION: int = 2
-PARSER_VERSION: str = "pypdf-pdfplumber-v3"
+PARSER_VERSION: str = "pypdf-pdfplumber-v5"
 
 _TABLE_SOURCE_OBJECT_TYPES = ("line", "rect", "curve")
 _MAX_TABLE_SOURCE_OBJECTS = 256
@@ -50,6 +53,20 @@ _MAX_TABLE_TEXT_WORDS = 10_000
 _TEXT_TABLE_MIN_WORDS_VERTICAL = 2
 _TEXT_TABLE_MIN_WORDS_HORIZONTAL = 1
 _TABLE_WORK_RESERVE = 4
+_MAX_LINK_LABEL_WORK = 100_000
+_MAX_LINK_LABEL_WORDS = 256
+_MAX_LINK_LABEL_CHARS = 2_048
+_MAX_VISIBLE_URL_PARTS = 64
+
+_BIBLIOGRAPHY_HEADING = re.compile(
+    r"^(?:references?|bibliography|works cited|literature cited|"
+    r"references and bibliography|tai lieu tham khao)$",
+    re.IGNORECASE,
+)
+_PAGE_NUMBER = re.compile(
+    r"^(?:[-–—|]\s*)?(?:page\s*)?\d+" r"(?:(?:\s*(?:/|\||of)\s*)\d+)?(?:\s*[-–—|])?$",
+    re.IGNORECASE,
+)
 
 
 # ponytail: this process-global hook is intentionally serialized for isolation.
@@ -220,7 +237,12 @@ async def get_or_build_document_ir(
             )
         )
     ).scalar_one_or_none()
-    if existing is not None and not rebuild:
+    if (
+        existing is not None
+        and not rebuild
+        and existing.schema_version == SCHEMA_VERSION
+        and existing.parser_version == PARSER_VERSION
+    ):
         _validate_persisted_document_ir(existing)
         document.validation_report = _accepted_replay_report(
             getattr(document, "validation_report", None)
@@ -311,6 +333,7 @@ class _Line:
     bbox: _BBox
     font_size: float
     font_name: str
+    superscript_markers: tuple[tuple[int, int, int], ...] = ()
 
 
 _NUMBERED_HEADING = re.compile(r"^(\d+(?:\.\d+)*)(?:[.)])?\s+\S")
@@ -390,41 +413,217 @@ def _union_bbox(first: _BBox, second: _BBox) -> _BBox:
     )
 
 
+def _union_words_bbox(words: Sequence[_Word]) -> _BBox:
+    first = words[0].bbox
+    for word in words[1:]:
+        first = _union_bbox(first, word.bbox)
+    return first
+
+
 def _line_from_words(words: Sequence[_Word]) -> _Line:
+    visible = [word for word in words if word.text]
+    body_size = median([word.font_size for word in visible])
+    body_bottom = median(
+        [word.bbox.bottom for word in visible if word.font_size >= body_size * 0.9]
+    )
+    parts: list[str] = []
+    markers: list[tuple[int, int, int]] = []
+    offset = 0
+    for index, word in enumerate(visible):
+        if parts:
+            offset += 1
+        start = offset
+        parts.append(word.text)
+        offset += len(word.text)
+        previous = visible[index - 1] if index > 0 else None
+        previous_letters = (
+            re.findall(r"[A-Za-zÀ-ỹ]", previous.text) if previous is not None else []
+        )
+        adjacent_to_text = bool(
+            previous is not None
+            and len(previous_letters) >= 2
+            and word.bbox.x0 - previous.bbox.x1 <= max(1.5, body_size * 0.2)
+        )
+        if (
+            previous is not None
+            and re.fullmatch(r"[1-9]\d{0,3}", word.text)
+            and (
+                previous.text.rstrip().endswith((".", ",", ";", ":", "!", "?"))
+                or adjacent_to_text
+            )
+            and word.font_size <= body_size * 0.8
+            and word.bbox.bottom <= body_bottom - body_size * 0.2
+        ):
+            markers.append((start, offset, int(word.text)))
     font_counts: dict[str, int] = {}
-    for word in words:
+    for word in visible:
         font_counts[word.font_name] = font_counts.get(word.font_name, 0) + 1
     font_name = min(
         font_counts,
         key=lambda name: (-font_counts[name], name),
     )
     return _Line(
-        text=" ".join(word.text for word in words if word.text),
-        bbox=_union_words_bbox(words),
-        font_size=max(word.font_size for word in words),
+        text=" ".join(parts),
+        bbox=_union_words_bbox(visible),
+        font_size=max(word.font_size for word in visible),
         font_name=font_name,
+        superscript_markers=tuple(markers),
     )
 
 
-def _union_words_bbox(words: Sequence[_Word]) -> _BBox:
-    bbox = words[0].bbox
-    for word in words[1:]:
-        bbox = _union_bbox(bbox, word.bbox)
-    return bbox
+def _normalize_heading(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text)
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    return " ".join(normalized.casefold().split()).strip(" .:")
 
 
-def _group_lines(words: Sequence[_Word]) -> list[_Line]:
-    ordered = sorted(words, key=lambda word: (word.bbox.top, word.bbox.x0))
-    grouped: list[list[_Word]] = []
-    for word in ordered:
-        if not grouped or abs(word.bbox.top - grouped[-1][0].bbox.top) > 3:
-            grouped.append([word])
+def _is_margin_noise(line: _Line, *, page_height: float) -> bool:
+    if line.bbox.top > 48 and line.bbox.bottom < page_height - 48:
+        return False
+    return bool(_PAGE_NUMBER.fullmatch(line.text.strip()))
+
+
+def _word_rows(words: Sequence[_Word]) -> list[list[_Word]]:
+    rows: list[list[_Word]] = []
+    for word in sorted(words, key=lambda item: (item.bbox.top, item.bbox.x0)):
+        if not rows or abs(word.bbox.top - rows[-1][0].bbox.top) > 3:
+            rows.append([word])
         else:
-            grouped[-1].append(word)
+            rows[-1].append(word)
+    return [sorted(row, key=lambda item: item.bbox.x0) for row in rows]
+
+
+def _column_split(
+    words: Sequence[_Word],
+    rows: Sequence[Sequence[_Word]],
+    *,
+    page_width: float,
+) -> float | None:
+    if len(words) < 16 or len(rows) < 6:
+        return None
+    ordered = sorted(words, key=lambda word: word.bbox.x0)
+    best_gap: tuple[float, float] | None = None
+    minimum_gap = max(48.0, page_width * 0.08)
+    minimum_words = max(8, len(words) // 6)
+    for index, (left, right) in enumerate(zip(ordered, ordered[1:], strict=False)):
+        gap = right.bbox.x0 - left.bbox.x0
+        split = (left.bbox.x0 + right.bbox.x0) / 2
+        if (
+            gap < minimum_gap
+            or not page_width * 0.15 < split < page_width * 0.85
+            or index + 1 < minimum_words
+            or len(words) - index - 1 < minimum_words
+        ):
+            continue
+        left_words = ordered[: index + 1]
+        right_words = ordered[index + 1 :]
+        left_extent = max(word.bbox.x1 for word in left_words) - min(
+            word.bbox.x0 for word in left_words
+        )
+        right_extent = max(word.bbox.x1 for word in right_words) - min(
+            word.bbox.x0 for word in right_words
+        )
+        left_top = min(word.bbox.top for word in left_words)
+        left_bottom = max(word.bbox.bottom for word in left_words)
+        right_top = min(word.bbox.top for word in right_words)
+        right_bottom = max(word.bbox.bottom for word in right_words)
+        vertical_overlap = max(
+            0.0, min(left_bottom, right_bottom) - max(left_top, right_top)
+        )
+        minimum_span = min(left_bottom - left_top, right_bottom - right_top)
+        overlap_top = max(left_top, right_top)
+        overlap_bottom = min(left_bottom, right_bottom)
+        left_rows = sum(
+            any(word.bbox.x0 <= split for word in row)
+            and row[0].bbox.top <= overlap_bottom
+            and max(word.bbox.bottom for word in row) >= overlap_top
+            for row in rows
+        )
+        right_rows = sum(
+            any(word.bbox.x0 > split for word in row)
+            and row[0].bbox.top <= overlap_bottom
+            and max(word.bbox.bottom for word in row) >= overlap_top
+            for row in rows
+        )
+        if (
+            left_extent >= page_width * 0.18
+            and right_extent >= page_width * 0.18
+            and minimum_span > 0
+            and vertical_overlap >= minimum_span * 0.5
+            and left_rows >= 3
+            and right_rows >= 3
+            and (best_gap is None or gap > best_gap[0])
+        ):
+            best_gap = (gap, split)
+    return best_gap[1] if best_gap else None
+
+
+def _split_columns(words: Sequence[_Word], *, page_width: float) -> list[list[_Word]]:
+    split = _column_split(words, _word_rows(words), page_width=page_width)
+    if split is None:
+        return [list(words)]
     return [
-        _line_from_words(sorted(group, key=lambda word: word.bbox.x0))
-        for group in grouped
+        [word for word in words if word.bbox.x0 <= split],
+        [word for word in words if word.bbox.x0 > split],
     ]
+
+
+def _group_lines(
+    words: Sequence[_Word], *, page_width: float | None = None
+) -> list[_Line]:
+    rows = _word_rows(words)
+    if page_width is None:
+        return [_line_from_words(row) for row in rows]
+    split = _column_split(words, rows, page_width=page_width)
+    if split is None:
+        return [_line_from_words(row) for row in rows]
+
+    body_size = median([word.font_size for word in words]) if words else 0.0
+    minimum_gutter = max(36.0, page_width * 0.06)
+    lines: list[_Line] = []
+    segment: list[list[_Word]] = []
+
+    def flush_segment() -> None:
+        if not segment:
+            return
+        left_rows: list[list[_Word]] = []
+        right_rows: list[list[_Word]] = []
+        for row in segment:
+            left = [word for word in row if word.bbox.x0 <= split]
+            right = [word for word in row if word.bbox.x0 > split]
+            if left:
+                left_rows.append(left)
+            if right:
+                right_rows.append(right)
+        if not left_rows or not right_rows:
+            lines.extend(_line_from_words(row) for row in segment)
+        else:
+            lines.extend(_line_from_words(row) for row in left_rows)
+            lines.extend(_line_from_words(row) for row in right_rows)
+        segment.clear()
+
+    for row in rows:
+        left = [word for word in row if word.bbox.x0 <= split]
+        right = [word for word in row if word.bbox.x0 > split]
+        crosses_gutter = any(word.bbox.x0 < split < word.bbox.x1 for word in row)
+        between_gap = (
+            min(word.bbox.x0 for word in right) - max(word.bbox.x1 for word in left)
+            if left and right
+            else float("inf")
+        )
+        typography_spans = (
+            left
+            and right
+            and len(row) <= 16
+            and max(word.font_size for word in row) >= body_size * 1.2
+        )
+        if crosses_gutter or between_gap < minimum_gutter or typography_spans:
+            flush_segment()
+            lines.append(_line_from_words(row))
+        else:
+            segment.append(row)
+    flush_segment()
+    return lines
 
 
 def _extract_lines(
@@ -445,21 +644,28 @@ def _extract_lines(
         )
         for word in extracted
     ]
-    all_lines = _group_lines(words)
+    all_lines = _group_lines(words, page_width=page_width)
     budget.consume(len(all_lines))
     if not excluded_bboxes:
-        return all_lines, all_lines, words
-    content_words = [
-        word
-        for word in words
-        if not any(
-            bbox.x0 <= (word.bbox.x0 + word.bbox.x1) / 2 <= bbox.x1
-            and bbox.top <= (word.bbox.top + word.bbox.bottom) / 2 <= bbox.bottom
-            for bbox in excluded_bboxes
-        )
+        content_words = words
+    else:
+        content_words = [
+            word
+            for word in words
+            if not any(
+                bbox.x0 <= (word.bbox.x0 + word.bbox.x1) / 2 <= bbox.x1
+                and bbox.top <= (word.bbox.top + word.bbox.bottom) / 2 <= bbox.bottom
+                for bbox in excluded_bboxes
+            )
+        ]
+    content_lines = _group_lines(content_words, page_width=page_width)
+    content_lines = [
+        line
+        for line in content_lines
+        if not _is_margin_noise(line, page_height=page_height)
     ]
-    content_lines = _group_lines(content_words)
-    budget.consume(len(content_lines))
+    if excluded_bboxes:
+        budget.consume(len(content_lines))
     return all_lines, content_lines, words
 
 
@@ -469,17 +675,31 @@ _VISIBLE_URL = re.compile(r"(?:https?://|www\.)[^\s<>()]+", re.IGNORECASE)
 def _link_display_text(words: Sequence[_Word], bbox: _BBox | None) -> str:
     if bbox is None:
         return ""
-    selected = [
-        word
-        for word in words
-        if bbox.x0 - 2 <= (word.bbox.x0 + word.bbox.x1) / 2 <= bbox.x1 + 2
-        and bbox.top - 2 <= (word.bbox.top + word.bbox.bottom) / 2 <= bbox.bottom + 2
-    ]
-    return " ".join(
-        word.text
-        for word in sorted(selected, key=lambda item: (item.bbox.top, item.bbox.x0))
-        if word.text
-    ).strip()
+    selected = nsmallest(
+        _MAX_LINK_LABEL_WORDS,
+        (
+            word
+            for word in words
+            if word.text
+            and bbox.x0 - 2 <= (word.bbox.x0 + word.bbox.x1) / 2 <= bbox.x1 + 2
+            and bbox.top - 2
+            <= (word.bbox.top + word.bbox.bottom) / 2
+            <= bbox.bottom + 2
+        ),
+        key=lambda item: (item.bbox.top, item.bbox.x0),
+    )
+    parts: list[str] = []
+    remaining = _MAX_LINK_LABEL_CHARS
+    for word in selected:
+        separator = 1 if parts else 0
+        if remaining <= separator:
+            break
+        part = word.text[: remaining - separator]
+        if not part:
+            break
+        parts.append(part)
+        remaining -= separator + len(part)
+    return " ".join(parts).strip()
 
 
 def _normalize_url(value: str) -> str | None:
@@ -509,9 +729,13 @@ def _link_status(link: PDFLink, display_text: str) -> str:
     visible_match = _VISIBLE_URL.search(display_text)
     if visible_match is not None:
         target_url = _normalize_url(link.target)
-        visible_parts = display_text[visible_match.start() :].split()
-        for part_count in range(1, len(visible_parts) + 1):
-            visible_url = _normalize_url("".join(visible_parts[:part_count]))
+        visible_parts = display_text[visible_match.start() :].split()[
+            :_MAX_VISIBLE_URL_PARTS
+        ]
+        candidate = ""
+        for part in visible_parts:
+            candidate += part
+            visible_url = _normalize_url(candidate)
             if target_url is not None and visible_url == target_url:
                 return "MATCH"
         return "MISMATCH"
@@ -555,7 +779,7 @@ def _document_link(
             if bbox is not None
             else None
         ),
-        "display_text": display_text[:2_048],
+        "display_text": display_text,
         "target": link.target,
         "action_type": link.action_type,
         "status": _link_status(link, display_text),
@@ -733,6 +957,18 @@ def _text_table_has_column_gap(
     )
 
 
+def _text_table_rows_are_consistent(rows: Sequence[Sequence[Any]]) -> bool:
+    occupancies = [
+        sum(bool(cell and str(cell).strip()) for cell in row)
+        for row in rows
+        if any(cell and str(cell).strip() for cell in row)
+    ]
+    if len(occupancies) < 2:
+        return False
+    dominant_occupancy, dominant_count = Counter(occupancies).most_common(1)[0]
+    return dominant_occupancy >= 2 and dominant_count * 2 > len(occupancies)
+
+
 def _extract_tables(
     page: Any,
     *,
@@ -904,6 +1140,8 @@ def _extract_tables(
             if cell_count > _MAX_TABLE_CELLS:
                 raise PDFValidationError("PDF_STRUCTURE_LIMIT")
             extracted_rows = table.extract()
+            if is_text and not _text_table_rows_are_consistent(extracted_rows):
+                continue
         except PDFValidationError:
             raise
         except (AttributeError, TypeError, ValueError, IndexError) as exc:
@@ -1008,6 +1246,8 @@ def _is_heading(
     typography_ranks: Mapping[float, int],
     numbering_has_nested_level: bool = False,
 ) -> tuple[bool, int]:
+    if _BIBLIOGRAPHY_HEADING.fullmatch(_normalize_heading(line.text)):
+        return True, 1
     numbered = _NUMBERED_HEADING.match(line.text)
     if numbered:
         level = numbered.group(1).count(".") + 1
@@ -1160,16 +1400,22 @@ def _parse_pages(
             excluded_bboxes=table_bboxes,
         )
         page_link_ids: list[str] = []
-        for source_link in pdf_links:
-            if source_link.page_number != page_number:
-                continue
+        page_links = [
+            source_link
+            for source_link in pdf_links
+            if source_link.page_number == page_number
+        ]
+        link_words: Sequence[_Word] = (
+            words if len(page_links) * len(words) <= _MAX_LINK_LABEL_WORK else ()
+        )
+        for source_link in page_links:
             budget.consume()
             link_id = f"link-{len(all_links) + 1}"
             all_links.append(
                 _document_link(
                     source_link,
                     link_id=link_id,
-                    words=words,
+                    words=link_words,
                     page_width=page_width,
                     page_height=page_height,
                 )
@@ -1239,7 +1485,7 @@ def _parse_pages(
                 line_section_ids[line_index] = current_section_id
 
         page_paragraph_ids: list[str] = []
-        paragraph_lines: list[tuple[_Line, str | None]] = []
+        paragraph_lines: list[tuple[_Line, str | None, int]] = []
         for line_index, line in enumerate(content_lines):
             if line_index in heading_lines or not line.text:
                 if paragraph_lines:
@@ -1254,11 +1500,11 @@ def _parse_pages(
                 continue
             section_id = line_section_ids[line_index]
             if paragraph_lines:
-                previous, previous_section = paragraph_lines[-1]
+                previous, previous_section, _previous_index = paragraph_lines[-1]
                 vertical_gap = line.bbox.top - previous.bbox.bottom
                 if (
                     section_id != previous_section
-                    or abs(line.bbox.x0 - previous.bbox.x0) > 12
+                    or abs(line.bbox.x0 - previous.bbox.x0) > 36
                     or vertical_gap
                     > max(6, (previous.bbox.bottom - previous.bbox.top) * 1.5)
                 ):
@@ -1270,7 +1516,7 @@ def _parse_pages(
                         page_paragraph_ids,
                     )
                     paragraph_lines = []
-            paragraph_lines.append((line, section_id))
+            paragraph_lines.append((line, section_id, line_index))
         if paragraph_lines:
             budget.consume()
             _append_paragraph(
@@ -1296,34 +1542,162 @@ def _parse_pages(
                 "links": page_link_ids,
             }
         )
+    _drop_repeated_margin_elements(parsed_pages, all_sections, all_paragraphs)
     return parsed_pages
 
 
+def _drop_repeated_margin_elements(
+    pages: list[dict[str, Any]],
+    sections: list[dict[str, Any]],
+    paragraphs: list[dict[str, Any]],
+) -> None:
+    page_heights = {
+        int(page["number"]): float(page["height"])
+        for page in pages
+        if page.get("number") is not None and page.get("height") is not None
+    }
+
+    def at_margin(element: Mapping[str, Any]) -> bool:
+        page_number = int(element.get("page_number", 0) or 0)
+        bbox = element.get("bbox", {})
+        return (
+            float(bbox.get("top", 0)) <= 72
+            or float(bbox.get("bottom", 0)) >= page_heights.get(page_number, 792.0) - 72
+        )
+
+    occurrences: dict[str, list[dict[str, Any]]] = {}
+    for element in (*sections, *paragraphs):
+        text = " ".join(str(element.get("text", "")).split())
+        if text and len(text) <= 160 and at_margin(element):
+            occurrences.setdefault(_normalize_heading(text), []).append(element)
+
+    repeated = {
+        text
+        for text, items in occurrences.items()
+        if text and len({int(item.get("page_number", 0)) for item in items}) >= 2
+    }
+    dropped_paragraph_ids = {
+        str(paragraph["id"])
+        for paragraph in paragraphs
+        if _normalize_heading(str(paragraph.get("text", ""))) in repeated
+        and at_margin(paragraph)
+    }
+    dropped_section_ids: set[str] = set()
+    kept_bibliography_heading: set[str] = set()
+    for section in sections:
+        normalized = _normalize_heading(str(section.get("text", "")))
+        if normalized not in repeated or not at_margin(section):
+            continue
+        if _BIBLIOGRAPHY_HEADING.fullmatch(normalized):
+            if normalized in kept_bibliography_heading:
+                dropped_section_ids.add(str(section["id"]))
+            else:
+                kept_bibliography_heading.add(normalized)
+        else:
+            dropped_section_ids.add(str(section["id"]))
+
+    if dropped_paragraph_ids:
+        paragraphs[:] = [
+            paragraph
+            for paragraph in paragraphs
+            if paragraph["id"] not in dropped_paragraph_ids
+        ]
+    if dropped_section_ids:
+        original_sections = list(sections)
+        retained_bibliography = {
+            _normalize_heading(str(section.get("text", ""))): str(section["id"])
+            for section in original_sections
+            if str(section["id"]) not in dropped_section_ids
+            and _BIBLIOGRAPHY_HEADING.fullmatch(
+                _normalize_heading(str(section.get("text", "")))
+            )
+        }
+        replacement_ids: dict[str, str | None] = {}
+        section_stack: list[dict[str, Any]] = []
+        for section in original_sections:
+            section_id = str(section["id"])
+            normalized = _normalize_heading(str(section.get("text", "")))
+            if section_id in dropped_section_ids:
+                replacement_ids[section_id] = retained_bibliography.get(
+                    normalized,
+                    str(section_stack[-1]["id"]) if section_stack else None,
+                )
+                continue
+            level = int(section.get("level", 1) or 1)
+            while section_stack and int(section_stack[-1]["level"]) >= level:
+                section_stack.pop()
+            section["parent_id"] = (
+                str(section_stack[-1]["id"]) if section_stack else None
+            )
+            section_stack.append(section)
+        sections[:] = [
+            section
+            for section in original_sections
+            if str(section["id"]) not in dropped_section_ids
+        ]
+        for paragraph in paragraphs:
+            section_id = paragraph.get("section_id")
+            if isinstance(section_id, str) and section_id in replacement_ids:
+                paragraph["section_id"] = replacement_ids[section_id]
+
+    for page in pages:
+        page["headings"] = [
+            section_id
+            for section_id in page["headings"]
+            if section_id not in dropped_section_ids
+        ]
+        page["paragraphs"] = [
+            paragraph_id
+            for paragraph_id in page["paragraphs"]
+            if paragraph_id not in dropped_paragraph_ids
+        ]
+
+
 def _append_paragraph(
-    lines: Sequence[tuple[_Line, str | None]],
+    lines: Sequence[tuple[_Line, str | None, int]],
     page_number: int,
     paragraphs: list[dict[str, Any]],
     page_paragraph_ids: list[str],
 ) -> None:
     first_line = lines[0][0]
     bbox = first_line.bbox
-    for line, _section_id in lines[1:]:
+    text_parts: list[str] = []
+    superscript_markers: list[dict[str, Any]] = []
+    offset = 0
+    for line, _section_id, _line_index in lines:
+        if text_parts:
+            offset += 1
+        line_start = offset
+        text_parts.append(line.text)
+        offset += len(line.text)
+        superscript_markers.extend(
+            {
+                "raw": line.text[start:end],
+                "number": number,
+                "start": line_start + start,
+                "end": line_start + end,
+            }
+            for start, end, number in line.superscript_markers
+        )
         bbox = _union_bbox(bbox, line.bbox)
     paragraph_id = f"paragraph-{len(paragraphs) + 1}"
-    paragraphs.append(
-        {
-            "id": paragraph_id,
-            "text": " ".join(line.text for line, _section_id in lines),
-            "section_id": lines[0][1],
-            "page_number": page_number,
-            "bbox": {
-                "x0": bbox.x0,
-                "top": bbox.top,
-                "x1": bbox.x1,
-                "bottom": bbox.bottom,
-            },
-        }
-    )
+    paragraph = {
+        "id": paragraph_id,
+        "text": " ".join(text_parts),
+        "section_id": lines[0][1],
+        "page_number": page_number,
+        "line_start": lines[0][2],
+        "line_end": lines[-1][2],
+        "bbox": {
+            "x0": bbox.x0,
+            "top": bbox.top,
+            "x1": bbox.x1,
+            "bottom": bbox.bottom,
+        },
+    }
+    if superscript_markers:
+        paragraph["superscript_markers"] = superscript_markers
+    paragraphs.append(paragraph)
     page_paragraph_ids.append(paragraph_id)
 
 

@@ -1,0 +1,2523 @@
+{
+  "schema_version": 1,
+  "annotation_set": {
+    "name": "citation-parser-v0-representative-pdfs",
+    "review_method": "Manual review of extracted PDF page text and Document IR; whitespace normalized; no external metadata lookup.",
+    "scope": "Bibliography presence, bibliography entry boundaries, numeric in-text mentions, and mention-to-reference links.",
+    "conventions": [
+      "Bibliography entry labels on bibliography pages are not in-text mentions.",
+      "Unnumbered bibliography entries receive ordinal IDs only; number_explicit remains false.",
+      "Mathematical bracket expressions and numbered document structure are explicit non-mentions/non-references.",
+      "source_sha256 identifies immutable PDF bytes."
+    ],
+    "reviewer_kind": "AI_ASSISTED_MANUAL",
+    "independent_human_review": false
+  },
+  "documents": [
+    {
+      "document": {
+        "source_path": "test_submissions/anhtra╠é╠Çndie╠ú╠éu_1265_486366_[3][Practical, Automated Scenario-based Mobile App Testing]-3.pdf",
+        "source_sha256": "b0cf754c50c37d1ebd0fdf3521e3f1237c88e775b5058b97480613911e26881b",
+        "page_count": 41
+      },
+      "selection": {
+        "reason": "PRIORITY_ZERO_REFERENCE_OUTPUT",
+        "observed_parser_reference_count": 0,
+        "observed_parser_mention_count": 4
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "TÀI LIỆU THAM KHẢO – NGUỒN",
+        "pages": [
+          41
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": true,
+          "raw": "Practical, Automated Scenario-based Mobile App Testing. [Online]. Available: https://arxiv.org/pdf/2406.08340",
+          "pages": [
+            41
+          ],
+          "element_ids": [
+            "paragraph-192"
+          ],
+          "line_start": 1,
+          "line_end": 10,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": true,
+          "raw": "Hình 1: Sự phát triển của ứng dụng di động. Source: Mobile app downloads worldwide from 2021 to 2026, by store. Available: https://www.statista.com/statistics/1010716/apple-app-store-google-play-app- downloads-forecast/",
+          "pages": [
+            41
+          ],
+          "element_ids": [
+            "paragraph-192"
+          ],
+          "line_start": 1,
+          "line_end": 10,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": true,
+          "raw": "Hình 5: Ví dụ đồng tham chiếu. Source: What is Coreference Resolution in NLP?. Available: https://spotintelligence.com/2024/01/17/coreference-resolution-nlp/",
+          "pages": [
+            41
+          ],
+          "element_ids": [
+            "paragraph-192"
+          ],
+          "line_start": 1,
+          "line_end": 10,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": true,
+          "raw": "12 thống kê hàng đầu về Cửa hàng Google Play 2024 Bạn Phải Biết. Available: https://support.google.com/googleplay/thread/269172961?hl=vi",
+          "pages": [
+            41
+          ],
+          "element_ids": [
+            "paragraph-192"
+          ],
+          "line_start": 1,
+          "line_end": 10,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "All four numbered bibliography entries are confirmed on page 41.",
+        "No in-text numeric citation mention appears before the bibliography; bibliography labels are not mentions.",
+        "Entries 2–4 are source attributions for figures/web material and remain bibliography entries because the document lists them there."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/co╠éngtra╠é╠Çnva╠ån_3904_486321_[Nho╠üm13] [LoFTR].pdf",
+        "source_sha256": "8fb10f47d1acde3b03b473fb30211e86a6a35223560caf159315def43b27f430",
+        "page_count": 23
+      },
+      "selection": {
+        "reason": "PRIORITY_ZERO_REFERENCE_OUTPUT",
+        "observed_parser_reference_count": 0,
+        "observed_parser_mention_count": 0
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "6. TÀI LIỆU THAM KHẢO",
+        "pages": [
+          23
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": false,
+          "raw": "Amazon Web Services (AWS). (n.d.). What is Artificial Intelligence?. [https://aws.amazon.com/vi/what-is/artificial-intelligence/]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": false,
+          "raw": "Sun, Z., Shen, T., Wang, Y ., Bao, H., & Zhou, X. (2021). LoFTR: Detector-Free Local Feature Matching with Transformers. arXiv preprint arXiv:2104.00680. [https://arxiv.org/pdf/2104.00680]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": false,
+          "raw": "Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). Attention is All You Need. arXiv preprint arXiv:1612.03144v2. [ https://arxiv.org/pdf/1612.03144v2 ]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": false,
+          "raw": "Liu, J., et al. (2023). Transformers in Vision: A Survey. arXiv preprint arXiv:2308.00442v2. [ https://arxiv.org/pdf/2308.00442v2 ]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-5",
+          "number_explicit": false,
+          "raw": "Sun, Z., Shen, T., Wang, Y ., Bao, H., & Zhou, X. (2021). Supplementary Material for LoFTR: Detector-Free Local Feature Matching with Transformers. [https://zju3dv.github.io/loftr/files/LoFTR-suppmat.pdf ]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 5,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-6",
+          "number_explicit": false,
+          "raw": "Sarlin, P.-E., et al. (2020). SuperGlue: Learning Feature Matching with Graph Neural Networks. arXiv preprint arXiv:1911.11763. [https://arxiv.org/abs/1911.11763]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 6,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-7",
+          "number_explicit": false,
+          "raw": "Dusmanu, M., et al. (2019). D2-Net: A Trainable CNN for Joint Detection and Description of Local Features. arXiv preprint arXiv:1905.03561. [https://arxiv.org/abs/1905.03561]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 7,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "Seven bullet bibliography entries are confirmed on page 23.",
+        "Source has no explicit numeric labels; number field is a stable ordinal only; it must not be treated as a printed citation label.",
+        "No numeric or author-year in-text mention was found before the bibliography.",
+        "PDF bytes duplicate another selected priority path; source_sha256 intentionally exposes the duplicate."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/huynguye╠é╠ântru╠¢o╠¢╠Çng_5398_485612_13 - LOFTR DETECTOR-FREE LOCAL FEATURE MATCHING WITH TRANSFORMERS.pdf",
+        "source_sha256": "8fb10f47d1acde3b03b473fb30211e86a6a35223560caf159315def43b27f430",
+        "page_count": 23
+      },
+      "selection": {
+        "reason": "PRIORITY_ZERO_REFERENCE_OUTPUT",
+        "observed_parser_reference_count": 0,
+        "observed_parser_mention_count": 0
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "6. TÀI LIỆU THAM KHẢO",
+        "pages": [
+          23
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": false,
+          "raw": "Amazon Web Services (AWS). (n.d.). What is Artificial Intelligence?. [https://aws.amazon.com/vi/what-is/artificial-intelligence/]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": false,
+          "raw": "Sun, Z., Shen, T., Wang, Y ., Bao, H., & Zhou, X. (2021). LoFTR: Detector-Free Local Feature Matching with Transformers. arXiv preprint arXiv:2104.00680. [https://arxiv.org/pdf/2104.00680]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": false,
+          "raw": "Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). Attention is All You Need. arXiv preprint arXiv:1612.03144v2. [ https://arxiv.org/pdf/1612.03144v2 ]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": false,
+          "raw": "Liu, J., et al. (2023). Transformers in Vision: A Survey. arXiv preprint arXiv:2308.00442v2. [ https://arxiv.org/pdf/2308.00442v2 ]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-5",
+          "number_explicit": false,
+          "raw": "Sun, Z., Shen, T., Wang, Y ., Bao, H., & Zhou, X. (2021). Supplementary Material for LoFTR: Detector-Free Local Feature Matching with Transformers. [https://zju3dv.github.io/loftr/files/LoFTR-suppmat.pdf ]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 5,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-6",
+          "number_explicit": false,
+          "raw": "Sarlin, P.-E., et al. (2020). SuperGlue: Learning Feature Matching with Graph Neural Networks. arXiv preprint arXiv:1911.11763. [https://arxiv.org/abs/1911.11763]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 6,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-7",
+          "number_explicit": false,
+          "raw": "Dusmanu, M., et al. (2019). D2-Net: A Trainable CNN for Joint Detection and Description of Local Features. arXiv preprint arXiv:1905.03561. [https://arxiv.org/abs/1905.03561]",
+          "pages": [
+            23
+          ],
+          "element_ids": [
+            "paragraph-164"
+          ],
+          "line_start": 1,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 7,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "Seven bullet bibliography entries are confirmed on page 23.",
+        "Source has no explicit numeric labels; number field is a stable ordinal only; it must not be treated as a printed citation label.",
+        "No numeric or author-year in-text mention was found before the bibliography.",
+        "PDF bytes duplicate another selected priority path; source_sha256 intentionally exposes the duplicate."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/latex_pdfs/[N12] - Dialog2flow.pdf",
+        "source_sha256": "7ea6b743a29744417f44e746122a50b703067e0a8ad3345fc83abf69787abff4",
+        "page_count": 29
+      },
+      "selection": {
+        "reason": "PRIORITY_ZERO_REFERENCE_OUTPUT",
+        "observed_parser_reference_count": 0,
+        "observed_parser_mention_count": 14
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "Tài liệu tham khảo",
+        "pages": [
+          29
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": true,
+          "raw": "Victor Sanh, Lysandre Debut, Julien Chaumond, and Thomas Wolf. Distilbert, a distilled version of bert: smaller, faster, cheaper and lighter, 2020.",
+          "pages": [
+            29
+          ],
+          "element_ids": [
+            "paragraph-188"
+          ],
+          "line_start": 1,
+          "line_end": 14,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": true,
+          "raw": "Coursera Staff. Chatbot vs. conversational ai: What’s the difference? Coursera Articles, 2024.",
+          "pages": [
+            29
+          ],
+          "element_ids": [
+            "paragraph-188"
+          ],
+          "line_start": 1,
+          "line_end": 14,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": true,
+          "raw": "Sapien Editorial Team. The hidden costs of data labeling: Time, money, and effort. Sapien AI Blog , 2024.",
+          "pages": [
+            29
+          ],
+          "element_ids": [
+            "paragraph-188"
+          ],
+          "line_start": 1,
+          "line_end": 14,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": true,
+          "raw": "V oxReality. Task-oriented dialogue systems: Bridging the gap between language and action. V oxReality Blog, 2023.",
+          "pages": [
+            29
+          ],
+          "element_ids": [
+            "paragraph-188"
+          ],
+          "line_start": 1,
+          "line_end": 14,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-5",
+          "number_explicit": true,
+          "raw": "Benjamin Warner, Antoine Chaffin, Benjamin Clavié, Orion Weller, Oskar Hallström, Said Taghadouini, Alexis Gallagher, Raja Biswas, Faisal Ladhak, Tom Aarsen, Griffin Thomas Adams, Jeremy Howard, and Iacopo Poli. Smarter, better, faster, longer: A modern bidirectional encoder for fast, memory efficient, and long context finetuning and inference. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (V olume 1: Long Papers) , pages 2526–2547, Vienna, Austria, July 2025. Association for Computational Linguistics.",
+          "pages": [
+            29
+          ],
+          "element_ids": [
+            "paragraph-188"
+          ],
+          "line_start": 1,
+          "line_end": 14,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 5,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [
+        {
+          "id": "mention-1",
+          "raw": "[2]",
+          "page": 8,
+          "element_id": "paragraph-9",
+          "line_start": 2,
+          "line_end": 29,
+          "reference_ids": [
+            "reference-2"
+          ],
+          "status": "LINKED",
+          "context": "ủakháchhàngđểxácđịnhnhữnggìcầnthiếtnhằmcungcấphỗtrợkháchhàngchính xácvàcánhânhóa[2]. • Hệthốngđốithoạihướngnhiệmvụ(TaskOrientedDialogSystem): Hệthốngđốithoạihướng nhiệm vụ được thiết kế để giúp người dùng đạt được một mục tiêu cụ thể hoặc h",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-2",
+          "raw": "[4]",
+          "page": 8,
+          "element_id": "paragraph-9",
+          "line_start": 2,
+          "line_end": 29,
+          "reference_ids": [
+            "reference-4"
+          ],
+          "status": "LINKED",
+          "context": "àtrựcquan hơnđểngườidùngtươngtácvớicôngnghệcũngnhưdễdànghoànthànhcácnhiệmvụcụthể[4]. • Quytrìnhtrongviệctựđộnghóa: Quytrìnhcôngviệclàmộthệthốngquảnlýcácquytrìnhvà nhiệm vụ lặp đi lặp lại diễn ra theo một trình tự cụ thể. Chúng là cơ chế mà",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-3",
+          "raw": "[3]",
+          "page": 9,
+          "element_id": "paragraph-12",
+          "line_start": 3,
+          "line_end": 17,
+          "reference_ids": [
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "ệu điểm dữ liệu này thì yếu tố thời gian sẽ trở thành gánh nặng ngày càng nặngnề[3]. (cid:14) Sự dụng nhiều nhân lực: Bên cạnh việc tiêu tốn thời gian, việc gán nhãn dữ liệu còn tốn nhiều công sức. Lý do rất đơn giản: việc gán nhãn chất lượ",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-4",
+          "raw": "[3]",
+          "page": 9,
+          "element_id": "paragraph-12",
+          "line_start": 3,
+          "line_end": 17,
+          "reference_ids": [
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "hồ sơbệnhnhân.Nhucầuvềcáckỹnăngchuyênmônlàmtăngthêmđộphứctạpvàchiphícho quytrình[3].",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-5",
+          "raw": "[3]",
+          "page": 9,
+          "element_id": "paragraph-13",
+          "line_start": 19,
+          "line_end": 26,
+          "reference_ids": [
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "uátrình nàykhônghềđơngiản,đòihỏiphảiđầutưđángkểvềthờigian,nguồnnhânlựcvàtiềnbạc [3].",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-6",
+          "raw": "[1]",
+          "page": 28,
+          "element_id": "paragraph-186",
+          "line_start": 14,
+          "line_end": 25,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "n thểcủaBERTvớikhảnăngtốthơn(RoBERTA,DeBERTA)hoặcchohiệunăngtốthơnnhưDistilBERT [1],ModernBERT[5]. Cácmôhìnhembeddingđượcđàotạobằngphươngphápđềxuấtvàbộdữliệucóthểđượcápdụng các bài toán khác trong hội thoại hướng tác vụ như truy vết trạng t",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-7",
+          "raw": "[5]",
+          "page": 28,
+          "element_id": "paragraph-186",
+          "line_start": 14,
+          "line_end": 25,
+          "reference_ids": [
+            "reference-5"
+          ],
+          "status": "LINKED",
+          "context": "ikhảnăngtốthơn(RoBERTA,DeBERTA)hoặcchohiệunăngtốthơnnhưDistilBERT [1],ModernBERT[5]. Cácmôhìnhembeddingđượcđàotạobằngphươngphápđềxuấtvàbộdữliệucóthểđượcápdụng các bài toán khác trong hội thoại hướng tác vụ như truy vết trạng thái hội thoại",
+          "uncertainty_reason": null
+        }
+      ],
+      "non_mentions": [
+        {
+          "page": 24,
+          "raw": "[0, 1]",
+          "reason": "MATHEMATICAL_INTERVAL",
+          "occurrences": 2
+        }
+      ],
+      "reviewer_notes": [
+        "Five numbered entries are confirmed on page 29; seven linked in-text mentions occur on pages 8, 9, and 28.",
+        "Two mathematical interval tokens [0, 1] on page 24 are not citation mentions."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/latex_pdfs/[N1] - HybridRAG.pdf",
+        "source_sha256": "2ad6136dc4c6cba18ef902666d6a173cd9e1dca186de10d2eafdc4072f6f0c61",
+        "page_count": 30
+      },
+      "selection": {
+        "reason": "PRIORITY_ZERO_REFERENCE_OUTPUT",
+        "observed_parser_reference_count": 0,
+        "observed_parser_mention_count": 1
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "Tài liệu tham khảo",
+        "pages": [
+          30
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": true,
+          "raw": "Sarmah, Bhaskarjit et al. “HybridRAG: Integrating Knowledge Graphs and Vec- tor Retrieval Augmented Generation for Efficient Information Extraction”. In:arXiv preprint arXiv:2408.04948(2024). arXiv:2408.04948 [cs.CL].",
+          "pages": [
+            30
+          ],
+          "element_ids": [],
+          "line_start": null,
+          "line_end": null,
+          "continuation": false,
+          "uncertainty_reason": "Document IR omitted bibliography text; only page-level evidence is available.",
+          "number": 1,
+          "parser_status": "PARSER_UNCERTAIN"
+        }
+      ],
+      "mentions": [
+        {
+          "id": "mention-1",
+          "raw": "[1]",
+          "page": 8,
+          "element_id": "paragraph-27",
+          "line_start": 22,
+          "line_end": 26,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "Ý tưởng: HybridRAG [1] là kết hợp đồng thời hai cơ chế truy xuất: Vector Retrieval và Graph Retrieval nhằm tận dụng ưu điểm của 2 phương pháp này. Vector Retrieval cho phép tìm kiếm",
+          "uncertainty_reason": null
+        }
+      ],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "One numbered entry is confirmed on page 30 and linked from page 8.",
+        "Document IR omitted most bibliography text, so reference retains page evidence without an element ID."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/ma╠únhtra╠é╠Çntho╠ú_5010_486271_Nho╠üm14-SymQEMU Compilation-based symbolic execution for binaries.pdf",
+        "source_sha256": "36c461bfa7360745ad79832e2bccbacba3e38f4f3d39cae775693abfdca41b3f",
+        "page_count": 33
+      },
+      "selection": {
+        "reason": "PRIORITY_ZERO_REFERENCE_OUTPUT",
+        "observed_parser_reference_count": 0,
+        "observed_parser_mention_count": 0
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "VII. Nguồn tham khảo",
+        "pages": [
+          31
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": false,
+          "raw": "Sebastian Poeplau, Aurélien Francillon. SymQEMU: Compilation-based symbolic execution for binaries. NDSS 2021, Network and Distributed System Security Symposium, Feb 2021, San Diego (virtual), United States.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-97"
+          ],
+          "line_start": 1,
+          "line_end": 20,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": false,
+          "raw": "F. Bellard, “QEMU, a fast and portable dynamic translator,” in USENIX Annual Technical Conference, FREENIX Track, vol. 41, 2005, p. 46.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-97"
+          ],
+          "line_start": 1,
+          "line_end": 20,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": false,
+          "raw": "H. Huang, P. Yao, R. Wu, Q. Shi, and C. Zhang, “Pangolin: Incremental hybrid fuzzing with polyhedral path abstraction,” in 2020 IEEE Symposium on Security and Privacy (SP). Los Alamitos, CA, USA: IEEE Computer Society, May 2020, pp. 1613–1627. [Online]. Available: https://doi.ieeecomputersociety.org/10.1109/SP40000.2020.00063",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-97"
+          ],
+          "line_start": 1,
+          "line_end": 20,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": false,
+          "raw": "V. Chipounov, V. Kuznetsov, and G. Candea, “S2E: A platform for in-vivo multi-path analysis of software systems,” in ACM SIGARCH Computer Architecture News, vol. 39, no. 1. ACM, 2011, pp. 265–278.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-97"
+          ],
+          "line_start": 1,
+          "line_end": 20,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-5",
+          "number_explicit": false,
+          "raw": "Y. Shoshitaishvili, R. Wang, C. Salls, N. Stephens, M. Polino, A. Dutcher, J. Grosen, S. Feng, C. Hauser, C. Kruegel et al., “SoK: (State of) The Art of War: Offensive Techniques in Binary Analysis,” in 2016 IEEE Symposium on Security and Privacy (SP). IEEE, 2016, pp. 138–157.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-97"
+          ],
+          "line_start": 1,
+          "line_end": 20,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 5,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-6",
+          "number_explicit": false,
+          "raw": "I. Yun, S. Lee, M. Xu, Y. Jang, and T. Kim, “QSYM: A practical concolic execution engine tailored for hybrid fuzzing,” in 27th USENIX Security Symposium (USENIX Security 18), 2018, pp. 745–761.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-97"
+          ],
+          "line_start": 1,
+          "line_end": 20,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 6,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "Six dash-delimited bibliography entries are confirmed on page 31.",
+        "Source has no explicit numeric labels; number field is a stable ordinal only; it is not a printed citation label.",
+        "PDF text extraction merges many spaces; raw values normalize spacing without changing bibliographic content.",
+        "No numeric or author-year in-text mention was found before the bibliography."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/trangnguye╠é╠ânphu╠¢o╠¢ng_5213_486336_Nho╠üm 10 - PuVAE A Variational Autoencoder to Purify Adversarial Examples.pdf",
+        "source_sha256": "ab1233bf40eb5eb2306720589252a100cc920a9acec3dc1168439c412f9805db",
+        "page_count": 31
+      },
+      "selection": {
+        "reason": "PRIORITY_ZERO_REFERENCE_OUTPUT",
+        "observed_parser_reference_count": 0,
+        "observed_parser_mention_count": 44
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "Tài liệu",
+        "pages": [
+          31
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": true,
+          "raw": "Naveed Akhtar and Ajmal Mian. “Threat of adversarial attacks on deep learning in computer vision: A survey”. inIeee Access: 6 (2018), pages 14410–14430.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": true,
+          "raw": "Martin Arjovsky, Soumith Chintala and Léon Bottou. Wasserstein GAN . 2017. arXiv: 1701.07875 [stat.ML] . url: https://arxiv.org/abs/1701.07875.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": true,
+          "raw": "Nicholas Carlini and David Wagner. “Towards evaluating the robustness of neural networks”. in2017 ieee symposium on security and privacy (sp) : Ieee. 2017, pages 39–57.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": true,
+          "raw": "Carl Doersch. “Tutorial on variational autoencoders”. inarXiv preprint arXiv:1606.05908 : (2016).",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-5",
+          "number_explicit": true,
+          "raw": "Ian Goodfellow andothers. “Generative adversarial nets”. inAdvances in neural information processing systems : 27 (2014).",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 5,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-6",
+          "number_explicit": true,
+          "raw": "Ian J Goodfellow. “Explaining and harnessing adversarial examples”. inarXiv preprint arXiv:1412.6572 : (2014).",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 6,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-7",
+          "number_explicit": true,
+          "raw": "Uiwon Hwang andothers. “Puvae: A variational autoencoder to purify adversarial examples”. inIEEE Access: 7 (2019), pages 126582–126593.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 7,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-8",
+          "number_explicit": true,
+          "raw": "Diederik P Kingma. “Auto-encoding variational bayes”. inarXiv preprint arXiv:1312.6114 : (2013).",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 8,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-9",
+          "number_explicit": true,
+          "raw": "Alex Krizhevsky, Geoffrey Hinton andothers. “Learning multiple layers of features from tiny images”. in(2009).",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 9,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-10",
+          "number_explicit": true,
+          "raw": "Alexey Kurakin, Ian J Goodfellow and Samy Bengio. “Adversarial examples in the physical world”. inArtificial intelligence safety and security : Chapman and Hall/CRC, 2018, pages 99–112.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 10,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-11",
+          "number_explicit": true,
+          "raw": "Yann LeCun andothers. “Gradient-based learning applied to document recognition”. inProceedings of the IEEE : 86.11 (1998), pages 2278–2324.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 11,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-12",
+          "number_explicit": true,
+          "raw": "Dongyu Meng and Hao Chen. “Magnet: a two-pronged defense against adversarial examples”. inProceedings of the 2017 ACM SIGSAC conference on computer and communications security : 2017, pages 135–147.",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 12,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-13",
+          "number_explicit": true,
+          "raw": "P Samangouei. “Defense-gan: protecting classifiers against adversarial attacks using generative models”. inarXiv preprint arXiv:1805.06605 : (2018).",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 13,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-14",
+          "number_explicit": true,
+          "raw": "Florian Tramèr andothers. “Ensemble adversarial training: Attacks and defenses”. inarXiv preprint arXiv:1705.07204 : (2017).",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 14,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-15",
+          "number_explicit": true,
+          "raw": "Han Xiao, Kashif Rasul and Roland Vollgraf. “Fashion-mnist: a novel image dataset for benchmarking machine learning algorithms”. inarXiv preprint arXiv:1708.07747 : (2017).",
+          "pages": [
+            31
+          ],
+          "element_ids": [
+            "paragraph-187"
+          ],
+          "line_start": 1,
+          "line_end": 33,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 15,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [
+        {
+          "id": "mention-1",
+          "raw": "[7]",
+          "page": 7,
+          "element_id": "paragraph-14",
+          "line_start": 1,
+          "line_end": 15,
+          "reference_ids": [
+            "reference-7"
+          ],
+          "status": "LINKED",
+          "context": "h bài báo được xuất bản, tác giả đề xuất PuVAE (PurifyingVariationalAutoencoder)[7],phươngphápthanhlọcmẫuđốikháng.PuVAE sử dụng mạng Variational Autoencoder (VAE) chiếu mẫu đối kháng lên một không gian ẩn và chọn ra điểm chiếu gần nhất làm",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-2",
+          "raw": "[13]",
+          "page": 7,
+          "element_id": "paragraph-14",
+          "line_start": 1,
+          "line_end": 15,
+          "reference_ids": [
+            "reference-13"
+          ],
+          "status": "LINKED",
+          "context": "uVAE có thể tạo ra mẫu đã thanh lọc nhanh hơn khoảng 130 lần so với Defense-GAN [13], điều này phù hợp với các ứng dụng thời gian thực.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-3",
+          "raw": "[1]",
+          "page": 7,
+          "element_id": "paragraph-15",
+          "line_start": 17,
+          "line_end": 35,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "ô hình nhận diện nhầm người đi đường thành mặt đường thì có thể dẫn đến tai nạn [1]. Để giải quyết vấn đề này, có ba hướng tiếp cận chính đã được đề xuất: 1. Điều chỉnh dữ liệu huấn luyện. 2. Chặn việc tính toán gradient. 3. Loại bỏ nhiễu đ",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-4",
+          "raw": "[12]",
+          "page": 8,
+          "element_id": "paragraph-18",
+          "line_start": 5,
+          "line_end": 19,
+          "reference_ids": [
+            "reference-12"
+          ],
+          "status": "LINKED",
+          "context": "n loại mục tiêu để đảm bảo phân loại chính xác và duy trì hiệu suất tốt. Magnet [12] là một khung phòng thủ được đề xuất để bảo vệ các mô hình học sâu, đặc biệt là các hệ thống sử dụng mô hình phân loại hình ảnh. Hướng tiếp cận của Magnet l",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-5",
+          "raw": "[12]",
+          "page": 11,
+          "element_id": "paragraph-31",
+          "line_start": 5,
+          "line_end": 41,
+          "reference_ids": [
+            "reference-12"
+          ],
+          "status": "LINKED",
+          "context": "ào data manifold của mẫu bình thường. Dựa trên thực nghiệm được thực hiện trong [12], Magnet được triển khai để chống lại một số cuộc tấn công mô hình sử dụng các phương pháp tạo mẫu đối kháng khác nhau trên nhiều tập dữ liệu khác nhau và c",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-6",
+          "raw": "[13]",
+          "page": 11,
+          "element_id": "paragraph-31",
+          "line_start": 5,
+          "line_end": 41,
+          "reference_ids": [
+            "reference-13"
+          ],
+          "status": "LINKED",
+          "context": "iêncứuvàpháttriểnthêmđểtốiưuhoáhiệusuất,pháthiệnđượcnhiễutinhvihơn. Defense-GAN [13] là một bộ phòng thủ được đề xuất sử dụng mô hình sinh (Generative model). Một mô hình là mô hình sinh khi mô hình học máy đó có khả năng học được phân phối",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-7",
+          "raw": "[5]",
+          "page": 11,
+          "element_id": "paragraph-31",
+          "line_start": 5,
+          "line_end": 41,
+          "reference_ids": [
+            "reference-5"
+          ],
+          "status": "LINKED",
+          "context": "ến trúc của mô hình mạng tạo sinh đối kháng GAN(Generative Adversarial Network) [5] đồng thời đề xuất sử dụng biến thể WGAN của GAN để thực hiện việc chống lại các cuộc tấn công khác nhau.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-8",
+          "raw": "[13]",
+          "page": 12,
+          "element_id": "paragraph-32",
+          "line_start": 0,
+          "line_end": 16,
+          "reference_ids": [
+            "reference-13"
+          ],
+          "status": "LINKED",
+          "context": "Quá trình huấn luyện này tối thiểu hoá hàm mất mát đặc biệt, được đề cập trong [13] và có tên là min-max loss:",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-9",
+          "raw": "[13]",
+          "page": 12,
+          "element_id": "paragraph-36",
+          "line_start": 29,
+          "line_end": 33,
+          "reference_ids": [
+            "reference-13"
+          ],
+          "status": "LINKED",
+          "context": "thông qua thực nghiệm trong [13] cho thấy rằng việc huấn luyện mô hình này không phải đơn giản vì tính lặp lại và phức tạp trong quá trình tính toán của hàm min-max loss. Arjovsky tại [2] đã g",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-10",
+          "raw": "[2]",
+          "page": 12,
+          "element_id": "paragraph-36",
+          "line_start": 29,
+          "line_end": 33,
+          "reference_ids": [
+            "reference-2"
+          ],
+          "status": "LINKED",
+          "context": "ặp lại và phức tạp trong quá trình tính toán của hàm min-max loss. Arjovsky tại [2] đã giới thiệu về Wasserstein GANs (WGANs) là một biến thể của GAN sử dụng khoảng cách Wasserstein để biến đổi hàm min-max loss của GAN về dạng đơn giản hơn",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-11",
+          "raw": "[13]",
+          "page": 13,
+          "element_id": "paragraph-37",
+          "line_start": 0,
+          "line_end": 39,
+          "reference_ids": [
+            "reference-13"
+          ],
+          "status": "LINKED",
+          "context": "Defense-GAN [13] sử dụng WGAN được huấn luyện trên dữ liệu sạch để khử nhiễu với các mẫu đối kháng. Tại quá trình suy diễn, hình ảnh x cần được phân loại, đầu tiên xác định vec",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-12",
+          "raw": "[2]",
+          "page": 13,
+          "element_id": "paragraph-37",
+          "line_start": 0,
+          "line_end": 39,
+          "reference_ids": [
+            "reference-2"
+          ],
+          "status": "LINKED",
+          "context": "thuật toán Gradient Descent với số bước L cố định. Khi thực hiện áp dụng trong [2], Defense-GAN được triển khai để bảo vệ mô hình phân loại trước các cuộc tấn công dạng hộp trắng và hộp đen trên nhiều bộ dữ liệu khác nhau về hình ảnh. Kết q",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-13",
+          "raw": "[13]",
+          "page": 13,
+          "element_id": "paragraph-37",
+          "line_start": 0,
+          "line_end": 39,
+          "reference_ids": [
+            "reference-13"
+          ],
+          "status": "LINKED",
+          "context": "tấn công. Để khắc phục nhữnghạnchếcủacácphươngpháptrướcđónhưMagNetvàDefense-GAN[13],nghiên cứu này đề xuất một phương pháp mới có tên là Purifying Variational AutoEncoder (PuVAE), dựa trên Variational Autoencoder (VAE) [8] để làm sạch các m",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-14",
+          "raw": "[8]",
+          "page": 13,
+          "element_id": "paragraph-37",
+          "line_start": 0,
+          "line_end": 39,
+          "reference_ids": [
+            "reference-8"
+          ],
+          "status": "LINKED",
+          "context": "rifying Variational AutoEncoder (PuVAE), dựa trên Variational Autoencoder (VAE) [8] để làm sạch các mẫu đối kháng. PuVAE phù hợp với những hệ thống cần phản hồi nhanh như các ứng dụng thời gian thực do nó sử dụng suy luận biến phân tạo ra c",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-15",
+          "raw": "[8]",
+          "page": 14,
+          "element_id": "paragraph-38",
+          "line_start": 2,
+          "line_end": 17,
+          "reference_ids": [
+            "reference-8"
+          ],
+          "status": "LINKED",
+          "context": "generative model) được giới thiệu lần đầu bởi Diederik P. Kingma và Max Welling [8]. VAE là sự kết hợp giữa mạng nơ- ron sâu và suy luận biến phân (variational inference), cho phép mô hình học phân phối xác suất của dữ liệu phức tạp và từ đ",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-16",
+          "raw": "[4]",
+          "page": 14,
+          "element_id": "paragraph-47",
+          "line_start": 29,
+          "line_end": 35,
+          "reference_ids": [
+            "reference-4"
+          ],
+          "status": "LINKED",
+          "context": "Conditional Variational Autoencoder (cVAE) [4] là một mở rộng của VAE. Thay vì chỉ học phân phối tổng quát của dữ liệu, cVAE còn kết hợp thông tin điều kiện (chẳng hạn nhãn của dữ liệu) vào quá trình mã hóa",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-17",
+          "raw": "[6]",
+          "page": 15,
+          "element_id": "paragraph-52",
+          "line_start": 1,
+          "line_end": 24,
+          "reference_ids": [
+            "reference-6"
+          ],
+          "status": "LINKED",
+          "context": "nhạy cảm với dữ liệu của các mô hình học máy bởi kiến trúc tuyến tính tương ứng [6]. Có nhiều phương pháp tấn công để có thể sinh ra các mẫu đối kháng, nhưng trong phạm vi này sẽ giới thiệu về bốn phương pháp tấn công tận dụng tính chất tuy",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-18",
+          "raw": "[13]",
+          "page": 15,
+          "element_id": "paragraph-55",
+          "line_start": 28,
+          "line_end": 30,
+          "reference_ids": [
+            "reference-13"
+          ],
+          "status": "LINKED",
+          "context": "được quan sát thông thường đồng thời giúp mẫu đối kháng đủ tác động đến mô hình [13].",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-19",
+          "raw": "[6]",
+          "page": 15,
+          "element_id": "paragraph-56",
+          "line_start": 32,
+          "line_end": 37,
+          "reference_ids": [
+            "reference-6"
+          ],
+          "status": "LINKED",
+          "context": "theo đầu vào hoặc các tham số của mô hình. Phương pháp FGSM được giới thiệu tại [6]. FGSM tạo ra mẫu đối kháng bằng cách thêm nhiễu đối kháng nhỏ δ phụ thuộc vào dấu của gradient. Công thức tổng quát của FGSM là:",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-20",
+          "raw": "[6]",
+          "page": 16,
+          "element_id": "paragraph-61",
+          "line_start": 6,
+          "line_end": 19,
+          "reference_ids": [
+            "reference-6"
+          ],
+          "status": "LINKED",
+          "context": "ưu về mặt tốc độ hơn là việc tối ưu về khả năng tấn công. Về thực nghiệm như ở [6], phương pháp FGSM gây giảm tỉ lệ chính xác xuống mức đáng kể lên những mạng nơ-ron học sâu đơn giản, điều này chứng tỏ FGSM có thể coi như một phương pháp tạ",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-21",
+          "raw": "[10]",
+          "page": 16,
+          "element_id": "paragraph-62",
+          "line_start": 21,
+          "line_end": 27,
+          "reference_ids": [
+            "reference-10"
+          ],
+          "status": "LINKED",
+          "context": "Được Kurakin giới thiệu tại [10], iFGSM là một phiên bản mở rộng của thuật toán FGSM theo hướng phức tạp hơn việc thêm nhiễu đối kháng. Thay vì chỉ sử dụng kết quả của một bước gradient duy nh",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-22",
+          "raw": "[14]",
+          "page": 17,
+          "element_id": "paragraph-72",
+          "line_start": 14,
+          "line_end": 20,
+          "reference_ids": [
+            "reference-14"
+          ],
+          "status": "LINKED",
+          "context": "ác mạng kiểu này. Tramèr đã nêu ra một biến thể phát triển khác ngoài iFGSM tại [14] dựa trên sự ngẫu nhiên của phân phối chuẩn làm cho việc phòng thủ trở nên khó khăn hơn bởi tính bất định của thông tin được gọi là Randomized FGSM (RAND+FG",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-23",
+          "raw": "[3]",
+          "page": 17,
+          "element_id": "paragraph-76",
+          "line_start": 36,
+          "line_end": 40,
+          "reference_ids": [
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "Phương pháp này được Carlini và Wagner giới thiệu tại [3]. Đây được coi là phương pháp tấn công hiệu quả nhất trong thời điểm bấy giờ, cuộc tấn công này có thể giảm khả năng chính xác của mô hình phân lớp về gần mức 0",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-24",
+          "raw": "[11]",
+          "page": 22,
+          "element_id": "paragraph-148",
+          "line_start": 1,
+          "line_end": 29,
+          "reference_ids": [
+            "reference-11"
+          ],
+          "status": "LINKED",
+          "context": "GHz) đã được sử dụng. Về tập dữ liệu, nhóm tác giả sử dụng 3 tập dữ liệu: MNIST [11] là một tập dữ liệu chữ số viết tay, Fashion-MNIST [15] là một tập dữ liệu hình ảnh đối tượng quần áo và CIFAR-10 [9] là một tập dữ liệu hình ảnh tự nhiên.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-25",
+          "raw": "[15]",
+          "page": 22,
+          "element_id": "paragraph-148",
+          "line_start": 1,
+          "line_end": 29,
+          "reference_ids": [
+            "reference-15"
+          ],
+          "status": "LINKED",
+          "context": "ụng 3 tập dữ liệu: MNIST [11] là một tập dữ liệu chữ số viết tay, Fashion-MNIST [15] là một tập dữ liệu hình ảnh đối tượng quần áo và CIFAR-10 [9] là một tập dữ liệu hình ảnh tự nhiên. Mỗi tập dữ liệu gồm 50000 ảnh để đào tạo và 10000 ảnh đ",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-26",
+          "raw": "[9]",
+          "page": 22,
+          "element_id": "paragraph-148",
+          "line_start": 1,
+          "line_end": 29,
+          "reference_ids": [
+            "reference-9"
+          ],
+          "status": "LINKED",
+          "context": "y, Fashion-MNIST [15] là một tập dữ liệu hình ảnh đối tượng quần áo và CIFAR-10 [9] là một tập dữ liệu hình ảnh tự nhiên. Mỗi tập dữ liệu gồm 50000 ảnh để đào tạo và 10000 ảnh để kiểm tra. Dữ liệu được chuẩn hóa trong khoảng từ 0 đến 1. Các",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-27",
+          "raw": "[13]",
+          "page": 22,
+          "element_id": "paragraph-148",
+          "line_start": 1,
+          "line_end": 29,
+          "reference_ids": [
+            "reference-13"
+          ],
+          "status": "LINKED",
+          "context": "AN và mạng cải cách của MagNet để so sánh, kiến trúc sử dụng được đề xuất trong [13], [12]. Kiến trúc của M",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-28",
+          "raw": "[12]",
+          "page": 22,
+          "element_id": "paragraph-148",
+          "line_start": 1,
+          "line_end": 29,
+          "reference_ids": [
+            "reference-12"
+          ],
+          "status": "LINKED",
+          "context": "mạng cải cách của MagNet để so sánh, kiến trúc sử dụng được đề xuất trong [13], [12]. Kiến trúc của M",
+          "uncertainty_reason": null
+        }
+      ],
+      "non_mentions": [
+        {
+          "page": 18,
+          "raw": "[0, 1]",
+          "reason": "MATHEMATICAL_INTERVAL",
+          "occurrences": 1
+        }
+      ],
+      "reviewer_notes": [
+        "Fifteen numbered entries are confirmed on page 31; 28 linked in-text mentions occur on pages 7–22.",
+        "Mathematical domain token [0, 1] on page 18 is not a citation mention."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/latex_pdfs/[N14] - EvoPrompt.pdf",
+        "source_sha256": "b7a49bc932754f33b8a56130eb6e8de22c7ca94c03e9c7ece51cab37023f9e93",
+        "page_count": 11
+      },
+      "selection": {
+        "reason": "REPRESENTATIVE_PARSED",
+        "observed_parser_reference_count": 3,
+        "observed_parser_mention_count": 3
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "References",
+        "pages": [
+          11
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": true,
+          "raw": "Li, W., Wang, X., Li, W., Jin, B.: A survey of automatic prompt engineering: An optimization perspective. Journal Name",
+          "pages": [
+            11
+          ],
+          "element_ids": [
+            "paragraph-104"
+          ],
+          "line_start": 13,
+          "line_end": 21,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": true,
+          "raw": "Ramnath, K., Zhou, K., Guan, S., Mishra, S.S., Qi, X., Shen, Z., Wang, S., Woo, S., Jeoung, S., Wang, Y., Wang, H., Ding, H., Lu, Y., Xu, Z., Zhou, Y., Srinivasan, B., Yan, Q., Chen, Y., Ding, H., Xu, P., Cheong, L.L.: A systematic survey of automatic prompt optimization techniques. Journal Name",
+          "pages": [
+            11
+          ],
+          "element_ids": [
+            "paragraph-104"
+          ],
+          "line_start": 13,
+          "line_end": 21,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": true,
+          "raw": "Guo, Q., Wang, R., Guo, J., Li, B., Song, K., Tan, X., Liu, G., Bian, J., Yang, Y.: Evoprompt: Connecting llms with evolutionary algorithms yields powerful prompt optimizers. Journal Name",
+          "pages": [
+            11
+          ],
+          "element_ids": [
+            "paragraph-104"
+          ],
+          "line_start": 13,
+          "line_end": 21,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [
+        {
+          "id": "mention-1",
+          "raw": "[1]",
+          "page": 2,
+          "element_id": "paragraph-7",
+          "line_start": 0,
+          "line_end": 22,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "nt area of study. Several approaches have been proposed to address this problem [1] [2], including evolutionary-basedmethodslikeEvoPrompt,localsearch,andrandompromptediting. Thesemethodshavetwosignificantdisadvantagesdespitethepromisingresu",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-2",
+          "raw": "[2]",
+          "page": 2,
+          "element_id": "paragraph-7",
+          "line_start": 0,
+          "line_end": 22,
+          "reference_ids": [
+            "reference-2"
+          ],
+          "status": "LINKED",
+          "context": "rea of study. Several approaches have been proposed to address this problem [1] [2], including evolutionary-basedmethodslikeEvoPrompt,localsearch,andrandompromptediting. Thesemethodshavetwosignificantdisadvantagesdespitethepromisingresults.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-3",
+          "raw": "[3]",
+          "page": 3,
+          "element_id": "paragraph-21",
+          "line_start": 11,
+          "line_end": 22,
+          "reference_ids": [
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "EvoPrompt [3] is a framework proposed to optimize discrete prompts, which is in- spired by Evolutionary Algorithms (EAs). In this method, every ”individual” in the populatio",
+          "uncertainty_reason": null
+        }
+      ],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "3 numbered entries and 3 linked in-text mentions are confirmed."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/latex_pdfs/[N6] - ImprovedAPIO.pdf",
+        "source_sha256": "83b91742dd65010a43f0638dc9384b5887d712cc8d833395d358d90c491eea0e",
+        "page_count": 10
+      },
+      "selection": {
+        "reason": "REPRESENTATIVE_PARSED",
+        "observed_parser_reference_count": 4,
+        "observed_parser_mention_count": 4
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "References",
+        "pages": [
+          10
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": true,
+          "raw": "Chernodub, A., Saini, A., Huh, Y., Kulkarni, V., Raheja, V.: Apio. arXiv preprint arXiv:2508.09378 (2025)",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-54"
+          ],
+          "line_start": 25,
+          "line_end": 31,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": true,
+          "raw": "Hoang, T.T.: Improved APIO. https://github.com/thChg/APIO",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-54"
+          ],
+          "line_start": 25,
+          "line_end": 31,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": true,
+          "raw": "Christopher Bryant, E.A.T.B. Mariano Felice: BEA-2019. https://aclanthology. org/W19-4406/",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-54"
+          ],
+          "line_start": 25,
+          "line_end": 31,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": true,
+          "raw": "Fernando Alva-Manchego, A.B.C.S.B.S.L.S. Louis Martin: ASSET Test. https:// aclanthology.org/2020.acl-main.424/",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-54"
+          ],
+          "line_start": 25,
+          "line_end": 31,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [
+        {
+          "id": "mention-1",
+          "raw": "[1]",
+          "page": 2,
+          "element_id": "paragraph-9",
+          "line_start": 16,
+          "line_end": 36,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "The original method [1] has two main steps: Prompt Induction and Prompt Opti- mization. Prompt Induction Atfirst,APIOusesanumberofinput-outputpair,takenfromthetrainingdata,that repres",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-2",
+          "raw": "[2]",
+          "page": 3,
+          "element_id": "paragraph-14",
+          "line_start": 13,
+          "line_end": 28,
+          "reference_ids": [
+            "reference-2"
+          ],
+          "status": "LINKED",
+          "context": "he process by improving on some points. The general idea of the proposed method [2] is to combine using Cosine-level similar- ity(ameaning-basedmetrics),applyingamultiagentmechanism,andusingselection strategies based on genetic algorithms t",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-3",
+          "raw": "[3]",
+          "page": 5,
+          "element_id": "paragraph-22",
+          "line_start": 23,
+          "line_end": 24,
+          "reference_ids": [
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "We used the existing datasets: BEA-2019 [3] for Grammar Correction and ASSET [4] for Text simplification, which was used in previous researches.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-4",
+          "raw": "[4]",
+          "page": 5,
+          "element_id": "paragraph-22",
+          "line_start": 23,
+          "line_end": 24,
+          "reference_ids": [
+            "reference-4"
+          ],
+          "status": "LINKED",
+          "context": "We used the existing datasets: BEA-2019 [3] for Grammar Correction and ASSET [4] for Text simplification, which was used in previous researches.",
+          "uncertainty_reason": null
+        }
+      ],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "4 numbered entries and 4 linked in-text mentions are confirmed."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/latex_pdfs/[N5] - FIFO_Improvement.pdf",
+        "source_sha256": "8e4dd65a459054b7e6ce195435e0767c419ccb8247688994e3ab82264768de89",
+        "page_count": 9
+      },
+      "selection": {
+        "reason": "REPRESENTATIVE_PARSED",
+        "observed_parser_reference_count": 7,
+        "observed_parser_mention_count": 18
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "References",
+        "pages": [
+          8,
+          9
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": true,
+          "raw": "Sohyun Lee, Taeyoung Son, and Suha Kwak. FIFO: Learning Fog-invariant Features for Foggy Scene Segmentation. InProceedings of the IEEE/CVF Con- ference on Computer Vision and Pattern Recognition (CVPR), 2022. https: //arxiv.org/abs/2204.01587.",
+          "pages": [
+            8
+          ],
+          "element_ids": [
+            "paragraph-80"
+          ],
+          "line_start": 28,
+          "line_end": 36,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": true,
+          "raw": "Kihyuk Sohn, David Berthelot, Chun-Liang Li, Zizhao Zhang, Nicholas Car- lini, Ekin D. Cubuk, Alex Kurakin, Han Zhang, and Colin Raffel. FixMatch: Simplifying Semi-Supervised Learning with Consistency and Confidence. In Advances in Neural Information Processing Systems (NeurIPS), 2020. https: //arxiv.org/abs/2001.07685.",
+          "pages": [
+            8
+          ],
+          "element_ids": [
+            "paragraph-80"
+          ],
+          "line_start": 28,
+          "line_end": 36,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": true,
+          "raw": "Lihe Yang, Lei Qi, Litong Feng, Wayne Zhang, and Yinghuan Shi. Revisit- ing Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2023. https://arxiv.org/abs/2208.09910.",
+          "pages": [
+            9
+          ],
+          "element_ids": [
+            "paragraph-82"
+          ],
+          "line_start": 0,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": true,
+          "raw": "Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo Rehfeld, Markus Enzweiler, Rodrigo Benenson, Uwe Franke, Stefan Roth, and Bernt Schiele. The Cityscapes Dataset for Semantic Urban Scene Understanding. InProceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2016. https://arxiv.org/abs/1604.01685.",
+          "pages": [
+            9
+          ],
+          "element_ids": [
+            "paragraph-82"
+          ],
+          "line_start": 0,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-5",
+          "number_explicit": true,
+          "raw": "Christos Sakaridis, Dengxin Dai, Simon Hecker, and Luc Van Gool. Model Adaptation with Synthetic and Real Data for Semantic Dense Foggy Scene Understanding. InProceedings of the European Conference on Computer Vision (ECCV), 2018. https://arxiv.org/abs/1808.01265.",
+          "pages": [
+            9
+          ],
+          "element_ids": [
+            "paragraph-82"
+          ],
+          "line_start": 0,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 5,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-6",
+          "number_explicit": true,
+          "raw": "Christos Sakaridis, Dengxin Dai, and Luc Van Gool. Semantic Foggy Scene Understanding with Synthetic Data.International Journal of Computer Vision (IJCV), 2018. https://arxiv.org/abs/1708.07819.",
+          "pages": [
+            9
+          ],
+          "element_ids": [
+            "paragraph-82"
+          ],
+          "line_start": 0,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 6,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-7",
+          "number_explicit": true,
+          "raw": "Guosheng Lin, Anton Milan, Chunhua Shen, and Ian D. Reid. RefineNet: Multi-Path Refinement Networks for High-Resolution Semantic Segmentation. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017. https://arxiv.org/abs/1611.06612.",
+          "pages": [
+            9
+          ],
+          "element_ids": [
+            "paragraph-82"
+          ],
+          "line_start": 0,
+          "line_end": 19,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 7,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [
+        {
+          "id": "mention-1",
+          "raw": "[2, 3]",
+          "page": 1,
+          "element_id": "paragraph-5",
+          "line_start": 9,
+          "line_end": 20,
+          "reference_ids": [
+            "reference-2",
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "atesasimpleTeacherStudentself-trainingmethod inspired by FixMatch/UniMatch-lite [2, 3], whereby an EMA teacher gener- ates pseudo-labels from weakly-augmented views, and the student is trained on strongly-augmented views while applying pixe",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-2",
+          "raw": "[5,6]",
+          "page": 1,
+          "element_id": "paragraph-5",
+          "line_start": 9,
+          "line_end": 20,
+          "reference_ids": [
+            "reference-5",
+            "reference-6"
+          ],
+          "status": "LINKED",
+          "context": "lepseudo-labels.ExperimentsarecarriedoutontheFoggyZurich andFoggyDrivingdatasets[5,6],whileanadditionalclearcontrolset(Lindau) is also used for performance reporting in order to monitor the possible negative transfer effect. Source code: ht",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-3",
+          "raw": "[2, 3]",
+          "page": 2,
+          "element_id": "paragraph-8",
+          "line_start": 0,
+          "line_end": 36,
+          "reference_ids": [
+            "reference-2",
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "rt, a Teacher–Student framework is used, inspired by FixMatch and UniMatch-lite [2, 3]. The idea is relatively simple. A teacher model, updated by exponential moving average, generates pseudo-labels from weakly aug- mented images, which sti",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-4",
+          "raw": "[5, 6]",
+          "page": 2,
+          "element_id": "paragraph-8",
+          "line_start": 0,
+          "line_end": 36,
+          "reference_ids": [
+            "reference-5",
+            "reference-6"
+          ],
+          "status": "LINKED",
+          "context": "labels. The method is evaluated on the Foggy Zurich and Foggy Driving datasets [5, 6] and the Lindau - a clear-weather dataset, are also reported. This work aims to check whether adapting to foggy data may reduce performance on clear scenes",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-5",
+          "raw": "[1]",
+          "page": 2,
+          "element_id": "paragraph-8",
+          "line_start": 0,
+          "line_end": 36,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "ce on clear scenes, which can happen in some cases. In this report, we use FIFO [1] as a strong baseline for semantic segmentation in foggy scenes. Because it includes fog-related filtering and extra training objectives. However, in real ex",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-6",
+          "raw": "[2, 3]",
+          "page": 2,
+          "element_id": "paragraph-8",
+          "line_start": 0,
+          "line_end": 36,
+          "reference_ids": [
+            "reference-2",
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "g pipeline for foggy semantic segmentation based on FixMatch and UniMatch- lite [2, 3]. The pipeline uses an EMA teacher, weak-to-strong augmentation, and confidence-based pseudo-label selection during training. The second contribution is t",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-7",
+          "raw": "[1]",
+          "page": 3,
+          "element_id": "paragraph-11",
+          "line_start": 0,
+          "line_end": 9,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "domain data through model predictions, which is not exploited in the FIFO paper [1]. However, the model may reinforce its own incorrect predictions. A common solution to this issue is confidence-based pseudo-label filtering and the use of a",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-8",
+          "raw": "[4]",
+          "page": 4,
+          "element_id": "paragraph-33",
+          "line_start": 7,
+          "line_end": 12,
+          "reference_ids": [
+            "reference-4"
+          ],
+          "status": "LINKED",
+          "context": "w s m ; threshold τ . Inputs: source domain data with labels (Cityscapes CW/SF [4]), tar- get domain data without labels (Foggy Zurich / Foggy Driving [5, 6]), segmentation backbone (RefineNet-lw101 [7], as in FIFO [1]), hyperparameters. Ou",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-9",
+          "raw": "[5, 6]",
+          "page": 4,
+          "element_id": "paragraph-33",
+          "line_start": 7,
+          "line_end": 12,
+          "reference_ids": [
+            "reference-5",
+            "reference-6"
+          ],
+          "status": "LINKED",
+          "context": "s CW/SF [4]), tar- get domain data without labels (Foggy Zurich / Foggy Driving [5, 6]), segmentation backbone (RefineNet-lw101 [7], as in FIFO [1]), hyperparameters. Outputs: The best student checkpoint.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-10",
+          "raw": "[7]",
+          "page": 4,
+          "element_id": "paragraph-33",
+          "line_start": 7,
+          "line_end": 12,
+          "reference_ids": [
+            "reference-7"
+          ],
+          "status": "LINKED",
+          "context": "s (Foggy Zurich / Foggy Driving [5, 6]), segmentation backbone (RefineNet-lw101 [7], as in FIFO [1]), hyperparameters. Outputs: The best student checkpoint.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-11",
+          "raw": "[1]",
+          "page": 4,
+          "element_id": "paragraph-33",
+          "line_start": 7,
+          "line_end": 12,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "/ Foggy Driving [5, 6]), segmentation backbone (RefineNet-lw101 [7], as in FIFO [1]), hyperparameters. Outputs: The best student checkpoint.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-12",
+          "raw": "[1]",
+          "page": 5,
+          "element_id": "paragraph-62",
+          "line_start": 30,
+          "line_end": 33,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "This report is compared with FIFO [1] (the baseline) on three foggy datasets: Foggy Zurich (FZ) [5], FoggyDriving(FD) [6], FoggyDrivingDense (FDD).They are fully annotated. We also use an unseen cl",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-13",
+          "raw": "[5]",
+          "page": 5,
+          "element_id": "paragraph-62",
+          "line_start": 30,
+          "line_end": 33,
+          "reference_ids": [
+            "reference-5"
+          ],
+          "status": "LINKED",
+          "context": "ompared with FIFO [1] (the baseline) on three foggy datasets: Foggy Zurich (FZ) [5], FoggyDriving(FD) [6], FoggyDrivingDense (FDD).They are fully annotated. We also use an unseen clear weather dataset - Lindau. The main metric is mIoU.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-14",
+          "raw": "[6]",
+          "page": 5,
+          "element_id": "paragraph-62",
+          "line_start": 30,
+          "line_end": 33,
+          "reference_ids": [
+            "reference-6"
+          ],
+          "status": "LINKED",
+          "context": "(the baseline) on three foggy datasets: Foggy Zurich (FZ) [5], FoggyDriving(FD) [6], FoggyDrivingDense (FDD).They are fully annotated. We also use an unseen clear weather dataset - Lindau. The main metric is mIoU.",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-15",
+          "raw": "[7]",
+          "page": 5,
+          "element_id": "paragraph-63",
+          "line_start": 35,
+          "line_end": 40,
+          "reference_ids": [
+            "reference-7"
+          ],
+          "status": "LINKED",
+          "context": "yedtheTeacher-StudentsetupasdiscussedinSection4. Our student is RefineNet-LW101 [7], similar to the FIFO setting [1]. Initially, we attempted to replicate the FIFO baseline completely, but we were not able to achieve theperformancereportedd",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-16",
+          "raw": "[1]",
+          "page": 5,
+          "element_id": "paragraph-63",
+          "line_start": 35,
+          "line_end": 40,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "ssedinSection4. Our student is RefineNet-LW101 [7], similar to the FIFO setting [1]. Initially, we attempted to replicate the FIFO baseline completely, but we were not able to achieve theperformancereportedduetosomeunknownissues.Inordertobe",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-17",
+          "raw": "[1]",
+          "page": 8,
+          "element_id": "paragraph-79",
+          "line_start": 19,
+          "line_end": 26,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "This report proposes an improved method based on FIFO [1], that is integrat- ing FixMatch/UniMatch-lite self-training [2, 3] with an exponential moving average (EMA) teacher, confidence-based pseudo-label filtering, a",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-18",
+          "raw": "[2, 3]",
+          "page": 8,
+          "element_id": "paragraph-79",
+          "line_start": 19,
+          "line_end": 26,
+          "reference_ids": [
+            "reference-2",
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "d based on FIFO [1], that is integrat- ing FixMatch/UniMatch-lite self-training [2, 3] with an exponential moving average (EMA) teacher, confidence-based pseudo-label filtering, and (an optional) teacher- student consistency loss. Experimen",
+          "uncertainty_reason": null
+        }
+      ],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "7 numbered entries and 18 linked in-text mentions are confirmed."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/latex_pdfs/[N2]-Continuous_Improving_Chatbot.pdf",
+        "source_sha256": "cfde3d8a1b748c23f546f9a5699884381b13210a8da51e86d604096ba07629cc",
+        "page_count": 10
+      },
+      "selection": {
+        "reason": "REPRESENTATIVE_PARSED",
+        "observed_parser_reference_count": 8,
+        "observed_parser_mention_count": 8
+      },
+      "bibliography": {
+        "present": true,
+        "heading_present": true,
+        "heading_text": "References",
+        "pages": [
+          10
+        ],
+        "status": "PARSED",
+        "notes": []
+      },
+      "references": [
+        {
+          "id": "reference-1",
+          "number_explicit": true,
+          "raw": "J. Dalton, V. Ajayi, and R. Main, “Vote Goat: Conversational Movie Recom- mendation” inThe 41st International ACM SIGIR Conference on Research & Development in Information Retrieval, 2018.",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-46"
+          ],
+          "line_start": 1,
+          "line_end": 22,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 1,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-2",
+          "number_explicit": true,
+          "raw": "Z. A. Baizal, N. Ikhsan, I. M. K. Karo, R. K. Darmawan, and R. D. Hartanto, “Movie recommender chatbot based on Dialogflow” inInternational Journal of Electrical and Computer Engineering (IJECE), 2023.",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-46"
+          ],
+          "line_start": 1,
+          "line_end": 22,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 2,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-3",
+          "number_explicit": true,
+          "raw": "F. Ricci, L. Rokach, and B. Shapira, “Introduction to Recommender Systems Handbook,” inRecommender Systems Handbook, Springer, 2011.",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-46"
+          ],
+          "line_start": 1,
+          "line_end": 22,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 3,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-4",
+          "number_explicit": true,
+          "raw": "M. McTear, “Conversational AI: Dialogue Systems, Conversational Agents, and Chatbots,” inSynthesis Lectures on Human Language Technologies, Morgan & Claypool Publishers, 2020.",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-46"
+          ],
+          "line_start": 1,
+          "line_end": 22,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 4,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-5",
+          "number_explicit": true,
+          "raw": "Z. A. Baizal, N. Ikhsan, I. M. K. Karo, R. K. Darmawan, and R. D. Hartanto, “Movie Recommender Chatbot Based on Dialogflow,” inInternational Journal of Electrical and Computer Engineering (IJECE), 2023.",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-46"
+          ],
+          "line_start": 1,
+          "line_end": 22,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 5,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-6",
+          "number_explicit": true,
+          "raw": "Google Cloud, “Intents — Dialogflow ES,” Google Cloud Documentation, 2025. [Online]. Available: https://docs.cloud.google.com/dialogflow/es/docs/intents- overview/",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-46"
+          ],
+          "line_start": 1,
+          "line_end": 22,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 6,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-7",
+          "number_explicit": true,
+          "raw": "GeeksforGeeks, “Content-based vs Collaborative Filtering: Difference,” Geeks- forGeeks, 2025. [Online]. Available: https://www.geeksforgeeks.org/machine- learning/content-based-vs-collaborative-filtering-difference/",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-46"
+          ],
+          "line_start": 1,
+          "line_end": 22,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 7,
+          "parser_status": "PARSED"
+        },
+        {
+          "id": "reference-8",
+          "number_explicit": true,
+          "raw": "S. Ansari, “Unleashing the Power of Sentence Transformers: Revolutionising Semantic Search and Sentence Similarity,” Medium, Mar. 31, 2023.",
+          "pages": [
+            10
+          ],
+          "element_ids": [
+            "paragraph-46"
+          ],
+          "line_start": 1,
+          "line_end": 22,
+          "continuation": false,
+          "uncertainty_reason": null,
+          "number": 8,
+          "parser_status": "PARSED"
+        }
+      ],
+      "mentions": [
+        {
+          "id": "mention-1",
+          "raw": "[3]",
+          "page": 1,
+          "element_id": "paragraph-9",
+          "line_start": 21,
+          "line_end": 27,
+          "reference_ids": [
+            "reference-3"
+          ],
+          "status": "LINKED",
+          "context": "ttheyprovideforuserstodiscoveritems,comparedto traditionalfilter-basedapproaches[3].Inthemovierecommendationdomain,chatbots built on frameworks such as Dialogflow are known for their simplicity and ease of deployment. However, many of these",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-2",
+          "raw": "[1, 4]",
+          "page": 1,
+          "element_id": "paragraph-9",
+          "line_start": 21,
+          "line_end": 27,
+          "reference_ids": [
+            "reference-1",
+            "reference-4"
+          ],
+          "status": "LINKED",
+          "context": "ch limits their ability to handle new request or diverse expressions from users [1, 4].",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-3",
+          "raw": "[1]",
+          "page": 2,
+          "element_id": "paragraph-12",
+          "line_start": 9,
+          "line_end": 22,
+          "reference_ids": [
+            "reference-1"
+          ],
+          "status": "LINKED",
+          "context": "specifically for movie recom- mendationrelyingonpredefinedintents,suchasVoteGoat[1]andtheTelegram-based chatbot [2]. While Vote Goat enables basic voice interaction and the Telegram- based chatbot employs maximum likelihood methods to handl",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-4",
+          "raw": "[2]",
+          "page": 2,
+          "element_id": "paragraph-12",
+          "line_start": 9,
+          "line_end": 22,
+          "reference_ids": [
+            "reference-2"
+          ],
+          "status": "LINKED",
+          "context": "ndationrelyingonpredefinedintents,suchasVoteGoat[1]andtheTelegram-based chatbot [2]. While Vote Goat enables basic voice interaction and the Telegram- based chatbot employs maximum likelihood methods to handle local slang within the Google",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-5",
+          "raw": "[6]",
+          "page": 2,
+          "element_id": "paragraph-13",
+          "line_start": 24,
+          "line_end": 40,
+          "reference_ids": [
+            "reference-6"
+          ],
+          "status": "LINKED",
+          "context": "Flow do provides a way to customly train these intent based on specific context.[6]. Node.js server being used as a central orchestration layer, handling API, control routing and unifying data to respond. Python Flask backendcontainingmachi",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-6",
+          "raw": "[7]",
+          "page": 2,
+          "element_id": "paragraph-13",
+          "line_start": 24,
+          "line_end": 40,
+          "reference_ids": [
+            "reference-7"
+          ],
+          "status": "LINKED",
+          "context": "s liked in the past by analyz- ing the features of user’s viewed, starred movies[7]. It involves Sentence Transformers to encode movie descriptions into parameters and FAISS to index them[8]. The col- laborative filtering analyzes user beha",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-7",
+          "raw": "[8]",
+          "page": 2,
+          "element_id": "paragraph-13",
+          "line_start": 24,
+          "line_end": 40,
+          "reference_ids": [
+            "reference-8"
+          ],
+          "status": "LINKED",
+          "context": "ransformers to encode movie descriptions into parameters and FAISS to index them[8]. The col- laborative filtering analyzes user behavior to recommend similar preferences[7], it uses Alternating Least Squares (ALS), Logistic Matrix Factoriz",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-8",
+          "raw": "[7]",
+          "page": 2,
+          "element_id": "paragraph-13",
+          "line_start": 24,
+          "line_end": 40,
+          "reference_ids": [
+            "reference-7"
+          ],
+          "status": "LINKED",
+          "context": "ol- laborative filtering analyzes user behavior to recommend similar preferences[7], it uses Alternating Least Squares (ALS), Logistic Matrix Factorization (LMF), and BayesianPersonalizedRanking(BPR)withdifferentweightstoscoreitems,thenuses",
+          "uncertainty_reason": null
+        }
+      ],
+      "non_mentions": [],
+      "reviewer_notes": [
+        "8 numbered entries and 8 linked in-text mentions are confirmed.",
+        "References 2 and 5 are duplicate source entries with capitalization differences; both remain separate because the PDF lists both."
+      ]
+    },
+    {
+      "document": {
+        "source_path": "test_submissions/so╠¢ntra╠é╠Çnminh_973_485670_12-ATTENTION base CNN LSTM and XGBOOST hybrid model for stock prediction.pdf",
+        "source_sha256": "ee5e5581b682210536f1cd291142ac3b4f190945aeb2f5cca3540f070fbd343d",
+        "page_count": 35
+      },
+      "selection": {
+        "reason": "NEGATIVE_NO_BIBLIOGRAPHY",
+        "observed_parser_reference_count": 8,
+        "observed_parser_mention_count": 0
+      },
+      "bibliography": {
+        "present": false,
+        "heading_present": false,
+        "heading_text": null,
+        "pages": [],
+        "status": "BIBLIOGRAPHY_NOT_FOUND",
+        "notes": []
+      },
+      "references": [],
+      "mentions": [],
+      "non_mentions": [
+        {
+          "pages": [
+            24,
+            26,
+            30
+          ],
+          "raw": "numbered section headings and list items",
+          "reason": "DOCUMENT_STRUCTURE_NOT_BIBLIOGRAPHY"
+        }
+      ],
+      "reviewer_notes": [
+        "No bibliography section or bibliography entries appear in the 35-page document.",
+        "Numbered report sections on pages 24–30 are not references; trailing fallback extraction must not classify them as a bibliography.",
+        "No in-text numeric or author-year citation mention was found."
+      ]
+    }
+  ]
+}

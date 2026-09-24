@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "document": {
+    "source_sha256": "<sha256>",
+    "page_count": 0
+  },
+  "bibliography": {
+    "heading_present": null,
+    "heading_text": null,
+    "status": "PARSED",
+    "notes": []
+  },
+  "references": [
+    {
+      "id": "reference-1",
+      "number": 1,
+      "raw": "<verbatim bibliography entry>",
+      "pages": [1],
+      "element_ids": ["paragraph-1"],
+      "line_start": 0,
+      "line_end": 0,
+      "parser_status": "PARSED",
+      "continuation": false,
+      "uncertainty_reason": null
+    }
+  ],
+  "mentions": [
+    {
+      "id": "mention-1",
+      "raw": "[1]",
+      "page": 1,
+      "element_id": "paragraph-2",
+      "line_start": 0,
+      "line_end": 0,
+      "reference_ids": ["reference-1"],
+      "status": "LINKED",
+      "uncertainty_reason": null
+    }
+  ],
+  "reviewer_notes": []
+}

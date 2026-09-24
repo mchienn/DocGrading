@@ -323,7 +323,7 @@ Create constants and types:
 
 ```python
 SCHEMA_VERSION = 2
-PARSER_VERSION = "pypdf-pdfplumber-v3"
+PARSER_VERSION = "pypdf-pdfplumber-v5"
 
 
 class DocumentIRExtractionError(RuntimeError):
@@ -523,7 +523,14 @@ Create deterministic IDs in reading order: `section-1`, `section-2`; use a stack
 
 - [x] **Step 5: Implement paragraph grouping**
 
-Exclude heading lines and table-overlapping lines. Join adjacent lines when horizontal start differs by at most 12 points and vertical gap is no more than `max(6, previous_height * 1.5)`. Paragraph IDs are `paragraph-1`, `paragraph-2`; paragraph section is current section at the line position. Never join across pages.
+Exclude heading lines and table-overlapping lines. Reconstruct two-column pages
+left-to-right by column only when both sides occupy substantial horizontal spans;
+drop repeated short header/footer and page-number margin elements, then repair
+section ownership. Join adjacent lines when horizontal start differs by at most
+36 points and vertical gap is no more than `max(6, previous_height * 1.5)`.
+Paragraph IDs are `paragraph-1`, `paragraph-2`; paragraph section is current section
+at the line position. Never join across pages; downstream citation parsing may stitch
+bibliography continuations while retaining aligned page-local evidence anchors.
 
 - [x] **Step 6: Run structural tests GREEN**
 
