@@ -205,6 +205,7 @@ async def _test_existing_ir_replay_does_not_parse(
     existing = SimpleNamespace(
         id=uuid.uuid4(),
         schema_version=SCHEMA_VERSION,
+        parser_version=PARSER_VERSION,
         content=_valid_ir_content(),
     )
     db = AsyncMock()
@@ -238,6 +239,46 @@ def test_existing_ir_replay_does_not_parse(monkeypatch: pytest.MonkeyPatch) -> N
     asyncio.run(_test_existing_ir_replay_does_not_parse(monkeypatch))
 
 
+async def _test_stale_parser_version_rebuilds_existing_ir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = _target()
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        document_version_id=target.id,
+        schema_version=SCHEMA_VERSION,
+        parser_version="old-parser",
+        content=_valid_ir_content(),
+    )
+    parsed = _parsed("a" * 64, {"rebuilt": True})
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.execute.side_effect = [
+        _result(SimpleNamespace(id=target.submission_id)),
+        _result(target),
+        _result(existing),
+        _result(None),
+    ]
+    db.flush = AsyncMock()
+    parser = MagicMock(return_value=parsed)
+    monkeypatch.setattr(document_ir, "parse_document_ir", parser)
+    _patch_settings(monkeypatch)
+
+    result = await document_ir.get_or_build_document_ir(db, target.id, b"pdf")
+
+    assert result is existing
+    assert existing.parser_version == PARSER_VERSION
+    assert existing.content == {"rebuilt": True}
+    parser.assert_called_once()
+    db.flush.assert_awaited_once()
+
+
+def test_stale_parser_version_rebuilds_existing_ir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncio.run(_test_stale_parser_version_rebuilds_existing_ir(monkeypatch))
+
+
 @pytest.mark.parametrize(
     "field", ("pages", "sections", "paragraphs", "tables", "links")
 )
@@ -250,6 +291,7 @@ def test_existing_ir_replay_rejects_invalid_required_collection(
     existing = SimpleNamespace(
         id=uuid.uuid4(),
         schema_version=SCHEMA_VERSION,
+        parser_version=PARSER_VERSION,
         content=content,
     )
     db = AsyncMock()
@@ -1005,6 +1047,11 @@ def _patch_worker(
         "evaluate_file_integrity",
         AsyncMock(return_value=0),
     )
+    monkeypatch.setattr(
+        worker_tasks,
+        "evaluate_citations",
+        AsyncMock(return_value=0),
+    )
 
 
 def test_worker_builds_ir_and_copies_source_metadata(
@@ -1037,6 +1084,62 @@ def test_worker_builds_ir_and_copies_source_metadata(
     assert document.page_count == 4
     mark_done.assert_awaited_once_with(db, job, attempt_count=2)
     assert db.commit.await_count == 2
+
+
+@pytest.mark.parametrize(
+    ("evaluator", "code", "detail"),
+    [
+        (
+            "evaluate_file_integrity",
+            "FILE_INTEGRITY_EVALUATION_FAILED",
+            "File integrity evaluation failed",
+        ),
+        (
+            "evaluate_citations",
+            "CITATION_EVALUATION_FAILED",
+            "Citation evaluation failed",
+        ),
+    ],
+)
+def test_worker_classifies_evaluator_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_tasks: object,
+    evaluator: str,
+    code: str,
+    detail: str,
+) -> None:
+    job, document = _worker_job()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    ir = SimpleNamespace(
+        content={
+            "source": {
+                "sha256": "a" * 64,
+                "size_bytes": 123,
+                "page_count": 4,
+            }
+        }
+    )
+    _patch_worker(monkeypatch, db, job, worker_tasks)
+    monkeypatch.setattr(
+        worker_tasks,
+        "get_or_build_document_ir",
+        AsyncMock(return_value=ir),
+    )
+    monkeypatch.setattr(
+        worker_tasks,
+        evaluator,
+        AsyncMock(side_effect=RuntimeError("provider secret")),
+    )
+    mark_error = AsyncMock(return_value=True)
+    monkeypatch.setattr(worker_tasks, "mark_error", mark_error)
+
+    result = asyncio.run(worker_tasks._run_analysis_job(None))
+
+    assert result == str(job.id)
+    assert document.failure_code == code
+    assert document.failure_detail == detail
+    assert "secret" not in document.failure_detail
+    mark_error.assert_awaited_once_with(db, job, code, detail, attempt_count=2)
 
 
 @pytest.mark.parametrize(

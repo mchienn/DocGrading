@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "source": {
+    "sha256": "synthetic-citation-fixture",
+    "size_bytes": 1,
+    "page_count": 2
+  },
+  "pages": [
+    {"number": 1, "width": 612, "height": 792, "text": "", "headings": [], "paragraphs": ["paragraph-1"], "tables": [], "links": []},
+    {"number": 2, "width": 612, "height": 792, "text": "", "headings": ["section-references"], "paragraphs": ["paragraph-2", "paragraph-3"], "tables": [], "links": []}
+  ],
+  "sections": [
+    {"id": "section-references", "text": "References", "level": 1, "parent_id": null, "page_number": 2}
+  ],
+  "paragraphs": [
+    {"id": "paragraph-1", "section_id": null, "page_number": 1, "line_start": 0, "line_end": 0, "text": "Synthetic method [1]."},
+    {"id": "paragraph-2", "section_id": "section-references", "page_number": 2, "line_start": 0, "line_end": 1, "text": "[1] Synthetic Author (2024). Synthetic title"},
+    {"id": "paragraph-3", "section_id": "section-references", "page_number": 2, "line_start": 2, "line_end": 3, "text": "continued on the next line. doi : 10 . 0000 / synthetic . 1"}
+  ],
+  "tables": [],
+  "links": []
+}

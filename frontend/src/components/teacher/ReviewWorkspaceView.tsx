@@ -229,6 +229,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
   }, [draft, drainSaves, editable]);
 
   const findings = evidenceQuery.data?.findings ?? [];
+  const citation = evidenceQuery.data?.citation;
   const decisions = draft?.decisions ?? [];
   const selectedFinding = findings.find((finding) => finding.id === selectedFindingId) ?? findings[0];
   const allDecided = findings.every((finding) => decisions.some((decision) => decision.finding_id === finding.id));
@@ -487,7 +488,77 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
       {evidenceQuery.isLoading || draftQuery.isLoading ? (
         <p className="p-8 text-center text-slate-500">Loading evidence and review draft...</p>
       ) : !evidenceQuery.data || !draft ? null : (
-        <div className="grid lg:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] gap-4 items-start">
+        <>
+          {citation && (
+            <section
+              aria-label="Citation checks"
+              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+            >
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div>
+                  <h2 className="font-semibold text-slate-900">Citation checks</h2>
+                  <p className="text-xs text-slate-500">
+                    Deterministic identity and in-text linkage. Unresolved does not mean false.
+                  </p>
+                </div>
+                <span className="font-mono text-xs text-slate-500">
+                  {citation.counts.references} references · {citation.counts.mentions} mentions
+                </span>
+              </div>
+              {(citation.parser_status !== 'PARSED' ||
+                citation.bibliography_status !== 'PARSED' ||
+                (citation.parser_warnings?.length ?? 0) > 0) && (
+                <div
+                  role="alert"
+                  className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
+                >
+                  <p className="font-semibold">
+                    Citation analysis incomplete. Manual review required.
+                  </p>
+                  <p className="mt-1">
+                    Parser: {citation.parser_status} · Bibliography: {citation.bibliography_status}
+                  </p>
+                  {(citation.parser_warnings ?? []).slice(0, 4).map((warning) => (
+                    <p key={warning} className="mt-1">{warning}</p>
+                  ))}
+                </div>
+              )}
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-7">
+                <div className="rounded-lg bg-emerald-50 p-2 text-emerald-800">
+                  Verified: {citation.counts.verified} ({Math.round(citation.counts.verified_rate * 100)}%)
+                </div>
+                <div className="rounded-lg bg-sky-50 p-2 text-sky-800">
+                  Linked: {citation.counts.linked} ({Math.round(citation.counts.linkage_rate * 100)}%)
+                </div>
+                <div className="rounded-lg bg-amber-50 p-2 text-amber-800">
+                  Unresolved: {citation.counts.unresolved}
+                </div>
+                <div className="rounded-lg bg-rose-50 p-2 text-rose-800">
+                  Mismatch: {citation.counts.metadata_mismatch}
+                </div>
+                <div className="rounded-lg bg-rose-50 p-2 text-rose-800">
+                  Orphan: {citation.counts.orphan_mentions}
+                </div>
+                <div className="rounded-lg bg-amber-50 p-2 text-amber-800">
+                  Uncited: {citation.counts.uncited_references}
+                </div>
+                <div className="rounded-lg bg-amber-50 p-2 text-amber-800">
+                  Ambiguous: {citation.counts.ambiguous}
+                </div>
+              </div>
+              {citation.issues.length > 0 && (
+                <ul className="mt-3 space-y-1 text-xs text-slate-600">
+                  {citation.issues.slice(0, 8).map((issue) => (
+                    <li key={`${issue.id}:${issue.status}`} className="flex gap-2">
+                      <span className="font-mono text-slate-500">{issue.status}</span>
+                      <span>Page {issue.page_number} · {issue.snippet}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+          <div className="grid lg:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] gap-4 items-start">
           <PdfEvidenceViewer
             documentVersionId={evidenceQuery.data.document_version_id}
             findings={findings}
@@ -578,6 +649,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
             </div>
           </section>
         </div>
+        </>
       )}
 
       {showPublish && (
