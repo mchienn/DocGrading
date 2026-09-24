@@ -1,18 +1,340 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "annotation_set": {
     "name": "citation-parser-v0-representative-pdfs",
-    "review_method": "Manual review of extracted PDF page text and Document IR; whitespace normalized; no external metadata lookup.",
-    "scope": "Bibliography presence, bibliography entry boundaries, numeric in-text mentions, and mention-to-reference links.",
+    "review_method": "AI-assisted manual review of extracted PDF text and Document IR; literal DOI/arXiv identifiers and expected links reviewed separately; synthetic provider records cover deterministic identity outcomes.",
+    "scope": "Real-PDF bibliography/mention extraction and linkage, literal identifier extraction, deterministic identity outcomes, orphan/uncited/ambiguous linkage cases.",
     "conventions": [
       "Bibliography entry labels on bibliography pages are not in-text mentions.",
       "Unnumbered bibliography entries receive ordinal IDs only; number_explicit remains false.",
       "Mathematical bracket expressions and numbered document structure are explicit non-mentions/non-references.",
-      "source_sha256 identifies immutable PDF bytes."
+      "source_sha256 identifies immutable PDF bytes.",
+      "expected_identifiers are gold labels read from literal bibliography text; null means no DOI/arXiv token is present.",
+      "identity_cases use fixed provider records so identity metrics do not depend on live network responses.",
+      "Duplicate PDF bytes remain listed for corpus file coverage but metric aggregation deduplicates by source_sha256.",
+      "Issue #36 corpus identity is pinned as a 35-item SHA-256 multiset; filenames are excluded from reports."
     ],
     "reviewer_kind": "AI_ASSISTED_MANUAL",
     "independent_human_review": false
   },
+  "corpus": {
+    "issue": 36,
+    "total_pdf_files": 35,
+    "annotated_file_entries": 12,
+    "unique_annotated_sha256": 11,
+    "source_sha256": [
+      "1647473c33cad39fe5328dae0d125070ec13baab4a39df8e92ea07752c836d44",
+      "1df9510af09b060779a3ee68d6be2576bbb944c26407b5d9d228628d5d3ecfa0",
+      "2650747afb5c419ea8727dd24d09c9614bff5d3bcf4d32abfde52fc509964ca1",
+      "297f889aa3e49a7518e18872b82195f090b4c28efab7206c34dbd4bdb5514109",
+      "2ad6136dc4c6cba18ef902666d6a173cd9e1dca186de10d2eafdc4072f6f0c61",
+      "2f0821a64caed4b95778b43dda30414a08f060aa18ddeb41d37ea2c1307a0686",
+      "33850231b62d259357121b4e8db3a5b0cf58f0e881cbb947360ffae7fb28f10f",
+      "33850231b62d259357121b4e8db3a5b0cf58f0e881cbb947360ffae7fb28f10f",
+      "35672342ee559161a49155d43384d802b6184de7a5cb9ae6e2c7b99a1630713c",
+      "36c461bfa7360745ad79832e2bccbacba3e38f4f3d39cae775693abfdca41b3f",
+      "4425efd61170b23151a391250fb7d30f489f049766f17faf12dbc1efc746c853",
+      "623dea0e9bda518c40eae09bf2ebcb2c0b2199d9ecbca6f06edbf66cd93b825d",
+      "7ea6b743a29744417f44e746122a50b703067e0a8ad3345fc83abf69787abff4",
+      "83b91742dd65010a43f0638dc9384b5887d712cc8d833395d358d90c491eea0e",
+      "8ce5a545a22b459f951a9f83452a2fd4d191cacc7e704c1076137aa6bad00ba5",
+      "8ce5a545a22b459f951a9f83452a2fd4d191cacc7e704c1076137aa6bad00ba5",
+      "8e4dd65a459054b7e6ce195435e0767c419ccb8247688994e3ab82264768de89",
+      "8fb10f47d1acde3b03b473fb30211e86a6a35223560caf159315def43b27f430",
+      "8fb10f47d1acde3b03b473fb30211e86a6a35223560caf159315def43b27f430",
+      "96cde6f74477102008656df0a5f649a208fcfc020587d6f0c1d430718ba22a23",
+      "a25d3e416dea52ef9340007ee4e3a5f01cd15b0e1c0d435baf88f6fff43adaf2",
+      "a7d0255e27719b4a4668dc0f2245ce90238f550c145bc3dc453f54782cf8f147",
+      "ab1233bf40eb5eb2306720589252a100cc920a9acec3dc1168439c412f9805db",
+      "aca8676626e6f290f5974f8b9088701cc06431cb14936796b0d95b937719509c",
+      "aed88cbccbfeb99a5b31d7eb216aff825f85c64e6040b51cb464bc889466ddbc",
+      "b0cf754c50c37d1ebd0fdf3521e3f1237c88e775b5058b97480613911e26881b",
+      "b7a49bc932754f33b8a56130eb6e8de22c7ca94c03e9c7ece51cab37023f9e93",
+      "c056578068e803995613d4e9064031afe81ded42fc7d702e1af28094ee1e583d",
+      "cd5c24b8edbb7f052f09f563c1b0137727305732d692a1c1967796e52d65132c",
+      "cfde3d8a1b748c23f546f9a5699884381b13210a8da51e86d604096ba07629cc",
+      "d13b608dd8235f4e0b0f6e01c6374abdf307f4a568495b09a15c435352c048e1",
+      "ee5e5581b682210536f1cd291142ac3b4f190945aeb2f5cca3540f070fbd343d",
+      "ee5e5581b682210536f1cd291142ac3b4f190945aeb2f5cca3540f070fbd343d",
+      "ee5e5581b682210536f1cd291142ac3b4f190945aeb2f5cca3540f070fbd343d",
+      "f3d9d724800f75cc4ce1789b516d0e573bbef7a04c63be8d23de4b9268a4ea14"
+    ]
+  },
+  "identity_cases": [
+    {
+      "name": "verified-doi",
+      "reference": {
+        "raw": "H. Huang, P. Yao, R. Wu, Q. Shi, and C. Zhang, “Pangolin: Incremental hybrid fuzzing with polyhedral path abstraction,” in 2020 IEEE Symposium on Security and Privacy (SP), 2020. doi:10.1109/SP40000.2020.00063"
+      },
+      "provider_record": {
+        "provider": "crossref",
+        "doi": "10.1109/sp40000.2020.00063",
+        "comparison": {
+          "title": "pangolin incremental hybrid fuzzing with polyhedral path abstraction",
+          "authors": [
+            "h huang",
+            "p yao",
+            "r wu",
+            "q shi",
+            "c zhang"
+          ],
+          "year": 2020,
+          "venue": "2020 ieee symposium on security and privacy sp"
+        }
+      },
+      "expected": {
+        "doi": "10.1109/sp40000.2020.00063",
+        "arxiv_id": null,
+        "identity_status": "VERIFIED",
+        "mismatch_fields": []
+      }
+    },
+    {
+      "name": "doi-points-to-wrong-record",
+      "reference": {
+        "raw": "J. Doe and A. Roe. “Reliable Systems”. Journal of Testing, 2024. doi:10.1109/SP40000.2020.00063"
+      },
+      "provider_record": {
+        "provider": "crossref",
+        "doi": "10.1109/sp40000.2020.00063",
+        "comparison": {
+          "title": "pangolin incremental hybrid fuzzing with polyhedral path abstraction",
+          "authors": [
+            "h huang",
+            "p yao",
+            "r wu",
+            "q shi",
+            "c zhang"
+          ],
+          "year": 2020,
+          "venue": "2020 ieee symposium on security and privacy sp"
+        }
+      },
+      "expected": {
+        "doi": "10.1109/sp40000.2020.00063",
+        "arxiv_id": null,
+        "identity_status": "METADATA_MISMATCH",
+        "mismatch_fields": [
+          "title",
+          "author",
+          "year",
+          "venue"
+        ]
+      }
+    },
+    {
+      "name": "invalid-doi-not-found",
+      "reference": {
+        "raw": "J. Doe and A. Roe. “Reliable Systems”. Journal of Testing, 2024. doi:10.9999/not-found"
+      },
+      "provider_record": null,
+      "expected": {
+        "doi": "10.9999/not-found",
+        "arxiv_id": null,
+        "identity_status": "UNRESOLVED",
+        "mismatch_fields": []
+      }
+    },
+    {
+      "name": "arxiv-without-adapter",
+      "reference": {
+        "raw": "A. Vaswani et al. “Attention Is All You Need”. 2017. arXiv:1706.03762"
+      },
+      "provider_record": null,
+      "expected": {
+        "doi": null,
+        "arxiv_id": "1706.03762",
+        "identity_status": "UNRESOLVED",
+        "mismatch_fields": []
+      }
+    },
+    {
+      "name": "provider-missing-year",
+      "reference": {
+        "raw": "J. Doe and A. Roe. “Reliable Systems”. Journal of Testing, 2024."
+      },
+      "provider_record": {
+        "provider": "crossref",
+        "comparison": {
+          "title": "reliable systems",
+          "authors": [
+            "j doe",
+            "a roe"
+          ],
+          "year": null,
+          "venue": "journal of testing"
+        }
+      },
+      "expected": {
+        "doi": null,
+        "arxiv_id": null,
+        "identity_status": "UNRESOLVED",
+        "mismatch_fields": []
+      }
+    },
+    {
+      "name": "venue-mismatch",
+      "reference": {
+        "raw": "J. Doe and A. Roe. “Reliable Systems”. Journal of Testing, 2024."
+      },
+      "provider_record": {
+        "provider": "crossref",
+        "comparison": {
+          "title": "reliable systems",
+          "authors": [
+            "j doe",
+            "a roe"
+          ],
+          "year": 2024,
+          "venue": "unrelated proceedings"
+        }
+      },
+      "expected": {
+        "doi": null,
+        "arxiv_id": null,
+        "identity_status": "METADATA_MISMATCH",
+        "mismatch_fields": [
+          "venue"
+        ]
+      }
+    }
+  ],
+  "linkage_cases": [
+    {
+      "name": "linked-orphan-and-uncited",
+      "document_ir": {
+        "schema_version": 2,
+        "source": {
+          "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "size_bytes": 1,
+          "page_count": 2
+        },
+        "pages": [],
+        "sections": [
+          {
+            "id": "section-references",
+            "text": "References",
+            "level": 1,
+            "parent_id": null,
+            "page_number": 2
+          }
+        ],
+        "paragraphs": [
+          {
+            "id": "paragraph-body",
+            "section_id": null,
+            "page_number": 1,
+            "text": "Supported claim [1]. Missing source [9]."
+          },
+          {
+            "id": "paragraph-reference-1",
+            "section_id": "section-references",
+            "page_number": 2,
+            "text": "[1] J. Doe. (2024). Used source."
+          },
+          {
+            "id": "paragraph-reference-2",
+            "section_id": "section-references",
+            "page_number": 2,
+            "text": "[2] A. Roe. (2023). Unused source."
+          }
+        ],
+        "tables": [],
+        "links": []
+      },
+      "expected": {
+        "mentions": [
+          {
+            "raw": "[1]",
+            "status": "LINKED",
+            "reference_numbers": [
+              1
+            ]
+          },
+          {
+            "raw": "[9]",
+            "status": "ORPHAN_MENTION",
+            "reference_numbers": []
+          }
+        ],
+        "references": [
+          {
+            "number": 1,
+            "linkage_status": "LINKED"
+          },
+          {
+            "number": 2,
+            "linkage_status": "UNCITED_REFERENCE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate-label-ambiguous",
+      "document_ir": {
+        "schema_version": 2,
+        "source": {
+          "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "size_bytes": 1,
+          "page_count": 2
+        },
+        "pages": [],
+        "sections": [
+          {
+            "id": "section-references",
+            "text": "References",
+            "level": 1,
+            "parent_id": null,
+            "page_number": 2
+          }
+        ],
+        "paragraphs": [
+          {
+            "id": "paragraph-body",
+            "section_id": null,
+            "page_number": 1,
+            "text": "Conflicting source [1]."
+          },
+          {
+            "id": "paragraph-reference-1a",
+            "section_id": "section-references",
+            "page_number": 2,
+            "text": "[1] J. Doe. (2024). First source."
+          },
+          {
+            "id": "paragraph-reference-1b",
+            "section_id": "section-references",
+            "page_number": 2,
+            "text": "[1] A. Roe. (2023). Second source."
+          }
+        ],
+        "tables": [],
+        "links": []
+      },
+      "expected": {
+        "mentions": [
+          {
+            "raw": "[1]",
+            "status": "AMBIGUOUS",
+            "reference_numbers": [
+              1,
+              1
+            ]
+          }
+        ],
+        "references": [
+          {
+            "number": 1,
+            "linkage_status": "UNCITED_REFERENCE"
+          },
+          {
+            "number": 1,
+            "linkage_status": "UNCITED_REFERENCE"
+          }
+        ]
+      }
+    }
+  ],
   "documents": [
     {
       "document": {
@@ -51,7 +373,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2406.08340"
+          }
         },
         {
           "id": "reference-2",
@@ -68,7 +394,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-3",
@@ -85,7 +415,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-4",
@@ -102,7 +436,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         }
       ],
       "mentions": [],
@@ -150,7 +488,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-2",
@@ -167,7 +509,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2104.00680"
+          }
         },
         {
           "id": "reference-3",
@@ -184,7 +530,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1612.03144v2"
+          }
         },
         {
           "id": "reference-4",
@@ -201,7 +551,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2308.00442v2"
+          }
         },
         {
           "id": "reference-5",
@@ -218,7 +572,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 5,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-6",
@@ -235,7 +593,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 6,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1911.11763"
+          }
         },
         {
           "id": "reference-7",
@@ -252,7 +614,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 7,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1905.03561"
+          }
         }
       ],
       "mentions": [],
@@ -301,7 +667,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-2",
@@ -318,7 +688,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2104.00680"
+          }
         },
         {
           "id": "reference-3",
@@ -335,7 +709,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1612.03144v2"
+          }
         },
         {
           "id": "reference-4",
@@ -352,7 +730,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2308.00442v2"
+          }
         },
         {
           "id": "reference-5",
@@ -369,7 +751,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 5,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-6",
@@ -386,7 +772,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 6,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1911.11763"
+          }
         },
         {
           "id": "reference-7",
@@ -403,7 +793,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 7,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1905.03561"
+          }
         }
       ],
       "mentions": [],
@@ -452,7 +846,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-2",
@@ -469,7 +867,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-3",
@@ -486,7 +888,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-4",
@@ -503,7 +909,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-5",
@@ -520,7 +930,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 5,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         }
       ],
       "mentions": [
@@ -671,7 +1085,11 @@
           "continuation": false,
           "uncertainty_reason": "Document IR omitted bibliography text; only page-level evidence is available.",
           "number": 1,
-          "parser_status": "PARSER_UNCERTAIN"
+          "parser_status": "PARSER_UNCERTAIN",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2408.04948"
+          }
         }
       ],
       "mentions": [
@@ -733,7 +1151,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-2",
@@ -750,7 +1172,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-3",
@@ -767,7 +1193,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": "10.1109/sp40000.2020.00063",
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-4",
@@ -784,7 +1214,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-5",
@@ -801,7 +1235,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 5,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-6",
@@ -818,7 +1256,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 6,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         }
       ],
       "mentions": [],
@@ -867,7 +1309,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-2",
@@ -884,7 +1330,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1701.07875"
+          }
         },
         {
           "id": "reference-3",
@@ -901,7 +1351,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-4",
@@ -918,7 +1372,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1606.05908"
+          }
         },
         {
           "id": "reference-5",
@@ -935,7 +1393,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 5,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-6",
@@ -952,7 +1414,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 6,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1412.6572"
+          }
         },
         {
           "id": "reference-7",
@@ -969,7 +1435,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 7,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-8",
@@ -986,7 +1456,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 8,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1312.6114"
+          }
         },
         {
           "id": "reference-9",
@@ -1003,7 +1477,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 9,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-10",
@@ -1020,7 +1498,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 10,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-11",
@@ -1037,7 +1519,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 11,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-12",
@@ -1054,7 +1540,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 12,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-13",
@@ -1071,7 +1561,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 13,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1805.06605"
+          }
         },
         {
           "id": "reference-14",
@@ -1088,7 +1582,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 14,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1705.07204"
+          }
         },
         {
           "id": "reference-15",
@@ -1105,7 +1603,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 15,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1708.07747"
+          }
         }
       ],
       "mentions": [
@@ -1552,7 +2054,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-2",
@@ -1569,7 +2075,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-3",
@@ -1586,7 +2096,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         }
       ],
       "mentions": [
@@ -1675,7 +2189,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2508.09378"
+          }
         },
         {
           "id": "reference-2",
@@ -1692,7 +2210,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-3",
@@ -1709,7 +2231,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-4",
@@ -1726,7 +2252,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         }
       ],
       "mentions": [
@@ -1830,7 +2360,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2204.01587"
+          }
         },
         {
           "id": "reference-2",
@@ -1847,7 +2381,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2001.07685"
+          }
         },
         {
           "id": "reference-3",
@@ -1864,7 +2402,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "2208.09910"
+          }
         },
         {
           "id": "reference-4",
@@ -1881,7 +2423,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1604.01685"
+          }
         },
         {
           "id": "reference-5",
@@ -1898,7 +2444,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 5,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1808.01265"
+          }
         },
         {
           "id": "reference-6",
@@ -1915,7 +2465,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 6,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1708.07819"
+          }
         },
         {
           "id": "reference-7",
@@ -1932,7 +2486,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 7,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": "1611.06612"
+          }
         }
       ],
       "mentions": [
@@ -2238,7 +2796,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 1,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-2",
@@ -2255,7 +2817,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 2,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-3",
@@ -2272,7 +2838,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 3,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-4",
@@ -2289,7 +2859,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 4,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-5",
@@ -2306,7 +2880,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 5,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-6",
@@ -2323,7 +2901,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 6,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-7",
@@ -2340,7 +2922,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 7,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         },
         {
           "id": "reference-8",
@@ -2357,7 +2943,11 @@
           "continuation": false,
           "uncertainty_reason": null,
           "number": 8,
-          "parser_status": "PARSED"
+          "parser_status": "PARSED",
+          "expected_identifiers": {
+            "doi": null,
+            "arxiv_id": null
+          }
         }
       ],
       "mentions": [

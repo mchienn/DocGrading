@@ -1051,3 +1051,40 @@ def test_issue_rows_keep_all_continuation_anchors() -> None:
         )
         for row in rows
     )
+
+
+def test_citation_benchmark_gold_cases_are_self_consistent() -> None:
+    from scripts import citation_benchmark
+
+    annotations = json.loads(
+        (Path(__file__).parent / "fixtures" / "citation_annotations.v0.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    unique_documents = citation_benchmark._unique_documents(annotations["documents"])
+    identity = citation_benchmark._run_identity(annotations["identity_cases"])
+    linkage = citation_benchmark._run_linkage_cases(annotations["linkage_cases"])
+
+    assert annotations["schema_version"] == 2
+    assert len(annotations["corpus"]["source_sha256"]) == 35
+    assert len(unique_documents) == 11
+    assert sum(len(document["references"]) for document in unique_documents) == 60
+    assert sum(len(document["mentions"]) for document in unique_documents) == 69
+    assert identity["identifier_accuracy"] == 1
+    assert identity["status_accuracy"] == 1
+    assert identity["field_mismatch"]["f1"] == 1
+    assert all(
+        expected == actual for expected, actual in linkage["mention_status_pairs"]
+    )
+    assert all(
+        expected == actual for expected, actual in linkage["reference_status_pairs"]
+    )
+    assert linkage["mapping_correct"] == linkage["mapping_total"]
+    false_positive = citation_benchmark._binary_metric(
+        [(None, citation.ORPHAN_MENTION)], citation.ORPHAN_MENTION
+    )
+    assert false_positive["fp"] == 1
+    assert (
+        citation_benchmark._ambiguous_status(citation.AMBIGUOUS_MAPPING)
+        == citation.AMBIGUOUS
+    )

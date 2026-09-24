@@ -231,6 +231,14 @@ Gate được áp dụng **theo từng criterion**, không lấy điểm trung b
 - Ít nhất 20% mẫu được hai người chấm độc lập để phát hiện rubric mơ hồ.
 - Giữ riêng 20% PDF làm holdout; không dùng để viết rule, prompt hoặc few-shot example.
 
+
+Citation v0 có baseline regression riêng tại
+[`docs/benchmarks/citation-v0.md`](../benchmarks/citation-v0.md): chạy đủ 35 PDF
+của issue #36, chấm extraction/linkage trên 11 PDF byte-set đã gán nhãn với 60
+bibliography entries và 69 citation mentions, và chấm identity bằng fixed provider
+records. Gold set này được review thủ công có AI hỗ trợ, chưa có reviewer độc lập,
+nên không thay thế holdout/domain sign-off của quality gate.
+
 ### 7.2. Ngưỡng kích hoạt
 
 Một criterion chỉ được bật tự động khi đồng thời đạt:
