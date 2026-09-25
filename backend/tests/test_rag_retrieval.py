@@ -371,8 +371,14 @@ def test_summarize_needs_submission_and_respects_ownership() -> None:
             course_id=ids["course"],
             assignment_id=None,
         )
-        assert response.needs_submission is True
+        assert response.needs_clarification == "submission"
+        assert response.pending_message == "Tóm tắt bài này"
         assert response.intent == Intent.SUMMARIZE_SUBMISSION
+        assert {o.id for o in response.clarification_options} == {
+            ids["submission_1"],
+            ids["submission_2"],
+            ids["submission_3"],
+        }
 
         outsider = _actor(ids["other_teacher"], "Teacher B", UserRole.TEACHER)
         with pytest.raises(HTTPException) as error:

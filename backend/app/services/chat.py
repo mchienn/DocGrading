@@ -27,8 +27,20 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import check_course_ownership
-from app.api.schemas_chat import ALL_COURSES, ChatResponse, Citation
+from app.api.schemas_chat import (
+    ALL_COURSES,
+    BBox,
+    ChatResponse,
+    ChatScopeSubmission,
+    ChatStats,
+    Citation,
+    ClarificationKind,
+    ClarificationOption,
+    Highlight,
+)
+from app.models.analysis import DocumentIR
 from app.models.assignment import Assignment
+from app.models.chunk import DocumentChunk
 from app.models.course import Course, Membership
 from app.models.enums import (
     AssignmentStatus,
@@ -36,6 +48,7 @@ from app.models.enums import (
     MembershipRole,
     MembershipStatus,
     ReviewRequestStatus,
+    UserRole,
 )
 from app.models.identity import User
 from app.models.review import ReviewRequest
@@ -69,7 +82,6 @@ class Intent(StrEnum):
     SUMMARIZE_SUBMISSION = "SUMMARIZE_SUBMISSION"
     GREETING = "GREETING"
     HELP = "HELP"
-    NEEDS_COURSE = "NEEDS_COURSE"
     UNKNOWN = "UNKNOWN"
 
 
@@ -148,6 +160,8 @@ _INTENT_KEYWORDS: list[tuple[Intent, tuple[str, ...]]] = [
             "tom tat bai nay",
             "tom tat bai nop",
             "tom tat bai lam",
+            "tom tat bai cua",
+            "tom tat bao cao cua",
             "tom tat bao cao nay",
             "tom tat noi dung",
             "tom tat tai lieu",
@@ -431,19 +445,26 @@ async def _open_assignments(db: AsyncSession, course_id: uuid.UUID) -> list[Assi
 
 async def _handle_summary(
     db: AsyncSession, course: Course, assignment_id: uuid.UUID | None
-) -> str:
+) -> tuple[str, ChatStats]:
     rows = await _latest_versions(db, course.id, assignment_id)
     total = len(rows)
     reviewed = sum(1 for _, status, _ in rows if status in _REVIEWED_STATUSES)
     error = sum(1 for _, status, _ in rows if status in _ERROR_STATUSES)
     pending = total - reviewed - error
     students = await _active_student_count(db, course.id)
+    stats = ChatStats(
+        total_students=students,
+        submitted=total,
+        reviewed=reviewed,
+        pending_review=pending,
+        errors=error,
+    )
     scope = "lớp" if assignment_id is None else "bài tập đã chọn"
     if total == 0:
         return (
             f'{scope.capitalize()} "{course.name}" chưa có bài nộp nào. '
             f"Lớp có {students} sinh viên đang hoạt động."
-        )
+        ), stats
     rate = round(reviewed / total * 100)
     return (
         f'Tình hình {scope} "{course.name}":\n'
@@ -451,7 +472,7 @@ async def _handle_summary(
         f"- Đã duyệt (approved/published): {reviewed} ({rate}%)\n"
         f"- Đang chờ duyệt/xử lý: {pending}\n"
         f"- Đang lỗi: {error}"
-    )
+    ), stats
 
 
 async def _handle_unreviewed(
@@ -602,6 +623,138 @@ _RAG_INTENTS = frozenset(
 )
 
 
+def _clarify(
+    intent: Intent,
+    kind: ClarificationKind,
+    reply: str,
+    options: list[ClarificationOption],
+    message: str,
+) -> ChatResponse:
+    return ChatResponse(
+        reply=reply,
+        intent=intent,
+        needs_clarification=kind,
+        clarification_options=options,
+        pending_message=message,
+    )
+
+
+async def _course_options(db: AsyncSession, user: User) -> list[ClarificationOption]:
+    """Courses *user* may ask about — the same ownership rule as ``_authorize``."""
+    stmt = sa.select(Course).order_by(Course.code)
+    if UserRole.ADMIN not in user.roles:
+        stmt = stmt.where(Course.owner_teacher_id == user.id)
+    options = []
+    for course in (await db.execute(stmt)).scalars().all():
+        _authorize(user, course)
+        options.append(
+            ClarificationOption(id=course.id, label=f"{course.code} - {course.name}")
+        )
+    return options
+
+
+async def _ask_for_course(
+    db: AsyncSession, user: User, intent: Intent, message: str
+) -> ChatResponse:
+    options = await _course_options(db, user)
+    if not options:
+        return ChatResponse(
+            reply="Bạn chưa phụ trách lớp nào nên chưa thể trả lời câu này.",
+            intent=intent,
+        )
+    return _clarify(
+        intent,
+        "course",
+        "Câu này cần gắn với một lớp cụ thể — bạn muốn hỏi về lớp nào?",
+        options,
+        message,
+    )
+
+
+async def submission_candidates(
+    db: AsyncSession, course_id: uuid.UUID
+) -> list[ChatScopeSubmission]:
+    """Latest document version of every submission in an (authorized) course."""
+    latest = _latest_version_subquery(course_id, None)
+    stmt = (
+        sa.select(
+            Submission.id,
+            DocumentVersion.id,
+            User.display_name,
+            User.email,
+            Assignment.title,
+            DocumentVersion.original_filename,
+            DocumentVersion.created_at,
+        )
+        .join(latest, latest.c.submission_id == Submission.id)
+        .join(
+            DocumentVersion,
+            sa.and_(
+                DocumentVersion.submission_id == Submission.id,
+                DocumentVersion.version_number == latest.c.version_number,
+            ),
+        )
+        .join(User, User.id == Submission.student_id)
+        .join(Assignment, Assignment.id == Submission.assignment_id)
+        .order_by(User.display_name, Assignment.title)
+    )
+    return [
+        ChatScopeSubmission(
+            submission_id=row[0],
+            document_version_id=row[1],
+            student_name=row[2],
+            student_email=row[3],
+            assignment_title=row[4],
+            file_name=row[5],
+            submitted_at=row[6],
+        )
+        for row in (await db.execute(stmt)).all()
+    ]
+
+
+# Words that may precede a bare given name ("bài của An", "sinh viên An"). A
+# bare given name without such a cue is ignored: short names like "An" also
+# occur inside ordinary words ("an toàn").
+_NAME_CUES = ("cua", "sinh vien", "sv", "ban", "em", "bai")
+
+
+def find_named_submissions(
+    message: str, candidates: list[ChatScopeSubmission]
+) -> list[ChatScopeSubmission]:
+    """Submissions whose student the message names (full name, or cued given name).
+
+    Several matches (e.g. two students named "An") mean the question is
+    ambiguous and the caller should ask which submission was meant.
+    """
+    folded = _normalize(message)
+    full = [
+        c
+        for c in candidates
+        if len(_normalize(c.student_name)) >= 3
+        and _phrase_matches(_normalize(c.student_name), folded)
+    ]
+    if full:
+        return full
+    matches = []
+    for candidate in candidates:
+        parts = _normalize(candidate.student_name).split()
+        if not parts:
+            continue
+        given = parts[-1]
+        if any(_phrase_matches(f"{cue} {given}", folded) for cue in _NAME_CUES):
+            matches.append(candidate)
+    return matches
+
+
+def submission_option(candidate: ChatScopeSubmission) -> ClarificationOption:
+    submitted = candidate.submitted_at.strftime("%d/%m/%Y")
+    return ClarificationOption(
+        id=candidate.submission_id,
+        label=f"{candidate.student_name} — {candidate.assignment_title}",
+        detail=f"Nộp {submitted} · {candidate.file_name}",
+    )
+
+
 class RagScope:
     """Authorized set of document versions a content question may read."""
 
@@ -632,58 +785,99 @@ async def _latest_version_id(
     return await db.scalar(stmt)
 
 
+async def _submission_scope(
+    db: AsyncSession,
+    user: User,
+    submission_id: uuid.UUID,
+    course_id: uuid.UUID | str | None,
+    assignment_id: uuid.UUID | None,
+) -> RagScope:
+    submission = await db.get(Submission, submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    assignment = await db.get(Assignment, submission.assignment_id)
+    course = _authorize(
+        user, await db.get(Course, assignment.course_id) if assignment else None
+    )
+    if isinstance(course_id, uuid.UUID) and course_id != course.id:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if assignment_id is not None and assignment_id != submission.assignment_id:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    latest = await _latest_version_id(db, submission.id)
+    return RagScope(course, [latest] if latest else [], submission)
+
+
 async def _resolve_rag_scope(
     db: AsyncSession,
     *,
     user: User,
+    intent: Intent,
+    message: str,
     course_id: uuid.UUID | str | None,
     assignment_id: uuid.UUID | None,
     submission_id: uuid.UUID | None,
 ) -> RagScope | ChatResponse:
-    """Narrowest scope wins: submission > assignment > course.
+    """Narrowest scope wins: submission > named student > assignment > course.
 
     Every branch goes through ``_authorize`` (course ownership) — a teacher
     guessing a submission_id from another course gets the same 404 as for a
-    missing one. Returns a ChatResponse when the UI has not given enough scope.
+    missing one. Returns a clarification ChatResponse when the scope is
+    missing or ambiguous.
     """
     if submission_id is not None:
-        submission = await db.get(Submission, submission_id)
-        if submission is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        assignment = await db.get(Assignment, submission.assignment_id)
-        course = _authorize(
-            user, await db.get(Course, assignment.course_id) if assignment else None
+        return await _submission_scope(
+            db, user, submission_id, course_id, assignment_id
         )
-        if isinstance(course_id, uuid.UUID) and course_id != course.id:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        if assignment_id is not None and assignment_id != submission.assignment_id:
-            raise HTTPException(status_code=404, detail="Submission not found")
-        latest = await _latest_version_id(db, submission.id)
-        return RagScope(course, [latest] if latest else [], submission)
 
     if course_id is None or course_id == ALL_COURSES:
-        return ChatResponse(
-            reply=(
-                "Câu hỏi về nội dung bài nộp cần một lớp cụ thể (hoặc mở một bài "
-                "nộp) — chọn lớp ở phía trên rồi hỏi lại nhé."
-            ),
-            intent=Intent.NEEDS_COURSE,
-        )
+        return await _ask_for_course(db, user, intent, message)
     course = _authorize(user, await db.get(Course, course_id))
     if assignment_id is not None:
         assignment = await db.get(Assignment, assignment_id)
         if assignment is None or assignment.course_id != course.id:
             raise HTTPException(status_code=404, detail="Assignment not found")
-    latest = _latest_version_subquery(course.id, assignment_id)
-    stmt = sa.select(DocumentVersion.id).join(
-        latest,
-        sa.and_(
-            DocumentVersion.submission_id == latest.c.submission_id,
-            DocumentVersion.version_number == latest.c.version_number,
-        ),
-    )
-    version_ids = list((await db.execute(stmt)).scalars().all())
-    return RagScope(course, version_ids, None)
+
+    candidates = await submission_candidates(db, course.id)
+    if assignment_id is not None:
+        allowed = {
+            row[0]
+            for row in (
+                await db.execute(
+                    sa.select(Submission.id).where(
+                        Submission.assignment_id == assignment_id
+                    )
+                )
+            ).all()
+        }
+        candidates = [c for c in candidates if c.submission_id in allowed]
+    named = find_named_submissions(message, candidates)
+    if len(named) == 1:
+        # Exactly one student matches: answer directly, no extra question.
+        return await _submission_scope(
+            db, user, named[0].submission_id, course.id, None
+        )
+    if len(named) > 1:
+        return _clarify(
+            intent,
+            "submission",
+            "Có nhiều bài nộp khớp với tên này — bạn muốn hỏi bài nào?",
+            [submission_option(c) for c in named],
+            message,
+        )
+    if intent is Intent.SUMMARIZE_SUBMISSION:
+        if not candidates:
+            return ChatResponse(
+                reply=f'Lớp "{course.name}" chưa có bài nộp nào để tóm tắt.',
+                intent=intent,
+            )
+        return _clarify(
+            intent,
+            "submission",
+            "Bạn muốn tóm tắt bài nộp nào?",
+            [submission_option(c) for c in candidates],
+            message,
+        )
+    return RagScope(course, [c.document_version_id for c in candidates], None)
 
 
 def _rag_embedding_provider() -> EmbeddingProvider | None:
@@ -693,25 +887,80 @@ def _rag_embedding_provider() -> EmbeddingProvider | None:
         return None
 
 
+MAX_HIGHLIGHTS_PER_CITATION = 12
+
+
+def paragraph_highlights(
+    ir_content: dict, paragraph_ids: list[str]
+) -> list[Highlight]:
+    """Page + bbox of each cited paragraph that has a usable box in the IR."""
+    by_id = {
+        paragraph.get("id"): paragraph
+        for paragraph in ir_content.get("paragraphs", [])
+        if isinstance(paragraph, dict)
+    }
+    highlights = []
+    for paragraph_id in paragraph_ids:
+        paragraph = by_id.get(paragraph_id)
+        if paragraph is None:
+            continue
+        bbox = paragraph.get("bbox") or {}
+        page = paragraph.get("page_number")
+        try:
+            box = BBox(**{key: float(bbox[key]) for key in BBox.model_fields})
+        except (KeyError, TypeError, ValueError):
+            continue
+        if isinstance(page, int):
+            highlights.append(Highlight(page=page, bbox=box))
+        if len(highlights) >= MAX_HIGHLIGHTS_PER_CITATION:
+            break
+    return highlights
+
+
 async def _citations_for(
     db: AsyncSession, chunks: list[RetrievedChunk], query: str
 ) -> list[Citation]:
     version_ids = {chunk.document_version_id for chunk in chunks}
     owners = {
-        row[0]: (row[1], row[2])
+        row[0]: (row[1], row[2], row[3])
         for row in (
             await db.execute(
-                sa.select(DocumentVersion.id, Submission.id, User.display_name)
+                sa.select(
+                    DocumentVersion.id,
+                    Submission.id,
+                    User.display_name,
+                    DocumentVersion.original_filename,
+                )
                 .join(Submission, Submission.id == DocumentVersion.submission_id)
                 .join(User, User.id == Submission.student_id)
                 .where(DocumentVersion.id.in_(version_ids))
             )
         ).all()
     }
+    paragraph_ids = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                sa.select(DocumentChunk.id, DocumentChunk.paragraph_ids).where(
+                    DocumentChunk.id.in_([chunk.id for chunk in chunks])
+                )
+            )
+        ).all()
+    }
+    ir_contents = {
+        row[0]: row[1]
+        for row in (
+            await db.execute(
+                sa.select(DocumentIR.document_version_id, DocumentIR.content).where(
+                    DocumentIR.document_version_id.in_(version_ids)
+                )
+            )
+        ).all()
+    }
     citations = []
     for chunk in chunks:
-        submission_id, student_name = owners.get(
-            chunk.document_version_id, (None, None)
+        submission_id, student_name, file_name = owners.get(
+            chunk.document_version_id, (None, None, None)
         )
         citations.append(
             Citation(
@@ -722,6 +971,12 @@ async def _citations_for(
                 excerpt=make_excerpt(chunk.text, query),
                 submission_id=submission_id,
                 student_name=student_name,
+                document_version_id=chunk.document_version_id,
+                file_name=file_name,
+                highlights=paragraph_highlights(
+                    ir_contents.get(chunk.document_version_id) or {},
+                    list(paragraph_ids.get(chunk.id) or []),
+                ),
             )
         )
     return citations
@@ -889,20 +1144,12 @@ async def handle_chat(
         prefix = "" if intent is Intent.HELP else "Mình chưa hiểu câu hỏi này.\n"
         return ChatResponse(reply=prefix + _HELP_TEXT, intent=intent)
 
-    if intent is Intent.SUMMARIZE_SUBMISSION and submission_id is None:
-        return ChatResponse(
-            reply=(
-                "Để tóm tắt, mình cần biết bài nộp nào — mở bài đó trong màn hình "
-                "duyệt bài rồi hỏi lại nhé."
-            ),
-            intent=intent,
-            needs_submission=True,
-        )
-
     if intent in _RAG_INTENTS:
         scope = await _resolve_rag_scope(
             db,
             user=user,
+            intent=intent,
+            message=message,
             course_id=course_id,
             assignment_id=assignment_id,
             submission_id=submission_id,
@@ -916,13 +1163,7 @@ async def handle_chat(
         return await _handle_search_content(db, scope, message)
 
     if course_id is None:
-        return ChatResponse(
-            reply=(
-                "Bạn chọn một lớp ở phía trên rồi hỏi lại nhé — mỗi câu trả lời cần "
-                "gắn với một lớp cụ thể."
-            ),
-            intent=Intent.NEEDS_COURSE,
-        )
+        return await _ask_for_course(db, user, intent, message)
 
     # Handle "all" - aggregate across all teacher's courses
     if course_id == ALL_COURSES:
@@ -960,8 +1201,8 @@ async def handle_chat(
             raise HTTPException(status_code=404, detail="Assignment not found")
 
     if intent is Intent.SUMMARY:
-        reply = await _handle_summary(db, course, assignment_id)
-        return ChatResponse(reply=reply, intent=intent)
+        reply, stats = await _handle_summary(db, course, assignment_id)
+        return ChatResponse(reply=reply, intent=intent, stats=stats)
     if intent is Intent.UNREVIEWED:
         reply = await _handle_unreviewed(db, course, assignment_id)
         return ChatResponse(reply=reply, intent=intent)

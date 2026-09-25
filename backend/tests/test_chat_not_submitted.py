@@ -121,7 +121,7 @@ def test_not_submitted_lists_students_without_choosing_assignment() -> None:
                 assignment_id=None,
             )
             assert response.intent == Intent.NOT_SUBMITTED
-            assert response.needs_assignment is False
+            assert response.needs_clarification is None
             assert '• Bài tập "Review Assignment": 1/4 sinh viên chưa nộp:' in (
                 response.reply
             )
