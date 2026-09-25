@@ -4,7 +4,6 @@ import { Bot, FileText, Loader2, Send, User as UserIcon } from 'lucide-react';
 import { api, apiData, getErrorMessage } from '../../api/client';
 import {
   sendChatMessage,
-  type ChatAssignmentOption,
   type ChatCitation,
 } from '../../services/chatService';
 
@@ -19,7 +18,7 @@ interface ChatMessage {
 interface ChatViewProps {
   /** Scope content questions (RAG) to one submission, e.g. from the Review workspace. */
   submissionId?: string;
-  /** Embedded widget layout: no course/assignment pickers, fixed height. */
+  /** Embedded widget layout: no course picker, fixed height. */
   compact?: boolean;
   /** Called when a "Trang X" citation chip is clicked (navigation comes later). */
   onCitationClick?: (citation: ChatCitation) => void;
@@ -81,7 +80,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onCitationClick = noopCitationClick,
 }) => {
   const [courseId, setCourseId] = useState('');
-  const [assignmentId, setAssignmentId] = useState('');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -101,34 +99,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     enabled: !compact,
   });
 
-  const assignmentsQuery = useQuery({
-    queryKey: ['assignments', courseId],
-    queryFn: () => apiData(api.GET('/api/v1/courses/{course_id}/assignments', {
-      params: { path: { course_id: courseId } },
-    })),
-    enabled: Boolean(courseId) && !compact,
-  });
-
   useEffect(() => {
     if (!coursesQuery.data || courseId) return;
     if (coursesQuery.data.length > 0) setCourseId(coursesQuery.data[0].id);
   }, [coursesQuery.data, courseId]);
 
   useEffect(() => {
-    setAssignmentId('');
-  }, [courseId]);
-
-  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
-
-  const appendAssignmentOptions = (options: ChatAssignmentOption[]) => {
-    const listText = options.map((option) => `• ${option.title}`).join('\n');
-    setMessages((prev) => [
-      ...prev,
-      { id: nextId(), role: 'bot', text: `Các bài tập trong lớp:\n${listText}` },
-    ]);
-  };
 
   const submit = async (text: string) => {
     const trimmed = text.trim();
@@ -140,7 +118,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const result = await sendChatMessage(
         trimmed,
         courseId || null,
-        assignmentId || null,
+        // Questions are answered across every assignment of the course.
+        null,
         submissionId ?? null,
       );
       setMessages((prev) => [
@@ -152,9 +131,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
           citations: result.citations ?? undefined,
         },
       ]);
-      if (result.needs_assignment && result.assignment_options?.length) {
-        appendAssignmentOptions(result.assignment_options);
-      }
     } catch (error) {
       setMessages((prev) => [
         ...prev,
@@ -197,25 +173,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               {(coursesQuery.data ?? []).map((course) => (
                 <option key={course.id} value={course.id}>
                   {course.code} - {course.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[11px] font-semibold text-[#596579] mb-1" htmlFor="chat-assignment">
-              Bài tập
-            </label>
-            <select
-              id="chat-assignment"
-              value={assignmentId}
-              onChange={(event) => setAssignmentId(event.target.value)}
-              disabled={!courseId || courseId === 'all' || assignmentsQuery.isLoading}
-              className="border border-[#DDE2E8] rounded-lg px-3 py-2 text-sm bg-white min-w-[220px] disabled:bg-[#F5F6F8]"
-            >
-              <option value="">Tất cả bài tập</option>
-              {(assignmentsQuery.data ?? []).map((assignment) => (
-                <option key={assignment.id} value={assignment.id}>
-                  {assignment.title}
                 </option>
               ))}
             </select>
