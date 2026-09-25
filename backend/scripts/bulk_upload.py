@@ -25,7 +25,7 @@ from app.db.session import _session_factory
 from app.models.enums import UserRole, UserStatus
 from app.models.identity import User
 from app.services.auth import hash_password
-from app.services.storage import S3Storage
+from app.services.storage import S3Storage, StorageObjectNotFound
 from scripts.seed_sample_data import BASE_URL, _csrf, _storage_url
 
 STUDENT_PASSWORD = "Password123!"
@@ -97,14 +97,20 @@ def _idempotency_key(path: Path, pdf_sha256: str) -> str:
     return f"bulk-{pdf_sha256[:24]}-{name_hash[:12]}"
 
 
-def _restore_object(object_key: str, pdf_bytes: bytes) -> None:
+def _restore_if_missing(object_key: str, pdf_bytes: bytes) -> bool:
     storage = S3Storage()
+    try:
+        storage.head(object_key)
+        return False
+    except StorageObjectNotFound:
+        pass
     storage._internal.put_object(
         Bucket=storage.bucket,
         Key=object_key,
         Body=pdf_bytes,
         ContentType="application/pdf",
     )
+    return True
 
 
 async def _upload_one(
@@ -135,12 +141,15 @@ async def _upload_one(
             return f"PRESIGN FAILED {presign_resp.status_code}: {presign_resp.text}"
         presign = presign_resp.json()
         if presign["upload_url"] is None:
-            if presign["status"] != "ERROR" or presign["analysis_job_id"] is None:
-                return f"already uploaded ({presign['status']})"
-            # LocalStack mất object khi Docker sập -> ghi lại file rồi retry job.
-            await asyncio.to_thread(_restore_object, presign["object_key"], pdf_bytes)
-            jobs_to_retry.append(presign["analysis_job_id"])
-            return "ERROR before -> restored file, will retry"
+            # LocalStack mất object khi Docker sập -> ghi lại file nếu thiếu.
+            restored = await asyncio.to_thread(
+                _restore_if_missing, presign["object_key"], pdf_bytes
+            )
+            if presign["status"] == "ERROR" and presign["analysis_job_id"]:
+                jobs_to_retry.append(presign["analysis_job_id"])
+                return "ERROR before -> restored file, will retry"
+            suffix = ", restored missing file" if restored else ""
+            return f"already uploaded ({presign['status']}{suffix})"
 
         upload_resp = await client.post(
             _storage_url(presign["upload_url"]),
