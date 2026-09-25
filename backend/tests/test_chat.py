@@ -29,6 +29,8 @@ from app.services.chat import Intent, classify_intent, extract_search_topic
         ("bai nay su dung phuong phap gi", Intent.ASK_ABOUT_REQUIREMENT),
         ("Tóm tắt bài này", Intent.SUMMARIZE_SUBMISSION),
         ("tom tat noi dung bao cao", Intent.SUMMARIZE_SUBMISSION),
+        ("Tóm tắt bài của An", Intent.SUMMARIZE_SUBMISSION),
+        ("tóm tắt báo cáo của nhóm 4", Intent.SUMMARIZE_SUBMISSION),
     ],
 )
 def test_classify_intent(message: str, expected: Intent) -> None:

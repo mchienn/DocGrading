@@ -1,6 +1,7 @@
 from app.models.analysis import AnalysisJob, AnalysisJobDispatch, DocumentIR
 from app.models.assignment import Assignment, AssignmentRequirement
 from app.models.audit import AuditEvent
+from app.models.chat import ChatMessage, ChatSession
 from app.models.chunk import DocumentChunk, DocumentSummary
 from app.models.course import (
     Course,
@@ -54,6 +55,8 @@ __all__ = [
     "AssignmentStatus",
     "AuditActorType",
     "AuditEvent",
+    "ChatMessage",
+    "ChatSession",
     "Course",
     "CourseInvite",
     "CourseJoinCode",
