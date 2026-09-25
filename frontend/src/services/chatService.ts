@@ -1,20 +1,26 @@
 import { ApiError, csrfFetch, notifyAuthExpired } from '../api/client';
 
 /**
- * Client for the teacher chatbot endpoint (rule-based intents + RAG over
- * submission content).
+ * Client for the teacher chatbot endpoints (rule-based intents + RAG over
+ * submission content + saved chat sessions).
  *
  * Hand-written rather than routed through the generated `api` client because
- * `POST /api/v1/chat` isn't part of the openapi-typescript codegen output yet
- * (that requires a running backend to regenerate `schema.ts`). It still
- * reuses the same cookie + CSRF-header auth as every other mutating call
- * (see `csrfFetch` in `api/client.ts`), so it works with the existing
- * session cookie without any extra setup.
+ * the `/api/v1/chat*` routes aren't part of the openapi-typescript codegen
+ * output yet (that requires a running backend to regenerate `schema.ts`). It
+ * still reuses the same cookie + CSRF-header auth as every other call.
  */
 
-export interface ChatAssignmentOption {
+export type ClarificationKind = 'course' | 'assignment' | 'submission';
+
+export interface ClarificationOption {
   id: string;
-  title: string;
+  label: string;
+  detail: string | null;
+}
+
+export interface ChatHighlight {
+  page: number;
+  bbox: { x0: number; top: number; x1: number; bottom: number };
 }
 
 /** A passage of a student document backing an answer (RAG). */
@@ -26,34 +32,72 @@ export interface ChatCitation {
   excerpt: string;
   submission_id: string | null;
   student_name: string | null;
+  document_version_id: string | null;
+  file_name: string | null;
+  highlights: ChatHighlight[];
+}
+
+export interface ChatStats {
+  total_students: number;
+  submitted: number;
+  reviewed: number;
+  pending_review: number;
+  errors: number;
 }
 
 export interface ChatResponse {
   reply: string;
   intent: string;
-  needs_assignment: boolean;
-  assignment_options: ChatAssignmentOption[] | null;
-  needs_submission: boolean;
+  needs_clarification: ClarificationKind | null;
+  clarification_options: ClarificationOption[] | null;
+  pending_message: string | null;
+  stats: ChatStats | null;
   citations: ChatCitation[] | null;
+  session_id: string | null;
 }
 
-export async function sendChatMessage(
-  message: string,
-  courseId: string | null,
-  assignmentId: string | null,
-  submissionId: string | null = null,
-): Promise<ChatResponse> {
-  const response = await csrfFetch('/api/v1/chat', {
-    method: 'POST',
+/** Structured part of a saved bot turn (everything but the reply text). */
+export type ChatPayload = Partial<Omit<ChatResponse, 'reply' | 'session_id'>>;
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  course_id: string | null;
+  all_courses: boolean;
+  submission_id: string | null;
+  is_pinned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatSavedMessage {
+  id: string;
+  sender: 'user' | 'bot';
+  content: string;
+  payload: ChatPayload;
+  created_at: string;
+}
+
+export interface ChatScopeSubmission {
+  submission_id: string;
+  document_version_id: string;
+  student_name: string;
+  student_email: string;
+  assignment_title: string;
+  file_name: string;
+  submitted_at: string;
+}
+
+/** Course scope as the API expects it: a course id, "all", or nothing. */
+export type CourseScope = string | 'all' | null;
+
+async function chatRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await csrfFetch(`/api/v1/chat${path}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      course_id: courseId,
-      assignment_id: assignmentId,
-      submission_id: submissionId,
-    }),
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
   });
+  if (response.status === 204) return undefined as T;
   let data: unknown;
   try {
     data = await response.json();
@@ -68,5 +112,70 @@ export async function sendChatMessage(
     const errorMessage = typeof detail === 'string' ? detail : `Request failed (${response.status})`;
     throw new ApiError(errorMessage, response.status, data);
   }
-  return data as ChatResponse;
+  return data as T;
+}
+
+export function sendChatMessage(input: {
+  message: string;
+  courseId: CourseScope;
+  assignmentId?: string | null;
+  submissionId?: string | null;
+  sessionId?: string | null;
+}): Promise<ChatResponse> {
+  return chatRequest<ChatResponse>('', {
+    method: 'POST',
+    body: JSON.stringify({
+      message: input.message,
+      course_id: input.courseId,
+      assignment_id: input.assignmentId ?? null,
+      submission_id: input.submissionId ?? null,
+      session_id: input.sessionId ?? null,
+    }),
+  });
+}
+
+export function listChatSessions(): Promise<ChatSession[]> {
+  return chatRequest<ChatSession[]>('/sessions');
+}
+
+export function createChatSession(input: {
+  title?: string;
+  courseId?: CourseScope;
+  submissionId?: string | null;
+}): Promise<ChatSession> {
+  return chatRequest<ChatSession>('/sessions', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: input.title ?? null,
+      course_id: input.courseId ?? null,
+      submission_id: input.submissionId ?? null,
+    }),
+  });
+}
+
+export function updateChatSession(
+  sessionId: string,
+  changes: {
+    title?: string;
+    is_pinned?: boolean;
+    course_id?: CourseScope;
+    submission_id?: string | null;
+  },
+): Promise<ChatSession> {
+  return chatRequest<ChatSession>(`/sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  });
+}
+
+export function deleteChatSession(sessionId: string): Promise<void> {
+  return chatRequest<void>(`/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+export function listChatMessages(sessionId: string): Promise<ChatSavedMessage[]> {
+  return chatRequest<ChatSavedMessage[]>(`/sessions/${sessionId}/messages`);
+}
+
+export function listScopeSubmissions(courseId: string): Promise<ChatScopeSubmission[]> {
+  return chatRequest<ChatScopeSubmission[]>(`/courses/${courseId}/submissions`);
 }
