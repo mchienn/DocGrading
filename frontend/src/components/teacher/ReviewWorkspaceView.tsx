@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, LockKeyhole, Send, XCircle } from 'lucide-react';
+import { ArrowLeft, Bot, CheckCircle2, ChevronDown, LockKeyhole, Send, XCircle } from 'lucide-react';
 import { useBeforeUnload, useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { ApiError, api, apiData, apiVoid, getErrorMessage } from '../../api/client';
+import { ChatView } from './ChatView';
 import { PdfEvidenceViewer } from './PdfEvidenceViewer';
 
 type Finding = components['schemas']['FindingResponse'];
@@ -71,6 +72,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
   const [publishReason, setPublishReason] = useState('');
   const [publishedResultId, setPublishedResultId] = useState<string>();
   const [leaving, setLeaving] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
   const revisionRef = useRef(1);
   const lastSavedRef = useRef('');
   const draftRef = useRef<DraftContent>();
@@ -578,6 +580,25 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
             </div>
           </section>
         </div>
+      )}
+
+      {submissionId && (
+        <section className="mt-4 bg-white border border-slate-200 rounded-xl" aria-label="Trợ lý nội dung bài nộp">
+          <button
+            type="button"
+            onClick={() => setShowAssistant((open) => !open)}
+            aria-expanded={showAssistant}
+            className="w-full flex items-center justify-between gap-2 px-5 py-3 text-sm font-semibold text-slate-800"
+          >
+            <span className="inline-flex items-center gap-2"><Bot className="w-4 h-4 text-blue-600" /> Hỏi trợ lý về bài này</span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showAssistant ? 'rotate-180' : ''}`} />
+          </button>
+          {showAssistant && (
+            <div className="border-t border-slate-200 p-4">
+              <ChatView compact submissionId={submissionId} />
+            </div>
+          )}
+        </section>
       )}
 
       {showPublish && (
