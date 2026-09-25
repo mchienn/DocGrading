@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import re
+import unicodedata
 import uuid
 from pathlib import Path
 
@@ -34,6 +36,26 @@ COURSE_CODE = "CS101"
 CONCURRENCY = 2
 
 
+# LMS exports are named "<student>_<id>_<id>_<title>.pdf" ("..._LATE_<id>_...").
+_LMS_NAME_RE = re.compile(r"^(?P<name>[^_]+)_(?:LATE_)?\d+_\d+_")
+
+
+def repair_mojibake(text: str) -> str:
+    """Undo UTF-8 names that a zip tool decoded as CP437 ("co╠éng" -> "công")."""
+    try:
+        repaired = text.encode("cp437").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return unicodedata.normalize("NFC", text)
+    return unicodedata.normalize("NFC", repaired)
+
+
+def student_name_from_filename(stem: str) -> str:
+    """Readable student name for a PDF: the LMS name part, or the whole stem."""
+    fixed = repair_mojibake(stem)
+    match = _LMS_NAME_RE.match(fixed)
+    return (match.group("name") if match else fixed).strip()[:120] or fixed[:120]
+
+
 def _student_email(pdf_sha256: str) -> str:
     # Gắn email với nội dung file để chạy lại không tạo trùng sinh viên.
     return f"bulk.{pdf_sha256[:10]}@docgrading.com"
@@ -45,14 +67,18 @@ async def _ensure_students(files: list[tuple[Path, bytes, str]]) -> None:
     async with session_factory() as session:
         for path, _, sha in files:
             email = _student_email(sha)
+            name = student_name_from_filename(path.stem)
             stmt = sa.select(User).where(sa.func.lower(User.email) == email)
-            if (await session.execute(stmt)).scalar_one_or_none() is not None:
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+            if existing is not None:
+                # Re-running also fixes names created by older versions.
+                existing.display_name = name
                 continue
             session.add(
                 User(
                     id=uuid.uuid4(),
                     email=email,
-                    display_name=path.stem[:120],
+                    display_name=name,
                     password_hash=pwd_hash,
                     roles=[UserRole.STUDENT],
                     status=UserStatus.ACTIVE,
