@@ -284,3 +284,53 @@ def test_long_document_uses_map_then_reduce() -> None:
     assert systems[:-1] == [SUMMARY_MAP_SYSTEM_PROMPT] * 4
     assert systems[-1] == SUMMARY_SYSTEM_PROMPT
     assert "MAP" in client.calls[-1]["prompt"]
+
+
+class _RateLimited(Exception):
+    status_code = 429
+
+
+def test_openai_embeddings_wait_and_retry_on_rate_limit() -> None:
+    waits: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    provider = OpenAIEmbeddingProvider("sk-test", "m", sleep=fake_sleep)
+    responses: list[object] = [_RateLimited(), _RateLimited(), [[0.1, 0.2]]]
+
+    async def fake_request(_texts: list[str]) -> list[list[float]]:
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    provider._request = fake_request  # type: ignore[method-assign]
+    assert asyncio.run(provider.embed(["xin chào"])) == [[0.1, 0.2]]
+    assert waits == [20.0, 40.0]
+
+
+def test_openai_embeddings_give_up_after_retries_and_skip_other_errors() -> None:
+    async def fake_sleep(_seconds: float) -> None:
+        return None
+
+    provider = OpenAIEmbeddingProvider("sk-test", "m", sleep=fake_sleep)
+
+    async def always_limited(_texts: list[str]) -> list[list[float]]:
+        raise _RateLimited()
+
+    provider._request = always_limited  # type: ignore[method-assign]
+    with pytest.raises(_RateLimited):
+        asyncio.run(provider.embed(["a"]))
+
+    calls = 0
+
+    async def broken(_texts: list[str]) -> list[list[float]]:
+        nonlocal calls
+        calls += 1
+        raise ValueError("bad request")
+
+    provider._request = broken  # type: ignore[method-assign]
+    with pytest.raises(ValueError):
+        asyncio.run(provider.embed(["a"]))
+    assert calls == 1, "non-429 errors must not be retried"
