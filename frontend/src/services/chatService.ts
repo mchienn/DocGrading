@@ -45,6 +45,14 @@ export interface ChatStats {
   errors: number;
 }
 
+/** A submission the UI should open: set it as scope and show its PDF. */
+export interface OpenDocument {
+  submission_id: string;
+  document_version_id: string;
+  label: string;
+  file_name: string;
+}
+
 export interface ChatResponse {
   reply: string;
   intent: string;
@@ -53,6 +61,7 @@ export interface ChatResponse {
   pending_message: string | null;
   stats: ChatStats | null;
   citations: ChatCitation[] | null;
+  open_document: OpenDocument | null;
   session_id: string | null;
 }
 
