@@ -25,7 +25,7 @@ from app.models.enums import UserRole
 from app.services import chat as chat_service
 from app.services.chat import Intent, handle_chat
 from app.services.embeddings import FakeEmbeddingProvider
-from app.services.rag import FakeLLMClient, retrieve_chunks
+from app.services.rag import FakeLLMClient, retrieve_chunks, summarize_document
 from app.workers.index_document_chunks import index_document_version
 from tests.test_t011_review_workspace import _actor, _ids, _seed_graph
 
@@ -298,5 +298,92 @@ def test_keyword_retrieval_falls_back_to_substring_for_glued_words() -> None:
         await index_document_version(session, ids["document_3"], None)
         hits = await retrieve_chunks(session, [ids["document_3"]], "graphrag")
         assert [hit.page_start for hit in hits] == [1]
+
+    _run(scenario)
+
+
+def test_summarize_submission_is_cached_after_first_llm_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeLLMClient("**Mục tiêu:** Quản lý thư viện.\n**Phạm vi:** ...")
+    monkeypatch.setattr(chat_service, "_rag_llm_client", lambda: client)
+
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        await index_document_version(session, ids["document_2"], None)
+        teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
+
+        async def ask() -> object:
+            return await handle_chat(
+                session,
+                user=teacher,
+                message="Tóm tắt bài này",
+                course_id=None,
+                assignment_id=None,
+                submission_id=ids["submission_2"],
+            )
+
+        first = await ask()
+        assert first.intent == Intent.SUMMARIZE_SUBMISSION
+        assert first.reply.startswith("**Mục tiêu:**")
+        assert len(client.calls) == 1
+        # Whole document fits the direct budget -> sections sent in one prompt.
+        assert "## 3. Kiểm thử" in client.calls[0]["prompt"]
+
+        second = await ask()
+        assert second.reply == first.reply
+        assert len(client.calls) == 1, "second ask must come from the cache"
+
+        stored = await session.scalar(
+            text(
+                "SELECT model_version FROM public.document_summaries "
+                "WHERE document_version_id = :v"
+            ),
+            {"v": ids["document_2"]},
+        )
+        assert stored == "fake-llm"
+
+    _run(scenario)
+
+
+def test_summaries_are_per_document_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = FakeLLMClient(lambda _s, prompt: f"Tóm tắt dài {len(prompt)}")
+
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        for version in (ids["document_1"], ids["document_2"]):
+            await index_document_version(session, version, None)
+        one = await summarize_document(session, ids["document_1"], client)
+        two = await summarize_document(session, ids["document_2"], client)
+        assert one and two and not one.cached and not two.cached
+        assert one.text != two.text
+        assert len(client.calls) == 2
+        assert await summarize_document(session, ids["document_3"], client) is None
+
+    _run(scenario)
+
+
+def test_summarize_needs_submission_and_respects_ownership() -> None:
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
+        response = await handle_chat(
+            session,
+            user=teacher,
+            message="Tóm tắt bài này",
+            course_id=ids["course"],
+            assignment_id=None,
+        )
+        assert response.needs_submission is True
+        assert response.intent == Intent.SUMMARIZE_SUBMISSION
+
+        outsider = _actor(ids["other_teacher"], "Teacher B", UserRole.TEACHER)
+        with pytest.raises(HTTPException) as error:
+            await handle_chat(
+                session,
+                user=outsider,
+                message="Tóm tắt bài này",
+                course_id=None,
+                assignment_id=None,
+                submission_id=ids["submission_2"],
+            )
+        assert error.value.status_code == 404
 
     _run(scenario)

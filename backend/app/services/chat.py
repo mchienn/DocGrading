@@ -51,6 +51,7 @@ from app.services.rag import (
     get_llm_client,
     make_excerpt,
     retrieve_chunks,
+    summarize_document,
 )
 from app.services.review import _ERROR_STATUSES, _REVIEWED_STATUSES
 
@@ -63,6 +64,7 @@ class Intent(StrEnum):
     NEW_REVIEW_REQUESTS = "NEW_REVIEW_REQUESTS"
     SEARCH_CONTENT = "SEARCH_CONTENT"
     ASK_ABOUT_REQUIREMENT = "ASK_ABOUT_REQUIREMENT"
+    SUMMARIZE_SUBMISSION = "SUMMARIZE_SUBMISSION"
     GREETING = "GREETING"
     HELP = "HELP"
     NEEDS_COURSE = "NEEDS_COURSE"
@@ -78,6 +80,7 @@ _HELP_TEXT = (
     '- "Hôm nay có yêu cầu xem lại nào mới không?"\n'
     '- "Tìm đoạn nói về kiểm thử đơn vị" (tìm trong nội dung bài nộp)\n'
     '- "Bài này có đề cập đến kiểm thử bảo mật không?" (hỏi về nội dung)\n'
+    '- "Tóm tắt bài này" (khi đang mở một bài nộp)\n'
     "Chọn lớp (và bài tập nếu cần) ở phía trên rồi hỏi lại nhé."
 )
 
@@ -133,6 +136,19 @@ _INTENT_KEYWORDS: list[tuple[Intent, tuple[str, ...]]] = [
             "su dung cong nghe",
             "dung cong nghe",
             "bai nay noi gi",
+        ),
+    ),
+    # One-submission summary; must precede SUMMARY, whose bare "tóm tắt" would
+    # otherwise turn "tóm tắt bài này" into a class-status summary.
+    (
+        Intent.SUMMARIZE_SUBMISSION,
+        (
+            "tom tat bai nay",
+            "tom tat bai nop",
+            "tom tat bai lam",
+            "tom tat bao cao nay",
+            "tom tat noi dung",
+            "tom tat tai lieu",
         ),
     ),
     (
@@ -525,7 +541,13 @@ async def _handle_new_review_requests(db: AsyncSession, course: Course) -> str:
     )
 
 
-_RAG_INTENTS = frozenset({Intent.SEARCH_CONTENT, Intent.ASK_ABOUT_REQUIREMENT})
+_RAG_INTENTS = frozenset(
+    {
+        Intent.SEARCH_CONTENT,
+        Intent.ASK_ABOUT_REQUIREMENT,
+        Intent.SUMMARIZE_SUBMISSION,
+    }
+)
 
 
 class RagScope:
@@ -745,6 +767,32 @@ async def _handle_ask_about_requirement(
     return ChatResponse(reply=answer.text, intent=intent, citations=citations)
 
 
+async def _handle_summarize_submission(
+    db: AsyncSession, scope: RagScope
+) -> ChatResponse:
+    intent = Intent.SUMMARIZE_SUBMISSION
+    if not scope.version_ids:
+        return ChatResponse(reply="Bài nộp này chưa có tài liệu nào.", intent=intent)
+    try:
+        summary = await summarize_document(
+            db, scope.version_ids[0], _rag_llm_client()
+        )
+    except LLMNotConfiguredError as exc:
+        return ChatResponse(
+            reply=f"Chưa tóm tắt được bài này: {exc}.",
+            intent=intent,
+        )
+    if summary is None:
+        return ChatResponse(
+            reply=(
+                "Bài nộp này chưa được xử lý xong (chưa có nội dung để tóm tắt). "
+                "Thử lại sau ít phút nhé."
+            ),
+            intent=intent,
+        )
+    return ChatResponse(reply=summary.text, intent=intent)
+
+
 async def handle_chat(
     db: AsyncSession,
     *,
@@ -771,6 +819,16 @@ async def handle_chat(
         prefix = "" if intent is Intent.HELP else "Mình chưa hiểu câu hỏi này.\n"
         return ChatResponse(reply=prefix + _HELP_TEXT, intent=intent)
 
+    if intent is Intent.SUMMARIZE_SUBMISSION and submission_id is None:
+        return ChatResponse(
+            reply=(
+                "Để tóm tắt, mình cần biết bài nộp nào — mở bài đó trong màn hình "
+                "duyệt bài rồi hỏi lại nhé."
+            ),
+            intent=intent,
+            needs_submission=True,
+        )
+
     if intent in _RAG_INTENTS:
         scope = await _resolve_rag_scope(
             db,
@@ -783,6 +841,8 @@ async def handle_chat(
             return scope
         if intent is Intent.ASK_ABOUT_REQUIREMENT:
             return await _handle_ask_about_requirement(db, scope, message)
+        if intent is Intent.SUMMARIZE_SUBMISSION:
+            return await _handle_summarize_submission(db, scope)
         return await _handle_search_content(db, scope, message)
 
     if course_id is None:

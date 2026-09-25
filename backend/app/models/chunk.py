@@ -57,3 +57,35 @@ class DocumentChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     embedding: Mapped[list[float] | None] = mapped_column(
         Vector(EMBEDDING_DIMENSIONS), nullable=True
     )
+
+
+class DocumentSummary(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Cached LLM summary of one document version (RAG SUMMARIZE_SUBMISSION)."""
+
+    __tablename__ = "document_summaries"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "document_version_id",
+            name="uq_document_summaries_document_version_id",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(summary)) > 0",
+            name="ck_document_summaries_summary_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(model_version)) > 0",
+            name="ck_document_summaries_model_version_not_blank",
+        ),
+    )
+
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "document_versions.id",
+            ondelete="CASCADE",
+            name="fk_document_summaries_document_version_id_document_versions",
+        ),
+        nullable=False,
+    )
+    summary: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    model_version: Mapped[str] = mapped_column(sa.Text, nullable=False)

@@ -44,4 +44,6 @@ class ChatResponse(BaseModel):
     intent: str
     needs_assignment: bool = False
     assignment_options: list[ChatAssignmentOption] | None = None
+    # Set when the question is about one submission but none is selected yet.
+    needs_submission: bool = False
     citations: list[Citation] | None = None
