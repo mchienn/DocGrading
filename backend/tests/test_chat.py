@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.chat import Intent, classify_intent
+from app.services.chat import Intent, classify_intent, extract_search_topic
 
 
 @pytest.mark.parametrize(
@@ -19,6 +19,10 @@ from app.services.chat import Intent, classify_intent
         ("Xin chào", Intent.GREETING),
         ("Bạn giúp được gì?", Intent.HELP),
         ("thời tiết hôm nay thế nào", Intent.UNKNOWN),
+        ("Tìm đoạn nói về kiểm thử đơn vị", Intent.SEARCH_CONTENT),
+        ("tim doan noi ve kien truc he thong", Intent.SEARCH_CONTENT),
+        ("Đoạn nào nói về use case đăng nhập?", Intent.SEARCH_CONTENT),
+        ("Tìm trong bài phần yêu cầu phi chức năng", Intent.SEARCH_CONTENT),
     ],
 )
 def test_classify_intent(message: str, expected: Intent) -> None:
@@ -41,3 +45,25 @@ def test_greeting_keyword_does_not_match_inside_other_words() -> None:
     # that must not be misread as the GREETING keyword "hi".
     message = "Sinh viên nghỉ học có tính là chưa nộp không?"
     assert classify_intent(message) is Intent.NOT_SUBMITTED
+
+def test_search_content_wins_over_keywords_inside_topic() -> None:
+    # The topic contains ERRORS ("xử lý lỗi") and SUMMARY ("tổng quan") phrases,
+    # but the explicit "tìm đoạn" trigger must decide the intent.
+    assert classify_intent("Tìm đoạn nói về xử lý lỗi") is Intent.SEARCH_CONTENT
+    message = "tìm đoạn nói về tổng quan hệ thống"
+    assert classify_intent(message) is Intent.SEARCH_CONTENT
+
+
+@pytest.mark.parametrize(
+    ("message", "topic"),
+    [
+        ("Tìm đoạn nói về kiểm thử đơn vị", "kiểm thử đơn vị"),
+        ("Tìm đoạn nói về kiểm thử đơn vị trong bài này", "kiểm thử đơn vị"),
+        ("tìm các đoạn liên quan đến LightRAG", "LightRAG"),
+        ("Đoạn nào nói về use case đăng nhập?", "use case đăng nhập"),
+        ("Tìm trong bài phần yêu cầu phi chức năng", "phần yêu cầu phi chức năng"),
+        ("tìm đoạn", ""),
+    ],
+)
+def test_extract_search_topic(message: str, topic: str) -> None:
+    assert extract_search_topic(message) == topic

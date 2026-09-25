@@ -25,7 +25,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import check_course_ownership
-from app.api.schemas_chat import ChatAssignmentOption, ChatResponse
+from app.api.schemas_chat import ChatAssignmentOption, ChatResponse, Citation
 from app.models.assignment import Assignment
 from app.models.course import Course, Membership
 from app.models.enums import (
@@ -38,6 +38,12 @@ from app.models.enums import (
 from app.models.identity import User
 from app.models.review import ReviewRequest
 from app.models.submission import DocumentVersion, Submission
+from app.services.embeddings import (
+    EmbeddingNotConfiguredError,
+    EmbeddingProvider,
+    get_embedding_provider,
+)
+from app.services.rag import RetrievedChunk, make_excerpt, retrieve_chunks
 from app.services.review import _ERROR_STATUSES, _REVIEWED_STATUSES
 
 
@@ -47,6 +53,7 @@ class Intent(StrEnum):
     ERRORS = "ERRORS"
     NOT_SUBMITTED = "NOT_SUBMITTED"
     NEW_REVIEW_REQUESTS = "NEW_REVIEW_REQUESTS"
+    SEARCH_CONTENT = "SEARCH_CONTENT"
     GREETING = "GREETING"
     HELP = "HELP"
     NEEDS_COURSE = "NEEDS_COURSE"
@@ -60,6 +67,7 @@ _HELP_TEXT = (
     '- "Những bài nào đang lỗi?"\n'
     '- "Bao nhiêu sinh viên chưa nộp?"\n'
     '- "Hôm nay có yêu cầu xem lại nào mới không?"\n'
+    '- "Tìm đoạn nói về kiểm thử đơn vị" (tìm trong nội dung bài nộp)\n'
     "Chọn lớp (và bài tập nếu cần) ở phía trên rồi hỏi lại nhé."
 )
 
@@ -77,7 +85,23 @@ def _normalize(text: str) -> str:
 # Ordered most-specific-first: NOT_SUBMITTED / NEW_REVIEW_REQUESTS phrases are
 # checked before the broader SUMMARY/UNREVIEWED ones so e.g. "chưa nộp" never
 # gets swallowed by a looser "chưa duyệt"-style match.
+# SEARCH_CONTENT goes first: its trigger ("tìm đoạn ...") is explicit, while the
+# topic that follows is free text that may contain other intents' keywords
+# (e.g. "tìm đoạn nói về xử lý lỗi" must not become ERRORS).
 _INTENT_KEYWORDS: list[tuple[Intent, tuple[str, ...]]] = [
+    (
+        Intent.SEARCH_CONTENT,
+        (
+            "tim doan",
+            "tim cac doan",
+            "tim noi dung",
+            "tim trong bai",
+            "doan nao noi",
+            "trang nao noi",
+            "cho nao noi",
+            "trich doan",
+        ),
+    ),
     (
         Intent.NOT_SUBMITTED,
         ("chua nop", "sinh vien nao chua nop", "ai chua nop"),
@@ -133,6 +157,55 @@ def classify_intent(message: str) -> Intent:
         if any(_phrase_matches(phrase, normalized) for phrase in phrases):
             return intent
     return Intent.UNKNOWN
+
+
+# Phrases that introduce the topic of a content search; everything after the
+# first match is the topic ("tìm đoạn nói về <topic>").
+_TOPIC_MARKERS: tuple[tuple[str, ...], ...] = (
+    ("noi", "ve"),
+    ("lien", "quan", "den"),
+    ("lien", "quan", "toi"),
+    ("de", "cap", "den"),
+    ("de", "cap", "toi"),
+    ("nhac", "den"),
+    ("nhac", "toi"),
+    ("ve",),
+)
+# Trigger words stripped from the front when no marker is present.
+_SEARCH_FILLER = frozenset(
+    {"tim", "cac", "doan", "noi", "dung", "trong", "bai", "trich", "nao",
+     "trang", "cho", "giup", "minh", "hay", "hon"}
+)  # fmt: skip
+# Trailing scope words ("... trong bài này") that are not part of the topic.
+_TRAILING_SCOPE = frozenset({"trong", "cua", "bai", "nay", "do", "lop", "sinh", "vien"})
+_WORD_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def extract_search_topic(message: str) -> str:
+    """Pull the searched-for topic out of a SEARCH_CONTENT question.
+
+    Works on the original words (keeping diacritics, which full-text search
+    needs) while matching markers on their diacritics-stripped form.
+    """
+    words = _WORD_RE.findall(message)
+    folded = [_normalize(word) for word in words]
+    start: int | None = None
+    for marker in _TOPIC_MARKERS:
+        size = len(marker)
+        for index in range(len(folded) - size + 1):
+            if tuple(folded[index : index + size]) == marker:
+                start = index + size
+                break
+        if start is not None:
+            break
+    if start is None:
+        start = 0
+        while start < len(folded) and folded[start] in _SEARCH_FILLER:
+            start += 1
+    end = len(words)
+    while end > start and folded[end - 1] in _TRAILING_SCOPE:
+        end -= 1
+    return " ".join(words[start:end])
 
 
 def _authorize(user: User, course: Course | None) -> Course:
@@ -416,6 +489,179 @@ async def _handle_new_review_requests(db: AsyncSession, course: Course) -> str:
     )
 
 
+_RAG_INTENTS = frozenset({Intent.SEARCH_CONTENT})
+
+
+class RagScope:
+    """Authorized set of document versions a content question may read."""
+
+    def __init__(
+        self,
+        course: Course,
+        version_ids: list[uuid.UUID],
+        submission: Submission | None,
+    ) -> None:
+        self.course = course
+        self.version_ids = version_ids
+        self.submission = submission
+
+    @property
+    def label(self) -> str:
+        return "bài nộp này" if self.submission else f'lớp "{self.course.name}"'
+
+
+async def _latest_version_id(
+    db: AsyncSession, submission_id: uuid.UUID
+) -> uuid.UUID | None:
+    stmt = (
+        sa.select(DocumentVersion.id)
+        .where(DocumentVersion.submission_id == submission_id)
+        .order_by(DocumentVersion.version_number.desc())
+        .limit(1)
+    )
+    return await db.scalar(stmt)
+
+
+async def _resolve_rag_scope(
+    db: AsyncSession,
+    *,
+    user: User,
+    course_id: uuid.UUID | str | None,
+    assignment_id: uuid.UUID | None,
+    submission_id: uuid.UUID | None,
+) -> RagScope | ChatResponse:
+    """Narrowest scope wins: submission > assignment > course.
+
+    Every branch goes through ``_authorize`` (course ownership) — a teacher
+    guessing a submission_id from another course gets the same 404 as for a
+    missing one. Returns a ChatResponse when the UI has not given enough scope.
+    """
+    if submission_id is not None:
+        submission = await db.get(Submission, submission_id)
+        if submission is None:
+            raise HTTPException(status_code=404, detail="Submission not found")
+        assignment = await db.get(Assignment, submission.assignment_id)
+        course = _authorize(
+            user, await db.get(Course, assignment.course_id) if assignment else None
+        )
+        if isinstance(course_id, uuid.UUID) and course_id != course.id:
+            raise HTTPException(status_code=404, detail="Submission not found")
+        if assignment_id is not None and assignment_id != submission.assignment_id:
+            raise HTTPException(status_code=404, detail="Submission not found")
+        latest = await _latest_version_id(db, submission.id)
+        return RagScope(course, [latest] if latest else [], submission)
+
+    if course_id is None or course_id == "all":
+        return ChatResponse(
+            reply=(
+                "Câu hỏi về nội dung bài nộp cần một lớp cụ thể (hoặc mở một bài "
+                "nộp) — chọn lớp ở phía trên rồi hỏi lại nhé."
+            ),
+            intent=Intent.NEEDS_COURSE,
+        )
+    course = _authorize(user, await db.get(Course, course_id))
+    if assignment_id is not None:
+        assignment = await db.get(Assignment, assignment_id)
+        if assignment is None or assignment.course_id != course.id:
+            raise HTTPException(status_code=404, detail="Assignment not found")
+    latest = _latest_version_subquery(course.id, assignment_id)
+    stmt = sa.select(DocumentVersion.id).join(
+        latest,
+        sa.and_(
+            DocumentVersion.submission_id == latest.c.submission_id,
+            DocumentVersion.version_number == latest.c.version_number,
+        ),
+    )
+    version_ids = list((await db.execute(stmt)).scalars().all())
+    return RagScope(course, version_ids, None)
+
+
+def _rag_embedding_provider() -> EmbeddingProvider | None:
+    try:
+        return get_embedding_provider()
+    except EmbeddingNotConfiguredError:
+        return None
+
+
+async def _citations_for(
+    db: AsyncSession, chunks: list[RetrievedChunk], query: str
+) -> list[Citation]:
+    version_ids = {chunk.document_version_id for chunk in chunks}
+    owners = {
+        row[0]: (row[1], row[2])
+        for row in (
+            await db.execute(
+                sa.select(DocumentVersion.id, Submission.id, User.display_name)
+                .join(Submission, Submission.id == DocumentVersion.submission_id)
+                .join(User, User.id == Submission.student_id)
+                .where(DocumentVersion.id.in_(version_ids))
+            )
+        ).all()
+    }
+    citations = []
+    for chunk in chunks:
+        submission_id, student_name = owners.get(
+            chunk.document_version_id, (None, None)
+        )
+        citations.append(
+            Citation(
+                chunk_id=chunk.id,
+                page=chunk.page_start,
+                page_end=chunk.page_end,
+                section_path=chunk.section_path,
+                excerpt=make_excerpt(chunk.text, query),
+                submission_id=submission_id,
+                student_name=student_name,
+            )
+        )
+    return citations
+
+
+def _page_label(citation: Citation) -> str:
+    if citation.page_end != citation.page:
+        return f"Trang {citation.page}–{citation.page_end}"
+    return f"Trang {citation.page}"
+
+
+async def _handle_search_content(
+    db: AsyncSession, scope: RagScope, message: str
+) -> ChatResponse:
+    topic = extract_search_topic(message)
+    if not topic:
+        return ChatResponse(
+            reply='Bạn muốn tìm đoạn nói về gì? Ví dụ: "Tìm đoạn nói về kiểm thử".',
+            intent=Intent.SEARCH_CONTENT,
+        )
+    if not scope.version_ids:
+        return ChatResponse(
+            reply=f"Chưa có bài nộp nào trong {scope.label} để tìm.",
+            intent=Intent.SEARCH_CONTENT,
+        )
+    chunks = await retrieve_chunks(
+        db, scope.version_ids, topic, provider=_rag_embedding_provider()
+    )
+    if not chunks:
+        return ChatResponse(
+            reply=f'Không tìm thấy đoạn nào nói về "{topic}" trong {scope.label}.',
+            intent=Intent.SEARCH_CONTENT,
+            citations=[],
+        )
+    citations = await _citations_for(db, chunks, topic)
+    lines = [f'Các đoạn liên quan đến "{topic}" trong {scope.label}:']
+    for position, citation in enumerate(citations, start=1):
+        where = _page_label(citation)
+        if citation.section_path:
+            where += f", mục “{citation.section_path}”"
+        if scope.submission is None and citation.student_name:
+            where = f"{citation.student_name} — {where}"
+        lines.append(f"{position}. {where}:\n   “{citation.excerpt}”")
+    return ChatResponse(
+        reply="\n".join(lines),
+        intent=Intent.SEARCH_CONTENT,
+        citations=citations,
+    )
+
+
 async def handle_chat(
     db: AsyncSession,
     *,
@@ -423,6 +669,7 @@ async def handle_chat(
     message: str,
     course_id: uuid.UUID | str | None,
     assignment_id: uuid.UUID | None,
+    submission_id: uuid.UUID | None = None,
 ) -> ChatResponse:
     """Classify *message* and answer it, scoped to an owned course.
 
@@ -440,6 +687,18 @@ async def handle_chat(
     if intent in (Intent.HELP, Intent.UNKNOWN):
         prefix = "" if intent is Intent.HELP else "Mình chưa hiểu câu hỏi này.\n"
         return ChatResponse(reply=prefix + _HELP_TEXT, intent=intent)
+
+    if intent in _RAG_INTENTS:
+        scope = await _resolve_rag_scope(
+            db,
+            user=user,
+            course_id=course_id,
+            assignment_id=assignment_id,
+            submission_id=submission_id,
+        )
+        if isinstance(scope, ChatResponse):
+            return scope
+        return await _handle_search_content(db, scope, message)
 
     if course_id is None:
         return ChatResponse(
