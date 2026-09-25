@@ -27,6 +27,8 @@ from app.services.chat import Intent, classify_intent, extract_search_topic
         ("Kiến trúc hệ thống được mô tả như thế nào?", Intent.ASK_ABOUT_REQUIREMENT),
         ("Bài có đáp ứng yêu cầu phi chức năng không", Intent.ASK_ABOUT_REQUIREMENT),
         ("bai nay su dung phuong phap gi", Intent.ASK_ABOUT_REQUIREMENT),
+        ("Tóm tắt bài này", Intent.SUMMARIZE_SUBMISSION),
+        ("tom tat noi dung bao cao", Intent.SUMMARIZE_SUBMISSION),
     ],
 )
 def test_classify_intent(message: str, expected: Intent) -> None:
@@ -84,3 +86,10 @@ def test_explicit_search_stays_llm_free_even_with_ask_phrases() -> None:
 
 def test_class_status_question_is_not_taken_as_content_question() -> None:
     assert classify_intent("Tình hình lớp như thế nào?") is Intent.SUMMARY
+
+
+def test_class_summary_still_wins_for_non_submission_tom_tat() -> None:
+    # Only "tóm tắt bài này/bài nộp/nội dung..." means one submission; a bare
+    # "tóm tắt" about the class keeps the old SUMMARY meaning.
+    assert classify_intent("Tóm tắt tình hình lớp") is Intent.SUMMARY
+    assert classify_intent("tóm tắt") is Intent.SUMMARY
