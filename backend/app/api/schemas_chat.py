@@ -89,6 +89,15 @@ class ChatStats(BaseModel):
     errors: int
 
 
+class OpenDocument(BaseModel):
+    """A submission the UI should open (set as scope + show its PDF)."""
+
+    submission_id: uuid.UUID
+    document_version_id: uuid.UUID
+    label: str
+    file_name: str
+
+
 class ChatResponse(BaseModel):
     reply: str
     intent: str
@@ -100,6 +109,7 @@ class ChatResponse(BaseModel):
     pending_message: str | None = None
     stats: ChatStats | None = None
     citations: list[Citation] | None = None
+    open_document: OpenDocument | None = None
     session_id: uuid.UUID | None = None
 
 

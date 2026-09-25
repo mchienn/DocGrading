@@ -138,6 +138,19 @@ async def list_messages(
     return list((await db.execute(stmt)).scalars().all())
 
 
+async def recent_questions(
+    db: AsyncSession, session: ChatSession, limit: int = 6
+) -> list[str]:
+    """The teacher's last *limit* questions in this session, oldest first."""
+    stmt = (
+        sa.select(ChatMessage.content)
+        .where(ChatMessage.session_id == session.id, ChatMessage.sender == "user")
+        .order_by(ChatMessage.created_at.desc())
+        .limit(limit)
+    )
+    return list(reversed((await db.execute(stmt)).scalars().all()))
+
+
 def bot_payload(response: ChatResponse) -> dict:
     """Everything the UI needs to re-render a bot turn, minus the text itself."""
     return response.model_dump(mode="json", exclude={"reply", "session_id"})
@@ -156,7 +169,11 @@ async def record_turn(
     session.course_id = (
         request.course_id if isinstance(request.course_id, uuid.UUID) else None
     )
-    session.submission_id = request.submission_id
+    session.submission_id = (
+        response.open_document.submission_id
+        if response.open_document is not None
+        else request.submission_id
+    )
     # Explicit times: now() is per transaction, so both rows would tie.
     asked_at = datetime.now(UTC)
     session.updated_at = asked_at

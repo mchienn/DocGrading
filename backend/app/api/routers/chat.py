@@ -46,6 +46,11 @@ async def chat(
         course_id=body.course_id,
         assignment_id=body.assignment_id,
         submission_id=body.submission_id,
+        history=(
+            await session_svc.recent_questions(db, session)
+            if session is not None
+            else ()
+        ),
     )
     if session is not None:
         await session_svc.record_turn(db, session, body, response)
