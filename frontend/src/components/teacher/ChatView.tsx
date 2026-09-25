@@ -1,14 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bot, Loader2, Send, User as UserIcon } from 'lucide-react';
+import { Bot, FileText, Loader2, Send, User as UserIcon } from 'lucide-react';
 import { api, apiData, getErrorMessage } from '../../api/client';
-import { sendChatMessage, type ChatAssignmentOption } from '../../services/chatService';
+import {
+  sendChatMessage,
+  type ChatAssignmentOption,
+  type ChatCitation,
+} from '../../services/chatService';
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'bot';
   text: string;
   isError?: boolean;
+  citations?: ChatCitation[];
+}
+
+interface ChatViewProps {
+  /** Scope content questions (RAG) to one submission, e.g. from the Review workspace. */
+  submissionId?: string;
+  /** Embedded widget layout: no course/assignment pickers, fixed height. */
+  compact?: boolean;
+  /** Called when a "Trang X" citation chip is clicked (navigation comes later). */
+  onCitationClick?: (citation: ChatCitation) => void;
 }
 
 const EXAMPLE_QUESTIONS = [
@@ -17,6 +31,13 @@ const EXAMPLE_QUESTIONS = [
   'Những bài nào đang lỗi?',
   'Bao nhiêu sinh viên chưa nộp?',
   'Hôm nay có yêu cầu xem lại nào mới không?',
+  'Tìm đoạn nói về kiểm thử',
+];
+
+const SUBMISSION_EXAMPLE_QUESTIONS = [
+  'Tóm tắt bài này',
+  'Tìm đoạn nói về kiểm thử',
+  'Bài này có đề cập đến yêu cầu phi chức năng không?',
 ];
 
 let messageIdSeq = 0;
@@ -25,7 +46,40 @@ function nextId(): string {
   return `m${messageIdSeq}`;
 }
 
-export const ChatView: React.FC = () => {
+function pageLabel(citation: ChatCitation): string {
+  return citation.page_end !== citation.page
+    ? `Trang ${citation.page}–${citation.page_end}`
+    : `Trang ${citation.page}`;
+}
+
+const CitationChips: React.FC<{
+  citations: ChatCitation[];
+  onClick: (citation: ChatCitation) => void;
+}> = ({ citations, onClick }) => (
+  <div className="mt-2 flex flex-wrap gap-1.5">
+    {citations.map((citation, index) => (
+      <button
+        key={citation.chunk_id}
+        type="button"
+        onClick={() => onClick(citation)}
+        title={[citation.student_name, citation.section_path, citation.excerpt].filter(Boolean).join('\n')}
+        className="inline-flex items-center gap-1 rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-2.5 py-1 text-[11px] font-medium text-[#1D4ED8] hover:bg-[#DBEAFE]"
+      >
+        <FileText size={12} />
+        [{index + 1}] {pageLabel(citation)}
+      </button>
+    ))}
+  </div>
+);
+
+// Placeholder until the PDF viewer can jump to a page from the chat.
+const noopCitationClick = (_citation: ChatCitation) => {};
+
+export const ChatView: React.FC<ChatViewProps> = ({
+  submissionId,
+  compact = false,
+  onCitationClick = noopCitationClick,
+}) => {
   const [courseId, setCourseId] = useState('');
   const [assignmentId, setAssignmentId] = useState('');
   const [input, setInput] = useState('');
@@ -33,7 +87,9 @@ export const ChatView: React.FC = () => {
     {
       id: nextId(),
       role: 'bot',
-      text: 'Chào bạn! Chọn một lớp ở trên rồi hỏi mình về tình hình chấm bài nhé.',
+      text: submissionId
+        ? 'Hỏi mình về nội dung bài nộp này — ví dụ "Tóm tắt bài này".'
+        : 'Chào bạn! Chọn một lớp ở trên rồi hỏi mình về tình hình chấm bài nhé.',
     },
   ]);
   const [sending, setSending] = useState(false);
@@ -42,6 +98,7 @@ export const ChatView: React.FC = () => {
   const coursesQuery = useQuery({
     queryKey: ['courses'],
     queryFn: () => apiData(api.GET('/api/v1/courses')),
+    enabled: !compact,
   });
 
   const assignmentsQuery = useQuery({
@@ -49,7 +106,7 @@ export const ChatView: React.FC = () => {
     queryFn: () => apiData(api.GET('/api/v1/courses/{course_id}/assignments', {
       params: { path: { course_id: courseId } },
     })),
-    enabled: Boolean(courseId),
+    enabled: Boolean(courseId) && !compact,
   });
 
   useEffect(() => {
@@ -80,8 +137,21 @@ export const ChatView: React.FC = () => {
     setInput('');
     setSending(true);
     try {
-      const result = await sendChatMessage(trimmed, courseId || null, assignmentId || null);
-      setMessages((prev) => [...prev, { id: nextId(), role: 'bot', text: result.reply }]);
+      const result = await sendChatMessage(
+        trimmed,
+        courseId || null,
+        assignmentId || null,
+        submissionId ?? null,
+      );
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: 'bot',
+          text: result.reply,
+          citations: result.citations ?? undefined,
+        },
+      ]);
       if (result.needs_assignment && result.assignment_options?.length) {
         appendAssignmentOptions(result.assignment_options);
       }
@@ -100,48 +170,58 @@ export const ChatView: React.FC = () => {
     void submit(input);
   };
 
+  const examples = submissionId ? SUBMISSION_EXAMPLE_QUESTIONS : EXAMPLE_QUESTIONS;
+
   return (
-    <div className="p-6 sm:p-8 max-w-4xl mx-auto flex flex-col h-[calc(100vh-64px)]">
-      <div className="flex flex-wrap items-end gap-3 mb-4">
-        <div>
-          <label className="block text-[11px] font-semibold text-[#596579] mb-1" htmlFor="chat-course">
-            Lớp
-          </label>
-          <select
-            id="chat-course"
-            value={courseId}
-            onChange={(event) => setCourseId(event.target.value)}
-            className="border border-[#DDE2E8] rounded-lg px-3 py-2 text-sm bg-white min-w-[220px]"
-          >
-            <option value="">-- Chọn lớp --</option>
-            <option value="all">Tất cả lớp</option>
-            {(coursesQuery.data ?? []).map((course) => (
-              <option key={course.id} value={course.id}>
-                {course.code} - {course.name}
-              </option>
-            ))}
-          </select>
+    <div
+      className={
+        compact
+          ? 'flex flex-col h-[520px]'
+          : 'p-6 sm:p-8 max-w-4xl mx-auto flex flex-col h-[calc(100vh-64px)]'
+      }
+    >
+      {!compact && (
+        <div className="flex flex-wrap items-end gap-3 mb-4">
+          <div>
+            <label className="block text-[11px] font-semibold text-[#596579] mb-1" htmlFor="chat-course">
+              Lớp
+            </label>
+            <select
+              id="chat-course"
+              value={courseId}
+              onChange={(event) => setCourseId(event.target.value)}
+              className="border border-[#DDE2E8] rounded-lg px-3 py-2 text-sm bg-white min-w-[220px]"
+            >
+              <option value="">-- Chọn lớp --</option>
+              <option value="all">Tất cả lớp</option>
+              {(coursesQuery.data ?? []).map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.code} - {course.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-[#596579] mb-1" htmlFor="chat-assignment">
+              Bài tập
+            </label>
+            <select
+              id="chat-assignment"
+              value={assignmentId}
+              onChange={(event) => setAssignmentId(event.target.value)}
+              disabled={!courseId || courseId === 'all' || assignmentsQuery.isLoading}
+              className="border border-[#DDE2E8] rounded-lg px-3 py-2 text-sm bg-white min-w-[220px] disabled:bg-[#F5F6F8]"
+            >
+              <option value="">Tất cả bài tập</option>
+              {(assignmentsQuery.data ?? []).map((assignment) => (
+                <option key={assignment.id} value={assignment.id}>
+                  {assignment.title}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div>
-          <label className="block text-[11px] font-semibold text-[#596579] mb-1" htmlFor="chat-assignment">
-            Bài tập
-          </label>
-          <select
-            id="chat-assignment"
-            value={assignmentId}
-            onChange={(event) => setAssignmentId(event.target.value)}
-            disabled={!courseId || courseId === 'all' || assignmentsQuery.isLoading}
-            className="border border-[#DDE2E8] rounded-lg px-3 py-2 text-sm bg-white min-w-[220px] disabled:bg-[#F5F6F8]"
-          >
-            <option value="">Tất cả bài tập</option>
-            {(assignmentsQuery.data ?? []).map((assignment) => (
-              <option key={assignment.id} value={assignment.id}>
-                {assignment.title}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-3 border border-[#DDE2E8] rounded-xl bg-[#F8FAFC] p-4">
         {messages.map((message) => (
@@ -149,6 +229,9 @@ export const ChatView: React.FC = () => {
             {message.role === 'bot' && <Bot size={18} className="mt-2 text-[#2563EB]" />}
             <div className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-4 py-3 text-sm ${message.role === 'user' ? 'bg-[#2563EB] text-white' : message.isError ? 'bg-[#FEF2F2] text-[#B91C1C]' : 'bg-white text-[#263244] border border-[#E5E7EB]'}`}>
               {message.text}
+              {message.citations && message.citations.length > 0 && (
+                <CitationChips citations={message.citations} onClick={onCitationClick} />
+              )}
             </div>
             {message.role === 'user' && <UserIcon size={18} className="mt-2 text-[#596579]" />}
           </div>
@@ -157,7 +240,7 @@ export const ChatView: React.FC = () => {
       </div>
 
       <div className="flex flex-wrap gap-2 py-3">
-        {EXAMPLE_QUESTIONS.map((question) => (
+        {examples.map((question) => (
           <button key={question} type="button" onClick={() => void submit(question)} disabled={sending} className="rounded-full border border-[#DDE2E8] bg-white px-3 py-1.5 text-xs text-[#596579] hover:border-[#2563EB] hover:text-[#2563EB] disabled:opacity-50">
             {question}
           </button>
@@ -165,7 +248,7 @@ export const ChatView: React.FC = () => {
       </div>
 
       <form onSubmit={onSubmitForm} className="flex items-center gap-2">
-        <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Hỏi về tình hình chấm bài..." disabled={sending} className="min-w-0 flex-1 rounded-lg border border-[#DDE2E8] px-4 py-3 text-sm outline-none focus:border-[#2563EB]" />
+        <input value={input} onChange={(event) => setInput(event.target.value)} placeholder={submissionId ? 'Hỏi về nội dung bài này...' : 'Hỏi về tình hình chấm bài...'} disabled={sending} className="min-w-0 flex-1 rounded-lg border border-[#DDE2E8] px-4 py-3 text-sm outline-none focus:border-[#2563EB]" />
         <button type="submit" disabled={sending || !input.trim()} aria-label="Gửi câu hỏi" className="rounded-lg bg-[#2563EB] p-3 text-white hover:bg-[#1D4ED8] disabled:opacity-50">
           <Send size={18} />
         </button>

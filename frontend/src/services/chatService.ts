@@ -1,7 +1,8 @@
 import { ApiError, csrfFetch, notifyAuthExpired } from '../api/client';
 
 /**
- * Client for the basic (rule-based, no-RAG) teacher chatbot endpoint.
+ * Client for the teacher chatbot endpoint (rule-based intents + RAG over
+ * submission content).
  *
  * Hand-written rather than routed through the generated `api` client because
  * `POST /api/v1/chat` isn't part of the openapi-typescript codegen output yet
@@ -16,17 +17,31 @@ export interface ChatAssignmentOption {
   title: string;
 }
 
+/** A passage of a student document backing an answer (RAG). */
+export interface ChatCitation {
+  chunk_id: string;
+  page: number;
+  page_end: number;
+  section_path: string | null;
+  excerpt: string;
+  submission_id: string | null;
+  student_name: string | null;
+}
+
 export interface ChatResponse {
   reply: string;
   intent: string;
   needs_assignment: boolean;
   assignment_options: ChatAssignmentOption[] | null;
+  needs_submission: boolean;
+  citations: ChatCitation[] | null;
 }
 
 export async function sendChatMessage(
   message: string,
   courseId: string | null,
   assignmentId: string | null,
+  submissionId: string | null = null,
 ): Promise<ChatResponse> {
   const response = await csrfFetch('/api/v1/chat', {
     method: 'POST',
@@ -36,6 +51,7 @@ export async function sendChatMessage(
       message,
       course_id: courseId,
       assignment_id: assignmentId,
+      submission_id: submissionId,
     }),
   });
   let data: unknown;
