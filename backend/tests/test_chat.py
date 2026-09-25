@@ -23,6 +23,10 @@ from app.services.chat import Intent, classify_intent, extract_search_topic
         ("tim doan noi ve kien truc he thong", Intent.SEARCH_CONTENT),
         ("Đoạn nào nói về use case đăng nhập?", Intent.SEARCH_CONTENT),
         ("Tìm trong bài phần yêu cầu phi chức năng", Intent.SEARCH_CONTENT),
+        ("Bài này có đề cập đến kiểm thử bảo mật không?", Intent.ASK_ABOUT_REQUIREMENT),
+        ("Kiến trúc hệ thống được mô tả như thế nào?", Intent.ASK_ABOUT_REQUIREMENT),
+        ("Bài có đáp ứng yêu cầu phi chức năng không", Intent.ASK_ABOUT_REQUIREMENT),
+        ("bai nay su dung phuong phap gi", Intent.ASK_ABOUT_REQUIREMENT),
     ],
 )
 def test_classify_intent(message: str, expected: Intent) -> None:
@@ -46,6 +50,7 @@ def test_greeting_keyword_does_not_match_inside_other_words() -> None:
     message = "Sinh viên nghỉ học có tính là chưa nộp không?"
     assert classify_intent(message) is Intent.NOT_SUBMITTED
 
+
 def test_search_content_wins_over_keywords_inside_topic() -> None:
     # The topic contains ERRORS ("xử lý lỗi") and SUMMARY ("tổng quan") phrases,
     # but the explicit "tìm đoạn" trigger must decide the intent.
@@ -63,7 +68,19 @@ def test_search_content_wins_over_keywords_inside_topic() -> None:
         ("Đoạn nào nói về use case đăng nhập?", "use case đăng nhập"),
         ("Tìm trong bài phần yêu cầu phi chức năng", "phần yêu cầu phi chức năng"),
         ("tìm đoạn", ""),
+        ("Bài này có đề cập đến kiểm thử bảo mật không?", "kiểm thử bảo mật"),
+        ("Kiến trúc hệ thống được mô tả như thế nào?", "Kiến trúc hệ thống được mô tả"),
     ],
 )
 def test_extract_search_topic(message: str, topic: str) -> None:
     assert extract_search_topic(message) == topic
+
+
+def test_explicit_search_stays_llm_free_even_with_ask_phrases() -> None:
+    # "tìm đoạn" (SEARCH_CONTENT, no LLM) must beat "có nói về" (ASK, LLM).
+    message = "Tìm đoạn có nói về kiểm thử"
+    assert classify_intent(message) is Intent.SEARCH_CONTENT
+
+
+def test_class_status_question_is_not_taken_as_content_question() -> None:
+    assert classify_intent("Tình hình lớp như thế nào?") is Intent.SUMMARY

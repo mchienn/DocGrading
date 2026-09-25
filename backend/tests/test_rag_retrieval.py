@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -21,9 +22,10 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.models.enums import UserRole
+from app.services import chat as chat_service
 from app.services.chat import Intent, handle_chat
 from app.services.embeddings import FakeEmbeddingProvider
-from app.services.rag import retrieve_chunks
+from app.services.rag import FakeLLMClient, retrieve_chunks
 from app.workers.index_document_chunks import index_document_version
 from tests.test_t011_review_workspace import _actor, _ids, _seed_graph
 
@@ -226,5 +228,75 @@ def test_search_content_denies_other_teachers_submission() -> None:
                 submission_id=ids["submission_2"],
             )
         assert mismatch.value.status_code == 404
+
+    _run(scenario)
+
+
+def test_ask_about_requirement_keeps_only_verified_citations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forged = uuid.uuid4()
+
+    def respond(_system: str, prompt: str) -> str:
+        real_id = re.search(r"\[chunk:([0-9a-f-]{36})\]", prompt).group(1)
+        return f"Có, nhóm dùng pytest [chunk:{real_id}] và Selenium [chunk:{forged}]."
+
+    client = FakeLLMClient(respond)
+    monkeypatch.setattr(chat_service, "_rag_llm_client", lambda: client)
+
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        await index_document_version(session, ids["document_2"], None)
+        teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
+        response = await handle_chat(
+            session,
+            user=teacher,
+            message="Bài này có đề cập đến kiểm thử đơn vị không?",
+            course_id=None,
+            assignment_id=None,
+            submission_id=ids["submission_2"],
+        )
+        assert response.intent == Intent.ASK_ABOUT_REQUIREMENT
+        assert response.reply == "Có, nhóm dùng pytest [1] và Selenium."
+        assert [c.page for c in response.citations] == [2]
+        assert str(forged) not in response.reply
+        assert len(client.calls) == 1
+
+    _run(scenario)
+
+
+def test_ask_about_requirement_without_llm_key_returns_passages() -> None:
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        await index_document_version(session, ids["document_2"], None)
+        teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
+        response = await handle_chat(
+            session,
+            user=teacher,
+            message="Bài này có đề cập đến kiểm thử đơn vị không?",
+            course_id=None,
+            assignment_id=None,
+            submission_id=ids["submission_2"],
+        )
+        assert response.intent == Intent.ASK_ABOUT_REQUIREMENT
+        assert "LLM_API_KEY" in response.reply
+        assert response.citations and response.citations[0].page == 2
+
+    _run(scenario)
+
+
+def test_keyword_retrieval_falls_back_to_substring_for_glued_words() -> None:
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        await _insert_ir(
+            session.bind,
+            ids["document_3"],
+            {
+                **_report_ir(),
+                "paragraphs": [
+                    _paragraph("g1", "HệthốngdùngGraphRAGđểtruyxuất.", "s1", 1)
+                ],
+            },
+        )
+        await index_document_version(session, ids["document_3"], None)
+        hits = await retrieve_chunks(session, [ids["document_3"]], "graphrag")
+        assert [hit.page_start for hit in hits] == [1]
 
     _run(scenario)
