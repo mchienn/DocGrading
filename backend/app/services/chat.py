@@ -14,9 +14,12 @@ stay the source of truth for numbers either way.
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 import unicodedata
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -37,6 +40,7 @@ from app.api.schemas_chat import (
     ClarificationKind,
     ClarificationOption,
     Highlight,
+    OpenDocument,
 )
 from app.models.analysis import DocumentIR
 from app.models.assignment import Assignment
@@ -80,6 +84,7 @@ class Intent(StrEnum):
     SEARCH_CONTENT = "SEARCH_CONTENT"
     ASK_ABOUT_REQUIREMENT = "ASK_ABOUT_REQUIREMENT"
     SUMMARIZE_SUBMISSION = "SUMMARIZE_SUBMISSION"
+    OPEN_SUBMISSION = "OPEN_SUBMISSION"
     GREETING = "GREETING"
     HELP = "HELP"
     UNKNOWN = "UNKNOWN"
@@ -95,6 +100,7 @@ _HELP_TEXT = (
     '- "Tìm đoạn nói về kiểm thử đơn vị" (tìm trong nội dung bài nộp)\n'
     '- "Bài này có đề cập đến kiểm thử bảo mật không?" (hỏi về nội dung)\n'
     '- "Tóm tắt bài này" (khi đang mở một bài nộp)\n'
+    '- "Xem bài báo cáo OPRO" (mở một bài nộp theo tên sinh viên / tên file)\n'
     "Chọn lớp (và bài tập nếu cần) ở phía trên rồi hỏi lại nhé."
 )
 
@@ -165,6 +171,21 @@ _INTENT_KEYWORDS: list[tuple[Intent, tuple[str, ...]]] = [
             "tom tat bao cao nay",
             "tom tat noi dung",
             "tom tat tai lieu",
+        ),
+    ),
+    # Opening one submission ("xem bài báo cáo OPRO"); after the content intents
+    # so "tìm đoạn ..." / "tóm tắt bài ..." keep their meaning.
+    (
+        Intent.OPEN_SUBMISSION,
+        (
+            "xem bai",
+            "mo bai",
+            "xem bao cao",
+            "mo bao cao",
+            "xem file",
+            "mo file",
+            "mo tai lieu",
+            "xem tai lieu",
         ),
     ),
     (
@@ -313,7 +334,9 @@ async def _handle_summary_all_courses(db: AsyncSession, courses: list[Course]) -
     return "\n".join(parts)
 
 
-async def _handle_unreviewed_all_courses(db: AsyncSession, courses: list[Course]) -> str:
+async def _handle_unreviewed_all_courses(
+    db: AsyncSession, courses: list[Course]
+) -> str:
     """Unreviewed submissions across all courses."""
     if not courses:
         return "Bạn chưa có lớp nào."
@@ -321,7 +344,11 @@ async def _handle_unreviewed_all_courses(db: AsyncSession, courses: list[Course]
     parts = []
     for course in courses:
         rows = await _latest_versions(db, course.id, None)
-        unreviewed = sum(1 for _, status, _ in rows if status not in _REVIEWED_STATUSES and status not in _ERROR_STATUSES)
+        unreviewed = sum(
+            1
+            for _, status, _ in rows
+            if status not in _REVIEWED_STATUSES and status not in _ERROR_STATUSES
+        )
         parts.append(f'Lớp "{course.name}": {unreviewed} bài chờ duyệt')
 
     total_unreviewed = sum(int(p.split(": ")[1].split(" ")[0]) for p in parts)
@@ -346,7 +373,9 @@ async def _handle_errors_all_courses(db: AsyncSession, courses: list[Course]) ->
     return "Các bài nộp bị lỗi:\n" + "\n".join(parts)
 
 
-async def _handle_new_review_requests_all_courses(db: AsyncSession, courses: list[Course]) -> str:
+async def _handle_new_review_requests_all_courses(
+    db: AsyncSession, courses: list[Course]
+) -> str:
     """New review requests across all courses."""
     if not courses:
         return "Bạn chưa có lớp nào."
@@ -755,6 +784,113 @@ def submission_option(candidate: ChatScopeSubmission) -> ClarificationOption:
     )
 
 
+# Words around a reference to a submission ("tôi muốn xem bài báo cáo OPRO").
+_OPEN_FILLER = frozenset(
+    {"toi", "muon", "can", "xem", "mo", "bai", "bao", "cao", "nop", "cua", "cho",
+     "minh", "giup", "file", "pdf", "tai", "lieu", "hay", "vui", "long", "lai",
+     "sinh", "vien", "sv", "nhom", "em", "ban", "di", "nhe", "voi", "nay", "do"}
+)  # fmt: skip
+
+
+def extract_submission_reference(message: str) -> str:
+    """The part of an "open this submission" request that names it."""
+    words = _WORD_RE.findall(message)
+    kept = [w for w in words if _normalize(w) not in _OPEN_FILLER]
+    return " ".join(kept)
+
+
+def find_submissions_by_reference(
+    reference: str, candidates: list[ChatScopeSubmission]
+) -> list[ChatScopeSubmission]:
+    """Submissions whose student name or file name contains every reference word.
+
+    Whole-word matches win; plain substrings ("opro" inside "EvoPrompt") are
+    only used when nothing matches as a word, e.g. glued names
+    ("congtranvan").
+    """
+    terms = [_normalize(w) for w in _WORD_RE.findall(reference) if len(w) >= 2]
+    if not terms:
+        return []
+    haystacks = [(c, _normalize(f"{c.student_name} {c.file_name}")) for c in candidates]
+    whole = [c for c, hay in haystacks if all(_phrase_matches(t, hay) for t in terms)]
+    if whole:
+        return whole
+    return [c for c, hay in haystacks if all(t in hay for t in terms)]
+
+
+def _open_document(candidate: ChatScopeSubmission) -> OpenDocument:
+    return OpenDocument(
+        submission_id=candidate.submission_id,
+        document_version_id=candidate.document_version_id,
+        label=f"{candidate.student_name} — {candidate.assignment_title}",
+        file_name=candidate.file_name,
+    )
+
+
+async def _handle_open_submission(
+    db: AsyncSession,
+    *,
+    user: User,
+    message: str,
+    course_id: uuid.UUID | str | None,
+    submission_id: uuid.UUID | None,
+) -> ChatResponse:
+    intent = Intent.OPEN_SUBMISSION
+    reference = extract_submission_reference(message)
+    if submission_id is not None:
+        scope = await _submission_scope(db, user, submission_id, course_id, None)
+        candidates = await submission_candidates(db, scope.course.id)
+        current = [c for c in candidates if c.submission_id == submission_id]
+        if current and (
+            not reference or find_submissions_by_reference(reference, current)
+        ):
+            return ChatResponse(
+                reply=f"Đã mở bài {current[0].student_name} — "
+                f"{current[0].assignment_title}.",
+                intent=intent,
+                open_document=_open_document(current[0]),
+            )
+        course: Course = scope.course
+    elif course_id is None or course_id == ALL_COURSES:
+        return await _ask_for_course(db, user, intent, message)
+    else:
+        course = _authorize(user, await db.get(Course, course_id))
+        candidates = await submission_candidates(db, course.id)
+    if not reference:
+        return _clarify(
+            intent,
+            "submission",
+            "Bạn muốn xem bài nộp nào?",
+            [submission_option(c) for c in candidates],
+            message,
+        )
+    matches = find_submissions_by_reference(reference, candidates) or (
+        find_named_submissions(message, candidates)
+    )
+    if len(matches) == 1:
+        return ChatResponse(
+            reply=f"Đã mở bài {matches[0].student_name} — "
+            f"{matches[0].assignment_title}.",
+            intent=intent,
+            open_document=_open_document(matches[0]),
+        )
+    if len(matches) > 1:
+        return _clarify(
+            intent,
+            "submission",
+            f'Có {len(matches)} bài khớp với "{reference}" — bạn muốn xem bài nào?',
+            [submission_option(c) for c in matches],
+            message,
+        )
+    return ChatResponse(
+        reply=(
+            f'Không tìm thấy bài nộp nào khớp với "{reference}" trong lớp '
+            f'"{course.name}". Thử tên sinh viên hoặc một phần tên file nhé.'
+        ),
+        intent=intent,
+    )
+
+
 class RagScope:
     """Authorized set of document versions a content question may read."""
 
@@ -890,9 +1026,7 @@ def _rag_embedding_provider() -> EmbeddingProvider | None:
 MAX_HIGHLIGHTS_PER_CITATION = 12
 
 
-def paragraph_highlights(
-    ir_content: dict, paragraph_ids: list[str]
-) -> list[Highlight]:
+def paragraph_highlights(ir_content: dict, paragraph_ids: list[str]) -> list[Highlight]:
     """Page + bbox of each cited paragraph that has a usable box in the IR."""
     by_id = {
         paragraph.get("id"): paragraph
@@ -1081,9 +1215,7 @@ async def _handle_summarize_submission(
     if not scope.version_ids:
         return ChatResponse(reply="Bài nộp này chưa có tài liệu nào.", intent=intent)
     try:
-        summary = await summarize_document(
-            db, scope.version_ids[0], _rag_llm_client()
-        )
+        summary = await summarize_document(db, scope.version_ids[0], _rag_llm_client())
     except LLMNotConfiguredError as exc:
         return ChatResponse(
             reply=f"Chưa tóm tắt được bài này: {exc}.",
@@ -1098,6 +1230,143 @@ async def _handle_summarize_submission(
             intent=intent,
         )
     return ChatResponse(reply=summary.text, intent=intent)
+
+
+logger = logging.getLogger(__name__)
+
+ROUTER_MAX_TOKENS = 200
+ROUTER_HISTORY_TURNS = 6
+_ROUTABLE_INTENTS = {
+    Intent.SUMMARY: "tình hình nộp/chấm bài của lớp -> "
+    '"Tình hình báo cáo lớp thế nào?"',
+    Intent.UNREVIEWED: 'số bài chưa duyệt -> "Còn bao nhiêu bài chưa duyệt?"',
+    Intent.ERRORS: 'bài nộp bị lỗi -> "Những bài nào đang lỗi?"',
+    Intent.NOT_SUBMITTED: 'sinh viên chưa nộp -> "Bao nhiêu sinh viên chưa nộp?"',
+    Intent.NEW_REVIEW_REQUESTS: "yêu cầu xem lại/phúc khảo mới -> "
+    '"Hôm nay có yêu cầu xem lại nào mới không?"',
+    Intent.SEARCH_CONTENT: 'tìm đoạn văn trong bài nộp -> "Tìm đoạn nói về <chủ đề>"',
+    Intent.ASK_ABOUT_REQUIREMENT: "MỌI câu hỏi về nội dung/chi tiết bên trong bài "
+    "nộp (có/không, cái gì, những gì, bộ dữ liệu nào, phương pháp gì, như thế nào, "
+    "kết quả ra sao...) -> giữ nguyên ý câu hỏi, nêu rõ chủ đề",
+    Intent.SUMMARIZE_SUBMISSION: "tóm tắt một bài nộp -> "
+    '"Tóm tắt bài này" hoặc "Tóm tắt bài của <tên sinh viên>"',
+    Intent.OPEN_SUBMISSION: "mở/xem một bài nộp -> "
+    '"Xem bài <tên sinh viên hoặc tên file>"',
+    Intent.UNKNOWN: "chỉ khi câu hỏi KHÔNG liên quan tới lớp, sinh viên, bài nộp "
+    "hay việc chấm bài (thời tiết, chuyện ngoài lề...)",
+}
+
+ROUTER_SYSTEM_PROMPT = (
+    "Bạn phân loại câu hỏi của giảng viên cho trợ lý chấm bài DocGrading.\n"
+    "Chỉ trả về MỘT object JSON, không giải thích: "
+    '{"intent": "<MÃ>", "question": "<câu hỏi viết lại>", '
+    '"target": "<tên bài / tên sinh viên / tên file đang được nói tới, hoặc rỗng>"}.\n'
+    "Các MÃ hợp lệ và dạng câu viết lại tương ứng:\n"
+    + "\n".join(
+        f"- {intent.value}: {hint}" for intent, hint in _ROUTABLE_INTENTS.items()
+    )
+    + "\nViết lại câu hỏi thành câu đầy đủ, dùng đúng dạng câu mẫu, thay các từ như "
+    '"bài đó", "nhóm này", "nó" bằng đối tượng cụ thể dựa trên các câu hỏi '
+    'trước (nếu có). "target" là tên bài/sinh viên được nhắc tới trong câu hiện '
+    "tại hoặc các câu trước mà câu hiện tại đang nói tiếp; rỗng nếu không có. "
+    "Không bịa tên, số liệu hay nội dung.\n"
+    "Ví dụ:\n"
+    '- Trước: "xem bài OPRO"; hiện tại: "nhóm này dùng mô hình gì?" -> '
+    '{"intent": "ASK_ABOUT_REQUIREMENT", '
+    '"question": "Bài OPRO dùng mô hình gì?", "target": "OPRO"}\n'
+    '- Hiện tại: "có bao nhiêu bạn nộp rồi?" -> '
+    '{"intent": "SUMMARY", "question": "Tình hình báo cáo lớp thế nào?", '
+    '"target": ""}\n'
+    '- Hiện tại: "cho mình đọc báo cáo của nhóm LightRAG" -> '
+    '{"intent": "OPEN_SUBMISSION", "question": "Xem bài LightRAG", '
+    '"target": "LightRAG"}'
+)
+
+
+@dataclass(frozen=True)
+class RoutedQuestion:
+    intent: Intent
+    question: str
+    # Free-text reference to a submission; resolved by the backend against
+    # the teacher's authorized submissions, never trusted as an id.
+    target: str = ""
+
+
+def parse_route(raw: str) -> RoutedQuestion | None:
+    """Validate the router's JSON; anything unexpected is ignored (None)."""
+    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if match is None:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        intent = Intent(str(data.get("intent", "")).strip().upper())
+    except ValueError:
+        return None
+    if intent not in _ROUTABLE_INTENTS:
+        return None
+    question = data.get("question")
+    if not isinstance(question, str) or not question.strip():
+        return None
+    target = data.get("target")
+    target = " ".join(target.split())[:200] if isinstance(target, str) else ""
+    return RoutedQuestion(intent, " ".join(question.split())[:1000], target)
+
+
+def build_router_prompt(message: str, history: Sequence[str]) -> str:
+    recent = [" ".join(q.split()) for q in history][-ROUTER_HISTORY_TURNS:]
+    lines = ["Các câu hỏi trước của giảng viên (cũ -> mới):"]
+    lines += [f"- {q}" for q in recent] or ["(không có)"]
+    lines += ["", f"Câu hỏi hiện tại: {message.strip()}"]
+    return "\n".join(lines)
+
+
+async def route_with_llm(
+    message: str, history: Sequence[str], client: LLMClient
+) -> RoutedQuestion | None:
+    """Pick an intent (+ standalone question) for text the keywords missed.
+
+    Only the teacher's own questions are sent as context — never bot replies,
+    which can contain text quoted from student PDFs. The model only chooses
+    among fixed intents; every answer still comes from the authorized
+    handlers below.
+    """
+    raw = await client.complete(
+        system=ROUTER_SYSTEM_PROMPT,
+        prompt=build_router_prompt(message, history),
+        max_tokens=ROUTER_MAX_TOKENS,
+    )
+    return parse_route(raw)
+
+
+async def _route_unknown(message: str, history: Sequence[str]) -> RoutedQuestion | None:
+    try:
+        return await route_with_llm(message, history, _rag_llm_client())
+    except LLMNotConfiguredError:
+        return None
+    except Exception:
+        logger.warning("LLM intent routing failed", exc_info=True)
+        return None
+
+
+async def _resolve_target(
+    db: AsyncSession,
+    user: User,
+    course_id: uuid.UUID | str | None,
+    target: str,
+) -> uuid.UUID | None:
+    """The one authorized submission a routed question refers to, if unique."""
+    if not isinstance(course_id, uuid.UUID):
+        return None
+    course = _authorize(user, await db.get(Course, course_id))
+    matches = find_submissions_by_reference(
+        target, await submission_candidates(db, course.id)
+    )
+    return matches[0].submission_id if len(matches) == 1 else None
 
 
 def normalize_course_id(
@@ -1125,6 +1394,7 @@ async def handle_chat(
     course_id: uuid.UUID | str | None,
     assignment_id: uuid.UUID | None,
     submission_id: uuid.UUID | None = None,
+    history: Sequence[str] = (),
 ) -> ChatResponse:
     """Classify *message* and answer it, scoped to an owned course.
 
@@ -1134,6 +1404,16 @@ async def handle_chat(
     """
     course_id = normalize_course_id(course_id)
     intent = classify_intent(message)
+    if intent is Intent.UNKNOWN:
+        # Keywords missed: let the LLM pick an intent and rewrite the question
+        # (resolving "bài đó"... from the teacher's previous questions).
+        routed = await _route_unknown(message, history)
+        if routed is not None:
+            intent, message = routed.intent, routed.question
+            if routed.target and submission_id is None:
+                submission_id = await _resolve_target(
+                    db, user, course_id, routed.target
+                )
 
     if intent is Intent.GREETING:
         return ChatResponse(
@@ -1143,6 +1423,15 @@ async def handle_chat(
     if intent in (Intent.HELP, Intent.UNKNOWN):
         prefix = "" if intent is Intent.HELP else "Mình chưa hiểu câu hỏi này.\n"
         return ChatResponse(reply=prefix + _HELP_TEXT, intent=intent)
+
+    if intent is Intent.OPEN_SUBMISSION:
+        return await _handle_open_submission(
+            db,
+            user=user,
+            message=message,
+            course_id=course_id,
+            submission_id=submission_id,
+        )
 
     if intent in _RAG_INTENTS:
         scope = await _resolve_rag_scope(
