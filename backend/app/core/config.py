@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     embedding_api_key: str = ""
     embedding_model: str = "text-embedding-3-small"
 
+    # RAG answer composer. Same rule: a missing key only fails when called.
+    llm_provider: str = "openai"
+    llm_api_key: str = ""
+    llm_model: str = "gpt-4o-mini"
+
     @model_validator(mode="after")
     def _validate_invariants(self) -> "Settings":
         if self.analysis_job_heartbeat_seconds >= self.analysis_job_lease_seconds:

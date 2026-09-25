@@ -43,7 +43,15 @@ from app.services.embeddings import (
     EmbeddingProvider,
     get_embedding_provider,
 )
-from app.services.rag import RetrievedChunk, make_excerpt, retrieve_chunks
+from app.services.rag import (
+    LLMClient,
+    LLMNotConfiguredError,
+    RetrievedChunk,
+    answer_with_citations,
+    get_llm_client,
+    make_excerpt,
+    retrieve_chunks,
+)
 from app.services.review import _ERROR_STATUSES, _REVIEWED_STATUSES
 
 
@@ -54,6 +62,7 @@ class Intent(StrEnum):
     NOT_SUBMITTED = "NOT_SUBMITTED"
     NEW_REVIEW_REQUESTS = "NEW_REVIEW_REQUESTS"
     SEARCH_CONTENT = "SEARCH_CONTENT"
+    ASK_ABOUT_REQUIREMENT = "ASK_ABOUT_REQUIREMENT"
     GREETING = "GREETING"
     HELP = "HELP"
     NEEDS_COURSE = "NEEDS_COURSE"
@@ -68,6 +77,7 @@ _HELP_TEXT = (
     '- "Bao nhiêu sinh viên chưa nộp?"\n'
     '- "Hôm nay có yêu cầu xem lại nào mới không?"\n'
     '- "Tìm đoạn nói về kiểm thử đơn vị" (tìm trong nội dung bài nộp)\n'
+    '- "Bài này có đề cập đến kiểm thử bảo mật không?" (hỏi về nội dung)\n'
     "Chọn lớp (và bài tập nếu cần) ở phía trên rồi hỏi lại nhé."
 )
 
@@ -100,6 +110,29 @@ _INTENT_KEYWORDS: list[tuple[Intent, tuple[str, ...]]] = [
             "trang nao noi",
             "cho nao noi",
             "trich doan",
+        ),
+    ),
+    # Content questions answered by the LLM composer; after SEARCH_CONTENT so
+    # "tìm đoạn nói về ..." stays a cheap, LLM-free search.
+    (
+        Intent.ASK_ABOUT_REQUIREMENT,
+        (
+            "co de cap",
+            "co noi ve",
+            "co nhac den",
+            "co trinh bay",
+            "co mo ta",
+            "co dap ung",
+            "dap ung yeu cau",
+            "trinh bay nhu the nao",
+            "trinh bay the nao",
+            "mo ta nhu the nao",
+            "giai thich nhu the nao",
+            "su dung phuong phap",
+            "dung phuong phap",
+            "su dung cong nghe",
+            "dung cong nghe",
+            "bai nay noi gi",
         ),
     ),
     (
@@ -177,7 +210,10 @@ _SEARCH_FILLER = frozenset(
      "trang", "cho", "giup", "minh", "hay", "hon"}
 )  # fmt: skip
 # Trailing scope words ("... trong bài này") that are not part of the topic.
-_TRAILING_SCOPE = frozenset({"trong", "cua", "bai", "nay", "do", "lop", "sinh", "vien"})
+_TRAILING_SCOPE = frozenset(
+    {"trong", "cua", "bai", "nay", "do", "lop", "sinh", "vien",
+     "khong", "chua", "nhu", "the", "nao"}
+)  # fmt: skip
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 
 
@@ -489,7 +525,7 @@ async def _handle_new_review_requests(db: AsyncSession, course: Course) -> str:
     )
 
 
-_RAG_INTENTS = frozenset({Intent.SEARCH_CONTENT})
+_RAG_INTENTS = frozenset({Intent.SEARCH_CONTENT, Intent.ASK_ABOUT_REQUIREMENT})
 
 
 class RagScope:
@@ -662,6 +698,53 @@ async def _handle_search_content(
     )
 
 
+def _rag_llm_client() -> LLMClient:
+    return get_llm_client()
+
+
+def _fallback_excerpt_lines(citations: list[Citation]) -> list[str]:
+    return [
+        f"{position}. {_page_label(citation)}: “{citation.excerpt}”"
+        for position, citation in enumerate(citations, start=1)
+    ]
+
+
+async def _handle_ask_about_requirement(
+    db: AsyncSession, scope: RagScope, message: str
+) -> ChatResponse:
+    intent = Intent.ASK_ABOUT_REQUIREMENT
+    if not scope.version_ids:
+        return ChatResponse(
+            reply=f"Chưa có bài nộp nào trong {scope.label} để trả lời.",
+            intent=intent,
+        )
+    query = extract_search_topic(message) or message
+    chunks = await retrieve_chunks(
+        db, scope.version_ids, query, provider=_rag_embedding_provider()
+    )
+    if not chunks:
+        return ChatResponse(
+            reply=f"Không tìm thấy nội dung liên quan trong {scope.label}.",
+            intent=intent,
+            citations=[],
+        )
+    try:
+        answer = await answer_with_citations(message, chunks, _rag_llm_client())
+    except LLMNotConfiguredError as exc:
+        # No key yet: still useful — hand back the retrieved passages verbatim.
+        citations = await _citations_for(db, chunks, query)
+        reply = "\n".join(
+            [
+                f"Chưa soạn được câu trả lời tự động ({exc}). "
+                "Các đoạn liên quan nhất:",
+                *_fallback_excerpt_lines(citations),
+            ]
+        )
+        return ChatResponse(reply=reply, intent=intent, citations=citations)
+    citations = await _citations_for(db, answer.citations, query)
+    return ChatResponse(reply=answer.text, intent=intent, citations=citations)
+
+
 async def handle_chat(
     db: AsyncSession,
     *,
@@ -698,6 +781,8 @@ async def handle_chat(
         )
         if isinstance(scope, ChatResponse):
             return scope
+        if intent is Intent.ASK_ABOUT_REQUIREMENT:
+            return await _handle_ask_about_requirement(db, scope, message)
         return await _handle_search_content(db, scope, message)
 
     if course_id is None:
