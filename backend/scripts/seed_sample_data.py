@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from urllib.parse import urlsplit, urlunsplit
 
-import httpx
+import httpx2 as httpx
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
