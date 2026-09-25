@@ -26,4 +26,5 @@ async def chat(
         message=body.message,
         course_id=body.course_id,
         assignment_id=body.assignment_id,
+        submission_id=body.submission_id,
     )

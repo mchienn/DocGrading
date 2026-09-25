@@ -1,0 +1,230 @@
+"""Integration tests for RAG indexing, hybrid retrieval and chat scoping.
+
+Run against the dedicated test database, never the dev one (migration
+roundtrip tests elsewhere downgrade whatever DB they point at):
+    POSTGRES_DB=docgrading_test RUN_DATABASE_TESTS=1 uv run pytest tests/test_rag*.py
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import uuid
+from collections.abc import Awaitable, Callable
+
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from app.core.config import get_settings
+from app.models.enums import UserRole
+from app.services.chat import Intent, handle_chat
+from app.services.embeddings import FakeEmbeddingProvider
+from app.services.rag import retrieve_chunks
+from app.workers.index_document_chunks import index_document_version
+from tests.test_t011_review_workspace import _actor, _ids, _seed_graph
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("RUN_DATABASE_TESTS") != "1",
+    reason="Database integration tests require RUN_DATABASE_TESTS=1",
+)
+
+
+def _paragraph(pid: str, text_: str, section: str, page: int) -> dict:
+    return {
+        "id": pid,
+        "text": text_,
+        "section_id": section,
+        "page_number": page,
+        "bbox": {"x0": 0, "top": 0, "x1": 1, "bottom": 1},
+    }
+
+
+def _report_ir() -> dict:
+    return {
+        "schema_version": 1,
+        "source": {"sha256": "b" * 64, "size_bytes": 100, "page_count": 3},
+        "pages": [],
+        "sections": [
+            {"id": "s1", "text": "1. Giới thiệu", "level": 1, "parent_id": None,
+             "page_number": 1, "bbox": {}},
+            {"id": "s2", "text": "3. Kiểm thử", "level": 1, "parent_id": None,
+             "page_number": 2, "bbox": {}},
+            {"id": "s3", "text": "4. Kết luận", "level": 1, "parent_id": None,
+             "page_number": 3, "bbox": {}},
+        ],  # fmt: skip
+        "paragraphs": [
+            _paragraph("p1", "Hệ thống quản lý thư viện cho sinh viên.", "s1", 1),
+            _paragraph(
+                "p2",
+                "Nhóm viết kiểm thử đơn vị bằng pytest cho module mượn sách.",
+                "s2",
+                2,
+            ),
+            _paragraph(
+                "p3", "Nhóm đề xuất hướng phát triển giao diện di động.", "s3", 3
+            ),
+        ],
+        "tables": [],
+    }
+
+
+async def _insert_ir(
+    connection: AsyncConnection, version_id: uuid.UUID, content: dict
+) -> None:
+    await connection.execute(
+        text("""
+            INSERT INTO public.document_irs (
+                id, document_version_id, schema_version, parser_version, content
+            ) VALUES (:id, :version, 1, 'test-parser', CAST(:content AS jsonb))
+        """),
+        {"id": uuid.uuid4(), "version": version_id, "content": json.dumps(content)},
+    )
+
+
+def _run(
+    scenario: Callable[[AsyncSession, dict[str, uuid.UUID]], Awaitable[None]],
+) -> None:
+    async def wrapper() -> None:
+        engine = create_async_engine(get_settings().database_url, poolclass=NullPool)
+        connection = await engine.connect()
+        transaction = await connection.begin()
+        # Service-level commits become savepoints; everything is rolled back.
+        session = AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+        try:
+            ids = _ids()
+            await _seed_graph(connection, ids)
+            await _insert_ir(connection, ids["document_2"], _report_ir())
+            await scenario(session, ids)
+        finally:
+            await session.close()
+            await transaction.rollback()
+            await connection.close()
+            await engine.dispose()
+
+    asyncio.run(wrapper())
+
+
+def test_index_is_idempotent_and_retrieval_finds_right_page() -> None:
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        provider = FakeEmbeddingProvider()
+        version = ids["document_2"]
+        assert await index_document_version(session, version, provider) == "indexed"
+        assert (
+            await index_document_version(session, version, provider)
+            == "already_indexed"
+        )
+        assert (
+            await index_document_version(session, ids["document_3"], provider)
+            == "no_document_ir"
+        )
+
+        chunks = await retrieve_chunks(
+            session, [version], "kiểm thử đơn vị", provider=provider
+        )
+        assert chunks, "expected at least one hit"
+        assert chunks[0].page_start == 2
+        assert "kiểm thử đơn vị" in chunks[0].text
+        assert chunks[0].section_path == "3. Kiểm thử"
+
+    _run(scenario)
+
+
+def test_retrieval_never_leaves_the_given_scope() -> None:
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        provider = FakeEmbeddingProvider()
+        await index_document_version(session, ids["document_2"], provider)
+        await index_document_version(session, ids["document_1"], provider)
+        hits = await retrieve_chunks(
+            session, [ids["document_1"]], "kiểm thử đơn vị", provider=provider
+        )
+        assert all(hit.document_version_id == ids["document_1"] for hit in hits)
+        assert await retrieve_chunks(session, [], "kiểm thử", provider=provider) == []
+
+    _run(scenario)
+
+
+def test_keyword_only_retrieval_without_embeddings() -> None:
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        version = ids["document_2"]
+        outcome = await index_document_version(session, version, None)
+        assert outcome == "indexed_without_embeddings"
+        chunks = await retrieve_chunks(session, [version], "pytest", provider=None)
+        assert [chunk.page_start for chunk in chunks] == [2]
+        # A later run with a provider fills the missing vectors in place.
+        filled = await index_document_version(session, version, FakeEmbeddingProvider())
+        assert filled == "embeddings_filled"
+
+    _run(scenario)
+
+
+def test_search_content_chat_returns_excerpt_page_and_citations() -> None:
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        await index_document_version(session, ids["document_2"], None)
+        teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
+        response = await handle_chat(
+            session,
+            user=teacher,
+            message="Tìm đoạn nói về kiểm thử đơn vị",
+            course_id=None,
+            assignment_id=None,
+            submission_id=ids["submission_2"],
+        )
+        assert response.intent == Intent.SEARCH_CONTENT
+        assert response.citations
+        first = response.citations[0]
+        assert first.page == 2
+        assert first.section_path == "3. Kiểm thử"
+        assert first.submission_id == ids["submission_2"]
+        assert "kiểm thử đơn vị" in first.excerpt
+        assert "Trang 2" in response.reply
+
+        # Course scope searches every latest version in the course.
+        course_wide = await handle_chat(
+            session,
+            user=teacher,
+            message="Tìm đoạn nói về pytest",
+            course_id=ids["course"],
+            assignment_id=None,
+        )
+        assert course_wide.citations and course_wide.citations[0].page == 2
+        assert "Student 2" in course_wide.reply
+
+    _run(scenario)
+
+
+def test_search_content_denies_other_teachers_submission() -> None:
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        await index_document_version(session, ids["document_2"], None)
+        outsider = _actor(ids["other_teacher"], "Teacher B", UserRole.TEACHER)
+        with pytest.raises(HTTPException) as error:
+            await handle_chat(
+                session,
+                user=outsider,
+                message="Tìm đoạn nói về kiểm thử",
+                course_id=None,
+                assignment_id=None,
+                submission_id=ids["submission_2"],
+            )
+        assert error.value.status_code == 404
+
+        teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
+        with pytest.raises(HTTPException) as mismatch:
+            await handle_chat(
+                session,
+                user=teacher,
+                message="Tìm đoạn nói về kiểm thử",
+                course_id=uuid.uuid4(),
+                assignment_id=None,
+                submission_id=ids["submission_2"],
+            )
+        assert mismatch.value.status_code == 404
+
+    _run(scenario)

@@ -1,6 +1,7 @@
 from app.models.analysis import AnalysisJob, AnalysisJobDispatch, DocumentIR
 from app.models.assignment import Assignment, AssignmentRequirement
 from app.models.audit import AuditEvent
+from app.models.chunk import DocumentChunk
 from app.models.course import (
     Course,
     CourseInvite,
@@ -60,6 +61,7 @@ __all__ = [
     "CourseJoinOutcome",
     "CriterionVersion",
     "CourseStatus",
+    "DocumentChunk",
     "DocumentIR",
     "DocumentStatus",
     "DocumentVersion",

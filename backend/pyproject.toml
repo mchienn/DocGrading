@@ -17,6 +17,7 @@ dependencies = [
   "uvicorn[standard]>=0.35,<1",
   "pdfplumber>=0.11,<1",
   "qrcode==8.2",
+  "openai>=1.60,<3",
 ]
 
 [dependency-groups]

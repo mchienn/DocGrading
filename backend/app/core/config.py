@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     analysis_job_lease_seconds: int = Field(default=300, gt=0)
     analysis_job_heartbeat_seconds: int = Field(default=30, gt=0)
 
+    # RAG embeddings. An empty key is allowed so the app still boots; only the
+    # code path that actually calls the provider raises (see embeddings.py).
+    embedding_provider: str = "openai"
+    embedding_api_key: str = ""
+    embedding_model: str = "text-embedding-3-small"
+
     @model_validator(mode="after")
     def _validate_invariants(self) -> "Settings":
         if self.analysis_job_heartbeat_seconds >= self.analysis_job_lease_seconds:
