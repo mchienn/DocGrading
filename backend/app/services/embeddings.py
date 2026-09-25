@@ -9,9 +9,11 @@ keep working without any key.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import re
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from app.core.config import Settings, get_settings
@@ -28,10 +30,27 @@ class EmbeddingProvider(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
+def _is_rate_limited(exc: BaseException) -> bool:
+    return getattr(exc, "status_code", None) == 429
+
+
 class OpenAIEmbeddingProvider:
-    def __init__(self, api_key: str, model: str) -> None:
+    # Low-tier accounts get ~40k tokens/minute while one 100-chunk batch is
+    # ~16k tokens, so 429s are expected during backfills: wait for the
+    # per-minute window to reset instead of failing the whole run.
+    RATE_LIMIT_RETRIES = 6
+    RATE_LIMIT_WAIT_SECONDS = 20.0
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        *,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
         self._api_key = api_key
         self.model_name = model
+        self._sleep = sleep
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not self._api_key:
@@ -40,6 +59,16 @@ class OpenAIEmbeddingProvider:
             )
         if not texts:
             return []
+        for attempt in range(self.RATE_LIMIT_RETRIES + 1):
+            try:
+                return await self._request(texts)
+            except Exception as exc:
+                if not _is_rate_limited(exc) or attempt == self.RATE_LIMIT_RETRIES:
+                    raise
+                await self._sleep(self.RATE_LIMIT_WAIT_SECONDS * (attempt + 1))
+        raise AssertionError("unreachable")
+
+    async def _request(self, texts: list[str]) -> list[list[float]]:
         # Imported lazily so the SDK is only loaded when embeddings are used.
         from openai import AsyncOpenAI
 
