@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+ALL_COURSES = "all"
 
 
 class ChatRequest(BaseModel):
@@ -17,9 +20,19 @@ class ChatRequest(BaseModel):
     """
 
     message: str = Field(min_length=1, max_length=1000)
-    course_id: uuid.UUID | str | None = None
+    # Only a UUID or the literal "all" — any other string is a 422, never a
+    # raw value that reaches a UUID column (that used to surface as a 500).
+    course_id: uuid.UUID | Literal["all"] | None = None
     assignment_id: uuid.UUID | None = None
     submission_id: uuid.UUID | None = None
+
+    @field_validator("course_id", "assignment_id", "submission_id", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: Any) -> Any:
+        # The UI sends "" for an empty <select>; treat it like "not chosen".
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class ChatAssignmentOption(BaseModel):

@@ -20,13 +20,14 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Literal
 
 import sqlalchemy as sa
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import check_course_ownership
-from app.api.schemas_chat import ChatResponse, Citation
+from app.api.schemas_chat import ALL_COURSES, ChatResponse, Citation
 from app.models.assignment import Assignment
 from app.models.course import Course, Membership
 from app.models.enums import (
@@ -347,7 +348,7 @@ async def _handle_new_review_requests_all_courses(db: AsyncSession, courses: lis
             .join(Assignment, Assignment.id == Submission.assignment_id)
             .where(
                 Assignment.course_id == course.id,
-                ReviewRequest.status == ReviewRequestStatus.SUBMITTED,
+                ReviewRequest.status == ReviewRequestStatus.OPEN,
                 ReviewRequest.created_at >= cutoff,
             )
         )
@@ -660,7 +661,7 @@ async def _resolve_rag_scope(
         latest = await _latest_version_id(db, submission.id)
         return RagScope(course, [latest] if latest else [], submission)
 
-    if course_id is None or course_id == "all":
+    if course_id is None or course_id == ALL_COURSES:
         return ChatResponse(
             reply=(
                 "Câu hỏi về nội dung bài nộp cần một lớp cụ thể (hoặc mở một bài "
@@ -844,6 +845,23 @@ async def _handle_summarize_submission(
     return ChatResponse(reply=summary.text, intent=intent)
 
 
+def normalize_course_id(
+    course_id: uuid.UUID | str | None,
+) -> uuid.UUID | Literal["all"] | None:
+    """Blank -> None, "all" stays, anything else must be a UUID (else 422)."""
+    if course_id is None or isinstance(course_id, uuid.UUID):
+        return course_id
+    value = course_id.strip()
+    if not value:
+        return None
+    if value.lower() == ALL_COURSES:
+        return ALL_COURSES
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid course_id") from None
+
+
 async def handle_chat(
     db: AsyncSession,
     *,
@@ -859,6 +877,7 @@ async def handle_chat(
     classifier only decides *which* query to run, never the answer itself.
     If course_id is "all", aggregate data from all teacher's courses.
     """
+    course_id = normalize_course_id(course_id)
     intent = classify_intent(message)
 
     if intent is Intent.GREETING:
@@ -906,7 +925,7 @@ async def handle_chat(
         )
 
     # Handle "all" - aggregate across all teacher's courses
-    if course_id == "all":
+    if course_id == ALL_COURSES:
         courses = await _get_teacher_courses(db, user)
         if not courses:
             return ChatResponse(
