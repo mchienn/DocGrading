@@ -30,6 +30,7 @@ import {
   type ChatSession,
   type ClarificationOption,
   type CourseScope,
+  type OpenDocument,
 } from '../../services/chatService';
 
 // ---------------------------------------------------------------------------
@@ -53,6 +54,7 @@ interface Scope {
 
 const CLASS_SUGGESTIONS = [
   'Tình hình báo cáo lớp thế nào?',
+  'Xem bài báo cáo OPRO',
   'Còn bao nhiêu bài chưa duyệt?',
   'Bao nhiêu sinh viên chưa nộp?',
   'Tìm đoạn nói về kiểm thử',
@@ -186,7 +188,8 @@ const MessageBubble: React.FC<{
   clarificationDisabled: boolean;
   onCitation: (citation: ChatCitation) => void;
   onClarify: (message: UiMessage, option: ClarificationOption) => void;
-}> = ({ message, clarificationDisabled, onCitation, onClarify }) => {
+  onOpenDocument?: (document: OpenDocument) => void;
+}> = ({ message, clarificationDisabled, onCitation, onClarify, onOpenDocument }) => {
   const payload = message.payload ?? {};
   const citations = payload.citations ?? [];
   const isUser = message.sender === 'user';
@@ -209,6 +212,15 @@ const MessageBubble: React.FC<{
         {citations.length > 0 && (payload.intent === 'SEARCH_CONTENT'
           ? <SnippetCards citations={citations} onOpen={onCitation} />
           : <CitationList citations={citations} onOpen={onCitation} />)}
+        {payload.open_document && onOpenDocument && (
+          <button
+            type="button"
+            onClick={() => onOpenDocument(payload.open_document as OpenDocument)}
+            className="mt-3 w-full py-1.5 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded flex items-center justify-center gap-1.5"
+          >
+            <ExternalLink className="w-3.5 h-3.5" /> Mở PDF: {payload.open_document.file_name}
+          </button>
+        )}
         {payload.needs_clarification && payload.clarification_options && (
           <ClarificationChips
             options={payload.clarification_options}
@@ -229,8 +241,9 @@ const ChatPane: React.FC<{
   onSend: (text: string) => void;
   onCitation: (citation: ChatCitation) => void;
   onClarify: (message: UiMessage, option: ClarificationOption) => void;
+  onOpenDocument?: (document: OpenDocument) => void;
   placeholder: string;
-}> = ({ messages, sending, suggestions, answered, onSend, onCitation, onClarify, placeholder }) => {
+}> = ({ messages, sending, suggestions, answered, onSend, onCitation, onClarify, onOpenDocument, placeholder }) => {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -254,6 +267,7 @@ const ChatPane: React.FC<{
             clarificationDisabled={sending || answered.has(message.id)}
             onCitation={onCitation}
             onClarify={onClarify}
+            onOpenDocument={onOpenDocument}
           />
         ))}
         {sending && (
@@ -550,7 +564,8 @@ const FullChat: React.FC = () => {
     setPending((prev) => ({ ...prev, [sessionId]: [...(prev[sessionId] ?? []), userMessage] }));
     setSendingSession(sessionId);
     try {
-      await sendChatMessage({ message: text, ...useScope, sessionId });
+      const result = await sendChatMessage({ message: text, ...useScope, sessionId });
+      if (result.open_document) openDocument(result.open_document);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['chat-messages', sessionId] }),
         queryClient.invalidateQueries({ queryKey: ['chat-sessions'] }),
@@ -573,6 +588,15 @@ const FullChat: React.FC = () => {
       await patchScope(next);
     }
     if (message.payload?.pending_message) await send(message.payload.pending_message, next);
+  };
+
+  const openDocument = (document: OpenDocument) => {
+    // The backend already saved it as this session's scope; mirror it locally.
+    queryClient.setQueryData<ChatSession[]>(['chat-sessions'], (prev) =>
+      (prev ?? []).map((s) => (s.id === activeTabId ? { ...s, submission_id: document.submission_id } : s)),
+    );
+    setPdfFocus({ documentVersionId: document.document_version_id, fileName: document.file_name, markers: [] });
+    setIsPdfOpen(true);
   };
 
   const openCitation = (citation: ChatCitation) => {
@@ -777,6 +801,7 @@ const FullChat: React.FC = () => {
             onSend={(text) => void send(text)}
             onCitation={openCitation}
             onClarify={(message, option) => void clarify(message, option)}
+            onOpenDocument={openDocument}
             placeholder="Hỏi về tình hình chấm bài, tra cứu đoạn văn trong PDF, tóm tắt bài nộp..."
           />
         </div>
