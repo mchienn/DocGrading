@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
@@ -25,7 +26,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import check_course_ownership
-from app.api.schemas_chat import ChatAssignmentOption, ChatResponse, Citation
+from app.api.schemas_chat import ChatResponse, Citation
 from app.models.assignment import Assignment
 from app.models.course import Course, Membership
 from app.models.enums import (
@@ -483,38 +484,88 @@ async def _handle_errors(
     )
 
 
+# Long rosters are cut so one chat bubble stays readable.
+NOT_SUBMITTED_NAME_LIMIT = 30
+
+
+@dataclass(frozen=True)
+class MissingSubmissions:
+    assignment_title: str
+    closed: bool
+    student_names: list[str]
+
+
+def format_not_submitted(
+    course_name: str, student_count: int, rows: list[MissingSubmissions]
+) -> str:
+    """Per-assignment list of active students with no submission yet."""
+    if not rows:
+        return f'Lớp "{course_name}" chưa có bài tập nào được giao.'
+    lines = [f'Lớp "{course_name}" ({student_count} sinh viên đang hoạt động):']
+    for row in rows:
+        label = f'Bài tập "{row.assignment_title}"' + (
+            " (đã đóng)" if row.closed else ""
+        )
+        missing = len(row.student_names)
+        if missing == 0:
+            lines.append(f"• {label}: tất cả sinh viên đã nộp.")
+            continue
+        lines.append(f"• {label}: {missing}/{student_count} sinh viên chưa nộp:")
+        shown = row.student_names[:NOT_SUBMITTED_NAME_LIMIT]
+        lines.extend(f"   - {name}" for name in shown)
+        if missing > len(shown):
+            lines.append(f"   … và {missing - len(shown)} sinh viên khác.")
+    return "\n".join(lines)
+
+
+async def _active_students(db: AsyncSession, course_id: uuid.UUID) -> list[User]:
+    stmt = (
+        sa.select(User)
+        .join(Membership, Membership.user_id == User.id)
+        .where(_active_student_filter(course_id))
+        .order_by(User.display_name, User.email)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _not_submitted_reply(
+    db: AsyncSession, course: Course, assignment: Assignment | None
+) -> str:
+    if assignment is not None:
+        assignments = [assignment]
+    else:
+        assignments = await _open_assignments(db, course.id)
+    students = await _active_students(db, course.id)
+    rows = []
+    for item in assignments:
+        submitted = {r[2] for r in await _latest_versions(db, course.id, item.id)}
+        rows.append(
+            MissingSubmissions(
+                assignment_title=item.title,
+                closed=item.status is AssignmentStatus.CLOSED,
+                student_names=[
+                    f"{student.display_name} ({student.email})"
+                    for student in students
+                    if student.id not in submitted
+                ],
+            )
+        )
+    return format_not_submitted(course.name, len(students), rows)
+
+
 async def _handle_not_submitted(
     db: AsyncSession, course: Course, assignment: Assignment | None
 ) -> ChatResponse:
-    if assignment is None:
-        options = await _open_assignments(db, course.id)
-        if not options:
-            return ChatResponse(
-                reply=f'Lớp "{course.name}" chưa có bài tập nào đang mở.',
-                intent=Intent.NOT_SUBMITTED,
-            )
-        return ChatResponse(
-            reply=(
-                "Câu này cần biết đang hỏi về bài tập nào — chọn một bài tập ở "
-                "phía trên rồi hỏi lại nhé."
-            ),
-            intent=Intent.NOT_SUBMITTED,
-            needs_assignment=True,
-            assignment_options=[
-                ChatAssignmentOption(id=a.id, title=a.title) for a in options
-            ],
-        )
-    rows = await _latest_versions(db, course.id, assignment.id)
-    submitted_student_ids = {r[2] for r in rows}
-    active_student_ids = await _active_student_ids(db, course.id)
-    submitted_active_ids = submitted_student_ids & active_student_ids
-    students = len(active_student_ids)
-    not_submitted = len(active_student_ids - submitted_active_ids)
-    reply = (
-        f'Bài tập "{assignment.title}": {not_submitted} trên {students} sinh viên '
-        f"chưa nộp bài ({len(submitted_active_ids)} đã nộp)."
-    )
+    reply = await _not_submitted_reply(db, course, assignment)
     return ChatResponse(reply=reply, intent=Intent.NOT_SUBMITTED)
+
+
+async def _handle_not_submitted_all_courses(
+    db: AsyncSession, courses: list[Course]
+) -> str:
+    if not courses:
+        return "Bạn chưa có lớp nào."
+    return "\n\n".join([await _not_submitted_reply(db, c, None) for c in courses])
 
 
 async def _handle_new_review_requests(db: AsyncSession, course: Course) -> str:
@@ -875,12 +926,9 @@ async def handle_chat(
         if intent is Intent.NEW_REVIEW_REQUESTS:
             reply = await _handle_new_review_requests_all_courses(db, courses)
             return ChatResponse(reply=reply, intent=intent)
-        # NOT_SUBMITTED requires specific course
         if intent is Intent.NOT_SUBMITTED:
-            return ChatResponse(
-                reply="Để kiểm tra sinh viên chưa nộp, bạn cần chọn một lớp cụ thể nhé.",
-                intent=Intent.UNKNOWN,
-            )
+            reply = await _handle_not_submitted_all_courses(db, courses)
+            return ChatResponse(reply=reply, intent=intent)
         return ChatResponse(reply=_HELP_TEXT, intent=Intent.UNKNOWN)
 
     # Single course mode
