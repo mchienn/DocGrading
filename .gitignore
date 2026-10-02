@@ -28,6 +28,7 @@ htmlcov/
 .venv/
 venv/
 backend/storage/
+*.log
 
 # Generated smoke-test artifacts
 /artifacts/

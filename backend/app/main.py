@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routers.assignments import router as assignments_router
 from app.api.routers.auth import router as auth_router
+from app.api.routers.chat import router as chat_router
 from app.api.routers.courses import join_router as course_join_router
 from app.api.routers.courses import router as courses_router
 from app.api.routers.notifications import router as notifications_router
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     application.include_router(notifications_router, prefix="/api/v1")
     application.include_router(operations_router, prefix="/api/v1")
     application.include_router(submissions_router, prefix="/api/v1")
+    application.include_router(chat_router, prefix="/api/v1")
     application.include_router(metrics_router)
     return application
 
