@@ -512,7 +512,13 @@ async def _queue_evidence_scenario() -> None:
         )
         assert evidence == admin_evidence
         payload = evidence.model_dump()
-        assert set(payload) == {"submission_id", "document_version_id", "findings"}
+        assert set(payload) == {
+            "submission_id",
+            "document_version_id",
+            "findings",
+            "citation",
+        }
+        assert payload["citation"] is None
         assert set(payload["findings"][0]) == {
             "id",
             "criterion_version_id",

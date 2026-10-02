@@ -27,7 +27,10 @@ from app.services.document_ir import (
     SCHEMA_VERSION,
     DocumentIRExtractionError,
     ParsedDocumentIR,
+    _BBox,
+    _group_lines,
     _NodeBudget,
+    _Word,
     parse_document_ir,
 )
 from app.services.pdf_validation import (
@@ -1021,6 +1024,32 @@ def test_uri_label_ignores_words_after_matching_url() -> None:
     )
 
     assert parsed.content["links"][0]["status"] == "MATCH"
+
+
+def test_link_label_work_over_budget_falls_back_to_manual_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(document_ir, "_MAX_LINK_LABEL_WORK", 0)
+
+    parsed = parse_document_ir(
+        _make_active_pdf(
+            uri=True,
+            text="https://example.test/requirements",
+        )
+    )
+
+    assert parsed.content["links"][0]["display_text"] == ""
+    assert parsed.content["links"][0]["status"] == "NEEDS_REVIEW"
+
+
+def test_link_display_text_is_bounded_before_joining() -> None:
+    text = "x" * (document_ir._MAX_LINK_LABEL_CHARS * 2)
+    display_text = document_ir._link_display_text(
+        [_Word(text, _BBox(0, 0, 100, 10), 10, "Helvetica")],
+        _BBox(0, 0, 100, 10),
+    )
+
+    assert len(display_text) == document_ir._MAX_LINK_LABEL_CHARS
 
 
 @pytest.mark.parametrize(
@@ -2180,7 +2209,7 @@ def test_minimal_valid_text_pdf_returns_ir_payload() -> None:
     content = parsed.content
     assert content["schema_version"] == SCHEMA_VERSION
     assert SCHEMA_VERSION == 2
-    assert PARSER_VERSION == "pypdf-pdfplumber-v3"
+    assert PARSER_VERSION == "pypdf-pdfplumber-v5"
 
     assert content["source"] == {
         "sha256": parsed.validation.sha256,
@@ -2200,3 +2229,234 @@ def test_minimal_valid_text_pdf_returns_ir_payload() -> None:
     assert content["sections"] == []
     assert len(content["paragraphs"]) == 1
     assert content["tables"] == []
+
+
+def test_superscript_marker_after_word_rejects_single_letter_exponent() -> None:
+    claim_line = document_ir._line_from_words(
+        [
+            _Word("Claim", _BBox(72, 100, 102, 110), 10, "Helvetica"),
+            _Word("1", _BBox(102, 94, 106, 101), 6, "Helvetica"),
+            _Word("continues", _BBox(108, 100, 150, 110), 10, "Helvetica"),
+        ]
+    )
+    equation_line = document_ir._line_from_words(
+        [
+            _Word("x", _BBox(72, 100, 78, 110), 10, "Helvetica"),
+            _Word("2", _BBox(78, 94, 82, 101), 6, "Helvetica"),
+            _Word("continues", _BBox(84, 100, 126, 110), 10, "Helvetica"),
+        ]
+    )
+
+    assert claim_line.superscript_markers == ((6, 7, 1),)
+    assert equation_line.superscript_markers == ()
+
+
+def test_two_column_line_order_is_column_major() -> None:
+    words = [
+        word
+        for index in range(8)
+        for word in (
+            _Word(
+                text=f"L{index}a",
+                bbox=_BBox(72, 100 + index * 14, 110, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+            _Word(
+                text=f"L{index}b",
+                bbox=_BBox(190, 100 + index * 14, 220, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+            _Word(
+                text=f"R{index}a",
+                bbox=_BBox(340, 100 + index * 14, 380, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+            _Word(
+                text=f"R{index}b",
+                bbox=_BBox(460, 100 + index * 14, 490, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+        )
+    ]
+
+    lines = _group_lines(words, page_width=612)
+
+    assert [line.text for line in lines] == [
+        *(f"L{index}a L{index}b" for index in range(8)),
+        *(f"R{index}a R{index}b" for index in range(8)),
+    ]
+
+
+def test_single_column_labels_do_not_trigger_column_split() -> None:
+    words = [
+        word
+        for index in range(8)
+        for word in (
+            _Word(
+                text=f"{index}.",
+                bbox=_BBox(72, 100 + index * 14, 90, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+            _Word(
+                text=f"Body{index}",
+                bbox=_BBox(140, 100 + index * 14, 200, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+            _Word(
+                text="continues",
+                bbox=_BBox(220, 100 + index * 14, 290, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+        )
+    ]
+
+    assert [line.text for line in _group_lines(words, page_width=612)] == [
+        f"{index}. Body{index} continues" for index in range(8)
+    ]
+
+
+def test_sequential_indented_blocks_do_not_trigger_column_split() -> None:
+    words = [
+        word
+        for index in range(4)
+        for word in (
+            _Word(
+                text=f"R{index}a",
+                bbox=_BBox(340, 100 + index * 14, 380, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+            _Word(
+                text=f"R{index}b",
+                bbox=_BBox(460, 100 + index * 14, 490, 110 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+            _Word(
+                text=f"L{index}a",
+                bbox=_BBox(72, 220 + index * 14, 110, 230 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+            _Word(
+                text=f"L{index}b",
+                bbox=_BBox(190, 220 + index * 14, 220, 230 + index * 14),
+                font_size=10,
+                font_name="Helvetica",
+            ),
+        )
+    ]
+
+    assert [line.text for line in _group_lines(words, page_width=612)] == [
+        *(f"R{index}a R{index}b" for index in range(4)),
+        *(f"L{index}a L{index}b" for index in range(4)),
+    ]
+
+
+def test_full_width_heading_stays_whole_above_two_columns() -> None:
+    words = [
+        _Word("Full", _BBox(120, 50, 190, 64), 16, "Helvetica"),
+        _Word("Heading", _BBox(205, 50, 300, 64), 16, "Helvetica"),
+        *(
+            word
+            for index in range(8)
+            for word in (
+                _Word(
+                    f"L{index}a",
+                    _BBox(72, 100 + index * 14, 110, 110 + index * 14),
+                    10,
+                    "Helvetica",
+                ),
+                _Word(
+                    f"L{index}b",
+                    _BBox(190, 100 + index * 14, 220, 110 + index * 14),
+                    10,
+                    "Helvetica",
+                ),
+                _Word(
+                    f"R{index}a",
+                    _BBox(340, 100 + index * 14, 380, 110 + index * 14),
+                    10,
+                    "Helvetica",
+                ),
+                _Word(
+                    f"R{index}b",
+                    _BBox(460, 100 + index * 14, 490, 110 + index * 14),
+                    10,
+                    "Helvetica",
+                ),
+            )
+        ),
+    ]
+
+    assert [line.text for line in _group_lines(words, page_width=612)] == [
+        "Full Heading",
+        *(f"L{index}a L{index}b" for index in range(8)),
+        *(f"R{index}a R{index}b" for index in range(8)),
+    ]
+
+
+def test_hanging_indent_stays_in_one_paragraph() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            [
+                "BT /F1 12 Tf 72 700 Td (Reference first line.) Tj ET",
+                "BT /F1 12 Tf 95 684 Td (Reference continuation.) Tj ET",
+            ]
+        )
+    )
+
+    assert [paragraph["text"] for paragraph in parsed.content["paragraphs"]] == [
+        "Reference first line. Reference continuation."
+    ]
+
+
+def test_repeated_margin_text_and_page_numbers_are_not_paragraphs() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            [
+                "BT /F1 10 Tf 72 780 Td (Header) Tj ET",
+                "BT /F1 10 Tf 72 760 Td (Page 1 of 2) Tj ET",
+                "BT /F1 12 Tf 72 700 Td (Body page one.) Tj ET",
+            ],
+            [
+                "BT /F1 10 Tf 72 780 Td (Header) Tj ET",
+                "BT /F1 10 Tf 72 760 Td (2 | 2) Tj ET",
+                "BT /F1 12 Tf 72 700 Td (Body page two.) Tj ET",
+            ],
+        )
+    )
+
+    paragraph_text = [paragraph["text"] for paragraph in parsed.content["paragraphs"]]
+    assert "Header" not in paragraph_text
+    assert "Page 1 of 2" not in paragraph_text
+    assert "2 | 2" not in paragraph_text
+    assert paragraph_text == ["Body page one.", "Body page two."]
+
+
+def test_repeated_large_margin_heading_is_removed_and_sections_repaired() -> None:
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            [
+                "BT /F1 18 Tf 72 770 Td (Running Header) Tj ET",
+                "BT /F1 12 Tf 72 700 Td (Body page one.) Tj ET",
+            ],
+            [
+                "BT /F1 18 Tf 72 770 Td (Running Header) Tj ET",
+                "BT /F1 12 Tf 72 700 Td (Body page two.) Tj ET",
+            ],
+        )
+    )
+
+    assert parsed.content["sections"] == []
+    assert [paragraph["section_id"] for paragraph in parsed.content["paragraphs"]] == [
+        None,
+        None,
+    ]

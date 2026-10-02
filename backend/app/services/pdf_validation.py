@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -332,6 +332,7 @@ class _RasterGeometryContext:
     remaining_decoded_bytes: int = field(init=False)
     form_contents: dict[int, ContentStream] = field(default_factory=dict)
     form_decoded_sizes: dict[int, int] = field(default_factory=dict)
+    resource_decoded_sizes: dict[int, int] = field(default_factory=dict)
     text_extraction_work_bytes: int = 0
     operation_count: int = 0
 
@@ -753,6 +754,64 @@ def _account_form_stream(
     return decoded_size
 
 
+def _account_resource_stream(
+    stream: StreamObject,
+    context: _RasterGeometryContext,
+) -> int:
+    marker = id(stream)
+    if marker in context.resource_decoded_sizes:
+        return context.resource_decoded_sizes[marker]
+    if marker in context.form_decoded_sizes:
+        return context.form_decoded_sizes[marker]
+    remaining = context.remaining_decoded_bytes
+    _ensure_unbounded_filter_stages_fit(stream, remaining)
+    with _bounded_pypdf_decode(remaining):
+        try:
+            decoded_data = stream.get_data()
+        except LimitReachedError as exc:
+            raise PDFValidationError("PDF_DECODED_TOO_LARGE") from exc
+    decoded_size = len(decoded_data)
+    if decoded_size > remaining:
+        raise PDFValidationError("PDF_DECODED_TOO_LARGE")
+    context.remaining_decoded_bytes -= decoded_size
+    context.resource_decoded_sizes[marker] = decoded_size
+    return decoded_size
+
+
+def _preflight_font_streams(
+    resources: Mapping[str, Any],
+    context: _RasterGeometryContext,
+    seen_fonts: set[int],
+) -> None:
+    fonts = _resolve_pdf_object(resources.get("/Font"))
+    if not isinstance(fonts, dict):
+        return
+    pending = list(fonts.values())
+    while pending:
+        font = _resolve_pdf_object(pending.pop())
+        if not isinstance(font, dict):
+            continue
+        marker = id(font)
+        if marker in seen_fonts:
+            continue
+        seen_fonts.add(marker)
+        if len(seen_fonts) > _MAX_PAGE_TREE_NODES:
+            raise _PDFGeometryLimit
+        for key in ("/ToUnicode", "/Encoding"):
+            candidate = _resolve_pdf_object(font.get(key))
+            if isinstance(candidate, StreamObject):
+                _account_resource_stream(candidate, context)
+        descriptor = _resolve_pdf_object(font.get("/FontDescriptor"))
+        if isinstance(descriptor, dict):
+            for key in ("/FontFile", "/FontFile2", "/FontFile3"):
+                candidate = _resolve_pdf_object(descriptor.get(key))
+                if isinstance(candidate, StreamObject):
+                    _account_resource_stream(candidate, context)
+        descendants = _resolve_pdf_object(font.get("/DescendantFonts"))
+        if isinstance(descendants, (ArrayObject, list, tuple)):
+            pending.extend(descendants)
+
+
 def _load_form_content(
     xobject: StreamObject,
     pdf: Any,
@@ -774,6 +833,7 @@ def _load_form_content(
 def _preflight_form_streams(page: Any, context: _RasterGeometryContext) -> None:
     pending: list[tuple[Any, int]] = [(page, 0)]
     seen: set[int] = set()
+    seen_fonts: set[int] = set()
     while pending:
         container, depth = pending.pop()
         if depth > _MAX_FORM_DEPTH:
@@ -781,6 +841,7 @@ def _preflight_form_streams(page: Any, context: _RasterGeometryContext) -> None:
         resources = _resolve_pdf_object(container.get("/Resources"))
         if not isinstance(resources, dict):
             continue
+        _preflight_font_streams(resources, context, seen_fonts)
         xobjects = _resolve_pdf_object(resources.get("/XObject"))
         if not isinstance(xobjects, dict):
             continue
