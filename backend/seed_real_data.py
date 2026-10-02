@@ -1,10 +1,12 @@
 """Seed real data: 3 courses + 1 teacher account"""
+
 import asyncio
 import uuid
+
 from app.db.session import _session_factory
-from app.models.identity import User
-from app.models.enums import UserRole, UserStatus, MembershipRole, MembershipStatus
 from app.models.course import Course, Membership
+from app.models.enums import MembershipRole, MembershipStatus, UserRole, UserStatus
+from app.models.identity import User
 from app.services.auth import hash_password
 
 
@@ -70,9 +72,9 @@ async def seed():
         await db.commit()
 
     print("✅ Seeded real data:")
-    print(f"   Teacher: teacher@docgrading.edu.vn")
-    print(f"   Password: Teacher@2026")
-    print(f"   Courses:")
+    print("   Teacher: teacher@docgrading.edu.vn")
+    print("   Password: Teacher@2026")
+    print("   Courses:")
     for course in courses:
         print(f"     - {course.code}: {course.name}")
 

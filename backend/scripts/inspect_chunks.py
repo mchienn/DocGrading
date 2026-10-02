@@ -36,7 +36,10 @@ async def main(document_version_id: uuid.UUID | None) -> None:
 
         if document_ir is None:
             print("Không tìm thấy DocumentIR nào trong DB.")
-            print("-> Hãy upload + chờ 1 báo cáo PDF được xử lý xong (status done) rồi chạy lại.")
+            print(
+                "-> Hãy upload + chờ 1 báo cáo PDF được xử lý xong (status done) "
+                "rồi chạy lại."
+            )
             return
 
         print(f"document_ir.id            = {document_ir.id}")
@@ -47,7 +50,10 @@ async def main(document_version_id: uuid.UUID | None) -> None:
         chunks = build_chunks(document_ir.content)
 
         if not chunks:
-            print("build_chunks() trả về danh sách RỖNG — có thể content không có section/paragraph nào.")
+            print(
+                "build_chunks() trả về danh sách RỖNG — có thể content không có "
+                "section/paragraph nào."
+            )
             return
 
         print(f"Tổng số chunk: {len(chunks)}\n")
@@ -70,7 +76,10 @@ def _parse_args() -> argparse.Namespace:
         "--document-version-id",
         type=str,
         default=None,
-        help="UUID của document_versions.id cần kiểm tra. Bỏ trống -> lấy DocumentIR mới nhất trong DB.",
+        help=(
+            "UUID của document_versions.id cần kiểm tra. "
+            "Bỏ trống -> lấy DocumentIR mới nhất trong DB."
+        ),
     )
     return parser.parse_args()
 

@@ -320,7 +320,6 @@ async def _handle_summary_all_courses(db: AsyncSession, courses: list[Course]) -
         rows = await _latest_versions(db, course.id, None)
         total = len(rows)
         reviewed = sum(1 for _, status, _ in rows if status in _REVIEWED_STATUSES)
-        error = sum(1 for _, status, _ in rows if status in _ERROR_STATUSES)
         students = await _active_student_count(db, course.id)
 
         if total == 0:
@@ -328,7 +327,8 @@ async def _handle_summary_all_courses(db: AsyncSession, courses: list[Course]) -
         else:
             rate = round(reviewed / total * 100)
             parts.append(
-                f'Lớp "{course.name}": {rate}% ({reviewed}/{total}) chấm xong, {students} sinh viên hoạt động.'
+                f'Lớp "{course.name}": {rate}% ({reviewed}/{total}) chấm xong, '
+                f"{students} sinh viên hoạt động."
             )
 
     return "\n".join(parts)
