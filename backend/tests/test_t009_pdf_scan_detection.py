@@ -1,3 +1,4 @@
+import zlib
 from io import BytesIO
 
 import pytest
@@ -463,6 +464,40 @@ def test_nested_form_decode_is_bounded_before_extract_text(
 
     with pytest.raises(PDFValidationError) as exc_info:
         validate_pdf(data, max_decoded_bytes=max_size_bytes)
+
+    assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
+
+
+def test_font_stream_decode_is_bounded_before_extract_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=100, height=100)
+    font_stream = EncodedStreamObject()
+    font_stream._data = zlib.compress(b"A" * 5_000)
+    font_stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+    font = _font()
+    font[NameObject("/FontDescriptor")] = DictionaryObject(
+        {NameObject("/FontFile2"): font_stream}
+    )
+    page[NameObject("/Resources")] = DictionaryObject(
+        {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
+    )
+    content = DecodedStreamObject()
+    content.set_data(b"BT /F1 10 Tf 1 95 Td (AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA) Tj ET")
+    page[NameObject("/Contents")] = content
+    output = BytesIO()
+    writer.write(output)
+    monkeypatch.setattr(
+        PageObject,
+        "extract_text",
+        lambda *_args, **_kwargs: pytest.fail(
+            "extract_text ran before font stream preflight"
+        ),
+    )
+
+    with pytest.raises(PDFValidationError) as exc_info:
+        validate_pdf(output.getvalue(), max_decoded_bytes=1_000)
 
     assert exc_info.value.code == "PDF_DECODED_TOO_LARGE"
 

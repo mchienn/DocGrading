@@ -1,0 +1,41 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=0.6in]{geometry}
+\usepackage{multicol}
+\usepackage{array}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+\setlength{\columnsep}{0.3in}
+\pagestyle{plain}
+
+\begin{document}
+\section*{Complex layout citation fixture}
+
+\begin{multicols}{2}
+\subsection*{Left column}
+Deterministic identity prevents citation drift after reprocessing [1].
+The paragraph wraps across several visual lines so reading-order recovery cannot rely on one physical line per paragraph.
+
+\fbox{\parbox{0.40\textwidth}{
+\textbf{Evidence note.} This boxed callout separates visual grouping from semantic reading order.
+}}
+
+\columnbreak
+\subsection*{Right column}
+Table-aware extraction preserves bibliography entries that ordinary paragraph recovery can miss [2].
+A third source covers stable links across mixed page layouts [3].
+The numeric interval [0,1] remains non-citation content.
+\end{multicols}
+
+\newpage
+\section*{References}
+
+\begin{tabular}{|>{\raggedright\arraybackslash}p{0.94\textwidth}|}
+\hline
+[1] Nguyen, A. (2024). Deterministic Identity under Reprocessing. Journal of Document Grading, 12(1), 1--10. \\
+\hline
+[2] Tran, B. (2023). Recovering Bibliographies from Structured Tables. Proceedings of Document Engineering, 101--112. \\
+\hline
+[3] Pham, D. (2022). Stable Evidence Links in Mixed Layouts. Software Quality Notes, 5(4), 7--15. \\
+\hline
+\end{tabular}
+\end{document}

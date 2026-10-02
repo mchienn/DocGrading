@@ -1087,7 +1087,7 @@
           "assignments"
         ],
         "summary": "Publish Assignment",
-        "description": "Publish a DRAFT assignment (DRAFT \u2192 OPEN).",
+        "description": "Publish a DRAFT assignment (DRAFT → OPEN).",
         "operationId": "publish_assignment_api_v1_courses__course_id__assignments__assignment_id__publish_post",
         "parameters": [
           {
@@ -1141,7 +1141,7 @@
           "assignments"
         ],
         "summary": "Close Assignment",
-        "description": "Close an OPEN assignment (OPEN \u2192 CLOSED).",
+        "description": "Close an OPEN assignment (OPEN → CLOSED).",
         "operationId": "close_assignment_api_v1_courses__course_id__assignments__assignment_id__close_post",
         "parameters": [
           {
@@ -4706,6 +4706,329 @@
         ],
         "title": "BulkPublishResponse"
       },
+      "CitationAnchorResponse": {
+        "properties": {
+          "element_id": {
+            "type": "string",
+            "title": "Element Id"
+          },
+          "page_number": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Page Number"
+          },
+          "line_start": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Start"
+          },
+          "line_end": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "element_id",
+          "page_number"
+        ],
+        "title": "CitationAnchorResponse"
+      },
+      "CitationCountsResponse": {
+        "properties": {
+          "references": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "References"
+          },
+          "mentions": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mentions"
+          },
+          "linked": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Linked"
+          },
+          "linkage_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Linkage Rate"
+          },
+          "orphan_mentions": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Orphan Mentions"
+          },
+          "ambiguous": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Ambiguous"
+          },
+          "ambiguous_mapping": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Ambiguous Mapping",
+            "default": 0
+          },
+          "uncited_references": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Uncited References"
+          },
+          "verified": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Verified"
+          },
+          "verified_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Verified Rate"
+          },
+          "metadata_mismatch": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Metadata Mismatch"
+          },
+          "unresolved": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unresolved"
+          },
+          "parser_uncertain": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Parser Uncertain",
+            "default": 0
+          },
+          "fragmented_references": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Fragmented References",
+            "default": 0
+          },
+          "bibliography_not_found": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Bibliography Not Found",
+            "default": 0
+          },
+          "duplicates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duplicates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "references",
+          "mentions",
+          "linked",
+          "linkage_rate",
+          "orphan_mentions",
+          "ambiguous",
+          "uncited_references",
+          "verified",
+          "verified_rate",
+          "metadata_mismatch",
+          "unresolved",
+          "duplicates"
+        ],
+        "title": "CitationCountsResponse"
+      },
+      "CitationIdentityResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "METADATA_MISMATCH",
+              "UNRESOLVED",
+              "PARSER_UNCERTAIN"
+            ],
+            "title": "Status"
+          },
+          "mismatch_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Mismatch Fields"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "arxiv_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arxiv Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "CitationIdentityResponse"
+      },
+      "CitationIssueResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "element_id": {
+            "type": "string",
+            "title": "Element Id"
+          },
+          "page_number": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Page Number"
+          },
+          "snippet": {
+            "type": "string",
+            "maxLength": 240,
+            "title": "Snippet"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/CitationAnchorResponse"
+            },
+            "type": "array",
+            "title": "Anchors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "element_id",
+          "page_number",
+          "snippet"
+        ],
+        "title": "CitationIssueResponse"
+      },
+      "CitationReportResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Schema Version"
+          },
+          "parser_status": {
+            "type": "string",
+            "enum": [
+              "PARSED",
+              "PARSER_UNCERTAIN"
+            ],
+            "title": "Parser Status",
+            "default": "PARSED"
+          },
+          "bibliography_status": {
+            "type": "string",
+            "enum": [
+              "PARSED",
+              "PARSER_UNCERTAIN",
+              "BIBLIOGRAPHY_NOT_FOUND"
+            ],
+            "title": "Bibliography Status",
+            "default": "BIBLIOGRAPHY_NOT_FOUND"
+          },
+          "parser_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Parser Warnings"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/CitationCountsResponse"
+          },
+          "duplicate_reference_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Duplicate Reference Ids"
+          },
+          "identity": {
+            "items": {
+              "$ref": "#/components/schemas/CitationIdentityResponse"
+            },
+            "type": "array",
+            "title": "Identity"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/CitationIssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "counts"
+        ],
+        "title": "CitationReportResponse"
+      },
       "CompletionResponse": {
         "properties": {
           "submission_id": {
@@ -5616,6 +5939,16 @@
             },
             "type": "array",
             "title": "Findings"
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CitationReportResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

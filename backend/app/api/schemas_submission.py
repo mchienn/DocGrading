@@ -144,6 +144,63 @@ class ValidationReportResponse(BaseModel):
     diagnostics: list[ValidationDiagnosticResponse] = Field(max_length=25)
 
 
+class CitationCountsResponse(BaseModel):
+    references: int = Field(ge=0)
+    mentions: int = Field(ge=0)
+    linked: int = Field(ge=0)
+    linkage_rate: float = Field(ge=0, le=1)
+    orphan_mentions: int = Field(ge=0)
+    ambiguous: int = Field(ge=0)
+    ambiguous_mapping: int = Field(default=0, ge=0)
+    uncited_references: int = Field(ge=0)
+    verified: int = Field(ge=0)
+    verified_rate: float = Field(ge=0, le=1)
+    metadata_mismatch: int = Field(ge=0)
+    unresolved: int = Field(ge=0)
+    parser_uncertain: int = Field(default=0, ge=0)
+    fragmented_references: int = Field(default=0, ge=0)
+    bibliography_not_found: int = Field(default=0, ge=0)
+    duplicates: int = Field(ge=0)
+
+
+class CitationIdentityResponse(BaseModel):
+    id: str
+    status: Literal["VERIFIED", "METADATA_MISMATCH", "UNRESOLVED", "PARSER_UNCERTAIN"]
+    mismatch_fields: list[str] = Field(default_factory=list)
+    doi: str | None = None
+    arxiv_id: str | None = None
+    provider: dict[str, str] | None = None
+
+
+class CitationAnchorResponse(BaseModel):
+    element_id: str
+    page_number: int = Field(gt=0)
+    line_start: int | None = Field(default=None, ge=0)
+    line_end: int | None = Field(default=None, ge=0)
+
+
+class CitationIssueResponse(BaseModel):
+    id: str
+    status: str
+    element_id: str
+    page_number: int = Field(gt=0)
+    snippet: str = Field(max_length=240)
+    anchors: list[CitationAnchorResponse] = Field(default_factory=list)
+
+
+class CitationReportResponse(BaseModel):
+    schema_version: int = Field(gt=0)
+    parser_status: Literal["PARSED", "PARSER_UNCERTAIN"] = "PARSED"
+    bibliography_status: Literal[
+        "PARSED", "PARSER_UNCERTAIN", "BIBLIOGRAPHY_NOT_FOUND"
+    ] = "BIBLIOGRAPHY_NOT_FOUND"
+    parser_warnings: list[str] = Field(default_factory=list)
+    counts: CitationCountsResponse
+    duplicate_reference_ids: list[str] = Field(default_factory=list)
+    identity: list[CitationIdentityResponse] = Field(default_factory=list)
+    issues: list[CitationIssueResponse] = Field(default_factory=list)
+
+
 class EvidenceResponse(BaseModel):
     document_ir_id: uuid.UUID
     element_id: str
@@ -165,6 +222,7 @@ class EvidenceWorkspaceResponse(BaseModel):
     submission_id: uuid.UUID
     document_version_id: uuid.UUID
     findings: list[FindingResponse]
+    citation: CitationReportResponse | None = None
 
 
 class QueueLockResponse(BaseModel):
