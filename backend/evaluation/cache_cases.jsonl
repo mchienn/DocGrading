@@ -1,0 +1,12 @@
+{"id": "CACHE-MISS-HIT-01", "kind": "miss_then_hit", "submission_id": "f067171b-6391-45aa-9581-20d59c31957b", "note": "1-chunk document (edge case), direct summary"}
+{"id": "CACHE-MISS-HIT-02", "kind": "miss_then_hit", "submission_id": "212b7392-5bbe-422a-b994-2a083377ae4c", "note": "~5.1k tokens, direct summary (1 LLM call)"}
+{"id": "CACHE-MISS-HIT-03", "kind": "miss_then_hit", "submission_id": "432e03cb-251c-40d0-89b9-31cea3e09079", "note": "~5.7k tokens, direct summary"}
+{"id": "CACHE-MISS-HIT-04", "kind": "miss_then_hit", "submission_id": "5826e359-ea45-43e2-8b5c-a0446edc1590", "note": "~6.2k tokens, map-reduce"}
+{"id": "CACHE-MISS-HIT-05", "kind": "miss_then_hit", "submission_id": "64ac131f-0b49-43d6-9f88-8e999105ce6b", "note": "~6.4k tokens, map-reduce (was T3-CACHE-RT-DETR-02 in golden_set)"}
+{"id": "CACHE-MISS-HIT-06", "kind": "miss_then_hit", "submission_id": "52735670-3df3-4c90-a06a-522e8a43447d", "note": "~7.1k tokens, map-reduce"}
+{"id": "CACHE-PRECACHED-07", "kind": "precached_hit", "submission_id": "07b0ea69-bbfc-466a-9392-ca433d47f860", "note": "summary row already exists: both requests must be served from it"}
+{"id": "CACHE-PRECACHED-08", "kind": "precached_hit", "submission_id": "c30bfce0-e675-4d62-8af7-0c5bc1fad190", "note": "was T3-CACHE-EvoPrompt-01 in golden_set; cached by an earlier benchmark run"}
+{"id": "CACHE-CONTENT-CHANGE-09", "kind": "content_change_same_version", "submission_id": "1956375c-158e-443a-9224-a8c97967c684", "note": "UPDATE 1 chunk text of the same document version after caching"}
+{"id": "CACHE-CONTENT-CHANGE-10", "kind": "content_change_same_version", "submission_id": "8354ed95-7c74-449f-9a0d-9976cf9bde34", "note": "UPDATE 1 chunk text of the same document version after caching"}
+{"id": "CACHE-NEW-VERSION-11", "kind": "new_version", "submission_id": "212b7392-5bbe-422a-b994-2a083377ae4c", "note": "uncached old version; insert version_number+1 with 1 chunk changed"}
+{"id": "CACHE-NEW-VERSION-12", "kind": "new_version", "submission_id": "c30bfce0-e675-4d62-8af7-0c5bc1fad190", "note": "old version already cached; the new version must not reuse it"}
