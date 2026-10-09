@@ -34,6 +34,7 @@ from app.services.rag import (
     render_sections,
     rrf_merge,
     strip_section_prefix,
+    summary_source_hash,
 )
 
 
@@ -284,6 +285,28 @@ def test_long_document_uses_map_then_reduce() -> None:
     assert systems[:-1] == [SUMMARY_MAP_SYSTEM_PROMPT] * 4
     assert systems[-1] == SUMMARY_SYSTEM_PROMPT
     assert "MAP" in client.calls[-1]["prompt"]
+
+
+def test_summary_source_hash_tracks_everything_a_summary_is_built_from() -> None:
+    chunks = [
+        _summary_chunk("1. Mở đầu", "Giới thiệu.", 10),
+        _summary_chunk("2. Thiết kế", "Kiến trúc.", 20),
+    ]
+    base = summary_source_hash("parser-v3", chunks)
+    assert len(base) == 64
+    assert summary_source_hash("parser-v3", list(chunks)) == base
+    edited = [chunks[0], _summary_chunk("2. Thiết kế", "Kiến trúc mới.", 20)]
+    renamed = [chunks[0], _summary_chunk("2. Cài đặt", "Kiến trúc.", 20)]
+    others = (
+        summary_source_hash("parser-v3", edited),
+        summary_source_hash("parser-v3", renamed),
+        summary_source_hash("parser-v3", chunks[::-1]),
+        summary_source_hash("parser-v4", chunks),
+        summary_source_hash(None, chunks),
+        summary_source_hash("parser-v3", chunks[:1]),
+    )
+    assert base not in others
+    assert len(set(others)) == len(others)
 
 
 class _RateLimited(Exception):

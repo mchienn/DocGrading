@@ -8,6 +8,8 @@ module never widens scope on its own and never scans the whole table.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import unicodedata
@@ -21,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.models.analysis import DocumentIR
 from app.models.chunk import DocumentChunk, DocumentSummary
 from app.services.embeddings import EmbeddingNotConfiguredError, EmbeddingProvider
 
@@ -511,22 +514,37 @@ class SubmissionSummary:
     cached: bool
 
 
+def summary_source_hash(
+    parser_version: str | None, chunks: Sequence[SummaryChunk]
+) -> str:
+    """sha256 of everything a summary is built from: the IR parser version
+    and the version's chunks in order (section path, token count, text).
+
+    Re-chunking or re-parsing a version changes the chunks and therefore the
+    hash; the chunker has no version id of its own, so its output is hashed.
+    """
+    payload = json.dumps(
+        [
+            parser_version,
+            [[c.section_path, c.token_count, c.text] for c in chunks],
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 async def summarize_document(
     db: AsyncSession, document_version_id: uuid.UUID, client: LLMClient
 ) -> SubmissionSummary | None:
-    """Cached per document version; None when the version has no chunks yet.
+    """Cached per document version and source hash; None when the version
+    has no chunks.
 
-    A new submission version has a new id, so it naturally gets a fresh
-    summary while older versions keep theirs.
+    A new submission version has a new id, so it gets a fresh summary. Within
+    one version, the cached row is reused only while its ``source_hash``
+    matches the current chunks; otherwise (chunks edited, re-indexed after a
+    parser change, or a row from before hashes existed) it is regenerated.
     """
-    cached = await db.scalar(
-        sa.select(DocumentSummary.summary).where(
-            DocumentSummary.document_version_id == document_version_id
-        )
-    )
-    if cached is not None:
-        return SubmissionSummary(text=cached, cached=True)
-
     rows = (
         await db.execute(
             sa.select(
@@ -541,26 +559,51 @@ async def summarize_document(
     if not rows:
         return None
     chunks = [SummaryChunk(row[0], row[1], row[2]) for row in rows]
+    parser_version = await db.scalar(
+        sa.select(DocumentIR.parser_version).where(
+            DocumentIR.document_version_id == document_version_id
+        )
+    )
+    source_hash = summary_source_hash(parser_version, chunks)
+
+    existing = await db.scalar(
+        sa.select(DocumentSummary).where(
+            DocumentSummary.document_version_id == document_version_id
+        )
+    )
+    if existing is not None and existing.source_hash == source_hash:
+        return SubmissionSummary(text=existing.summary, cached=True)
+
     text = await build_summary(chunks, client)
     if not text:
         text = "Không tạo được bản tóm tắt cho tài liệu này."
+    if existing is not None:
+        existing.summary = text
+        existing.model_version = client.model_name
+        existing.source_hash = source_hash
+        await db.commit()
+        return SubmissionSummary(text=text, cached=False)
     db.add(
         DocumentSummary(
             id=uuid.uuid4(),
             document_version_id=document_version_id,
             summary=text,
             model_version=client.model_name,
+            source_hash=source_hash,
         )
     )
     try:
         await db.commit()
     except IntegrityError:
-        # Another request summarized the same version first — use its row.
+        # Another request summarized the same version first — use its row
+        # if it was built from the same chunks.
         await db.rollback()
-        existing = await db.scalar(
-            sa.select(DocumentSummary.summary).where(
+        winner = await db.scalar(
+            sa.select(DocumentSummary).where(
                 DocumentSummary.document_version_id == document_version_id
             )
         )
-        return SubmissionSummary(text=existing or text, cached=True)
+        if winner is not None and winner.source_hash == source_hash:
+            return SubmissionSummary(text=winner.summary, cached=True)
+        return SubmissionSummary(text=text, cached=False)
     return SubmissionSummary(text=text, cached=False)

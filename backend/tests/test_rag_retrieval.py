@@ -345,6 +345,85 @@ def test_summarize_submission_is_cached_after_first_llm_call(
     _run(scenario)
 
 
+def test_editing_chunks_of_the_same_version_rebuilds_the_summary() -> None:
+    client = FakeLLMClient(lambda _s, prompt: f"Tóm tắt {len(prompt)}")
+
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        version = ids["document_2"]
+        await index_document_version(session, version, None)
+        first = await summarize_document(session, version, client)
+        again = await summarize_document(session, version, client)
+        assert first and again and again.cached and again.text == first.text
+        assert len(client.calls) == 1
+        stored_hash = await _summary_hash(session, version)
+        assert stored_hash is not None and len(stored_hash) == 64
+
+        # Same version id, different chunk text (e.g. re-indexed after a
+        # PDF-reader fix): the old summary must not be served.
+        await session.execute(
+            text(
+                "UPDATE public.document_chunks SET text = text || ' (sửa)' "
+                "WHERE document_version_id = :v AND chunk_index = 0"
+            ),
+            {"v": version},
+        )
+        rebuilt = await summarize_document(session, version, client)
+        assert rebuilt and not rebuilt.cached
+        assert rebuilt.text != first.text
+        assert len(client.calls) == 2
+        assert await _summary_hash(session, version) not in (None, stored_hash)
+        rows = await session.scalar(
+            text(
+                "SELECT count(*) FROM public.document_summaries "
+                "WHERE document_version_id = :v"
+            ),
+            {"v": version},
+        )
+        assert rows == 1, "the stale row is updated in place, not duplicated"
+
+        cached = await summarize_document(session, version, client)
+        assert cached and cached.cached and cached.text == rebuilt.text
+        assert len(client.calls) == 2
+
+    _run(scenario)
+
+
+def test_summary_row_without_source_hash_is_regenerated_once() -> None:
+    client = FakeLLMClient("Tóm tắt mới")
+
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        version = ids["document_2"]
+        await index_document_version(session, version, None)
+        # A row cached before source_hash existed (migration leaves NULL).
+        await session.execute(
+            text(
+                "INSERT INTO public.document_summaries "
+                "(id, document_version_id, summary, model_version) "
+                "VALUES (:id, :v, 'Tóm tắt cũ', 'old-model')"
+            ),
+            {"id": uuid.uuid4(), "v": version},
+        )
+        fresh = await summarize_document(session, version, client)
+        assert fresh and not fresh.cached and fresh.text == "Tóm tắt mới"
+        assert len(client.calls) == 1
+        assert await _summary_hash(session, version) is not None
+        cached = await summarize_document(session, version, client)
+        assert cached and cached.cached
+        assert len(client.calls) == 1
+
+    _run(scenario)
+
+
+async def _summary_hash(session: AsyncSession, version: uuid.UUID) -> str | None:
+    return await session.scalar(
+        text(
+            "SELECT source_hash FROM public.document_summaries "
+            "WHERE document_version_id = :v"
+        ),
+        {"v": version},
+    )
+
+
 def test_summaries_are_per_document_version(monkeypatch: pytest.MonkeyPatch) -> None:
     client = FakeLLMClient(lambda _s, prompt: f"Tóm tắt dài {len(prompt)}")
 

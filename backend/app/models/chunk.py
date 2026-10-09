@@ -89,3 +89,7 @@ class DocumentSummary(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     summary: Mapped[str] = mapped_column(sa.Text, nullable=False)
     model_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    # sha256 of what was summarized (parser version + ordered chunks); a row
+    # whose hash no longer matches the version's chunks is regenerated.
+    # NULL for rows written before the column existed: never trusted.
+    source_hash: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
