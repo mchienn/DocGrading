@@ -1,0 +1,213 @@
+{
+  "n_total": 12,
+  "n_counted": 12,
+  "n_precondition_failed": 0,
+  "pass": 12,
+  "rate": 1.0,
+  "by_kind": {
+    "miss_then_hit": {
+      "n": 6,
+      "pass": 6
+    },
+    "legacy_row_regenerates": {
+      "n": 2,
+      "pass": 2
+    },
+    "content_change_same_version": {
+      "n": 2,
+      "pass": 2
+    },
+    "new_version": {
+      "n": 2,
+      "pass": 2
+    }
+  },
+  "details": [
+    {
+      "case_id": "CACHE-MISS-HIT-01",
+      "kind": "miss_then_hit",
+      "row_state_before": "none",
+      "calls": [
+        1,
+        0
+      ],
+      "same_reply_1_2": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 7.255
+    },
+    {
+      "case_id": "CACHE-MISS-HIT-02",
+      "kind": "miss_then_hit",
+      "row_state_before": "none",
+      "calls": [
+        1,
+        0
+      ],
+      "same_reply_1_2": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 4.612
+    },
+    {
+      "case_id": "CACHE-MISS-HIT-03",
+      "kind": "miss_then_hit",
+      "row_state_before": "none",
+      "calls": [
+        1,
+        0
+      ],
+      "same_reply_1_2": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 4.305
+    },
+    {
+      "case_id": "CACHE-MISS-HIT-04",
+      "kind": "miss_then_hit",
+      "row_state_before": "none",
+      "calls": [
+        4,
+        0
+      ],
+      "same_reply_1_2": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 12.912
+    },
+    {
+      "case_id": "CACHE-MISS-HIT-05",
+      "kind": "miss_then_hit",
+      "row_state_before": "none",
+      "calls": [
+        4,
+        0
+      ],
+      "same_reply_1_2": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 14.644
+    },
+    {
+      "case_id": "CACHE-MISS-HIT-06",
+      "kind": "miss_then_hit",
+      "row_state_before": "none",
+      "calls": [
+        4,
+        0
+      ],
+      "same_reply_1_2": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 16.467
+    },
+    {
+      "case_id": "CACHE-LEGACY-07",
+      "kind": "legacy_row_regenerates",
+      "row_state_before": "stale",
+      "calls": [
+        1,
+        0
+      ],
+      "same_reply_1_2": true,
+      "row_state_after": "fresh",
+      "ok": true,
+      "status": "pass",
+      "latency_s": 4.018
+    },
+    {
+      "case_id": "CACHE-LEGACY-08",
+      "kind": "legacy_row_regenerates",
+      "row_state_before": "stale",
+      "calls": [
+        4,
+        0
+      ],
+      "same_reply_1_2": true,
+      "row_state_after": "fresh",
+      "ok": true,
+      "status": "pass",
+      "latency_s": 12.404
+    },
+    {
+      "case_id": "CACHE-CONTENT-CHANGE-09",
+      "kind": "content_change_same_version",
+      "row_state_before": "none",
+      "calls": [
+        4,
+        0,
+        4
+      ],
+      "same_reply_1_2": true,
+      "reply_changed_after_edit": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 29.656
+    },
+    {
+      "case_id": "CACHE-CONTENT-CHANGE-10",
+      "kind": "content_change_same_version",
+      "row_state_before": "none",
+      "calls": [
+        6,
+        0,
+        6
+      ],
+      "same_reply_1_2": true,
+      "reply_changed_after_edit": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 46.006
+    },
+    {
+      "case_id": "CACHE-NEW-VERSION-11",
+      "kind": "new_version",
+      "row_state_before": "none",
+      "calls": [
+        1,
+        0,
+        1,
+        0
+      ],
+      "same_reply_1_2": true,
+      "new_version_summary_row": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 9.062
+    },
+    {
+      "case_id": "CACHE-NEW-VERSION-12",
+      "kind": "new_version",
+      "row_state_before": "stale",
+      "calls": [
+        4,
+        0,
+        4,
+        0
+      ],
+      "same_reply_1_2": true,
+      "new_version_summary_row": true,
+      "ok": true,
+      "status": "pass",
+      "latency_s": 27.163
+    }
+  ],
+  "tokens": {
+    "llm_total_tokens": 136468,
+    "llm_by_purpose": {
+      "summary": {
+        "calls": 50,
+        "prompt": 122554,
+        "completion": 13914
+      }
+    },
+    "embedding": {
+      "calls": 0,
+      "tokens": 0
+    },
+    "llm_budget": 2000000,
+    "budget_exceeded": false
+  },
+  "llm_model": "gpt-4o-mini",
+  "timestamp": "20261009T074243Z"
+}

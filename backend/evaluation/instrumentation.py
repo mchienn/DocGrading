@@ -22,7 +22,9 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.core.config import get_settings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.config import ROOT_ENV_FILE, get_settings
 from app.models.chunk import EMBEDDING_DIMENSIONS
 from app.services import chat as chat_service
 from app.services import rag as rag_service
@@ -159,6 +161,30 @@ def make_llm_client(ledger: TokenLedger) -> CountingChatClient:
     settings = get_settings()
     return CountingChatClient(
         ledger, api_key=settings.llm_api_key.strip(), model=settings.llm_model
+    )
+
+
+class _JudgeSettings(BaseSettings):
+    """``JUDGE_LLM_MODEL`` from the environment or the root ``.env``."""
+
+    model_config = SettingsConfigDict(
+        env_file=ROOT_ENV_FILE, env_file_encoding="utf-8", extra="ignore"
+    )
+    judge_llm_model: str = ""
+
+
+def judge_model_name() -> str:
+    """The judge's model: ``JUDGE_LLM_MODEL`` if set, else the system's
+    ``LLM_MODEL`` (then the judge grades its own model's answers)."""
+    return _JudgeSettings().judge_llm_model.strip() or get_settings().llm_model
+
+
+def make_judge_client(ledger: TokenLedger) -> CountingChatClient:
+    """Same OpenAI key as the system; only the model can differ."""
+    return CountingChatClient(
+        ledger,
+        api_key=get_settings().llm_api_key.strip(),
+        model=judge_model_name(),
     )
 
 

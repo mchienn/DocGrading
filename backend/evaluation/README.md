@@ -7,12 +7,28 @@ ablation over three configurations of the chatbot.
 
 ## Files
 
-- `golden_set.jsonl` — the frozen test set (145 cases, tiers 0–3). Each line:
-  `id`, `tier`, `intent_expected`, `question`, `scope`
-  (`course_id`/`assignment_id`/`submission_id`), `gold`, `gold_source`.
-  Tier 2's `gold.relevant` is a **list** of `{"page", "keyword"}` locations.
-  Case ids contain project/student names — **do not commit this file**.
-  Its three `T3-CACHE-*` rows are no longer run (see "Cache correctness").
+- `golden_set.anonymized.jsonl` — the frozen test set (145 cases, tiers
+  0–3), committed. Each line: `id`, `tier`, `intent_expected`, `question`,
+  `scope` (`course_id`/`assignment_id`/`submission_id`), `gold`,
+  `gold_source`. Tier 2's `gold.relevant` is a **list** of
+  `{"page", "keyword"}` locations. Its three `T3-CACHE-*` rows are no longer
+  run (see "Cache correctness").
+- `golden_set.jsonl` — the original, identical except that 14 case ids carry
+  student names; git-ignored. `anonymize_golden.py` regenerates the
+  anonymized file from it (names → `SV001`…; the name→code map is
+  `private/anonymization_map.json`, git-ignored). `golden.py` picks the file:
+  anonymized by default, `EVAL_GOLDEN_SET=original` or `--golden original`
+  for the original, any other value is a path. Runs made before 2026-10-10
+  (e.g. `ablation_20261009_baseline_details.json`) use original ids, so read
+  them with `--golden original`.
+- `private/` — git-ignored: anonymization map, calibration answer key,
+  cached judge verdicts.
+- `paraphrase_set.jsonl` + `paraphrase_eval.py` — hand-written paraphrases
+  (template only so far) and intent accuracy on them, rules only vs rules +
+  LLM router, with a confusion matrix.
+- `retrieval_eval.py` — retrieval-only comparison (see below).
+- `regroup.py` — recomputes a run's per-group tables with the current
+  document grouping, from its `_details.json`, without calling the chatbot.
 - `cache_cases.jsonl` — 12 summary-cache cases (submission ids only).
 - `scoring.py` — pure scoring functions (reply parsers, retrieval
   precision/recall, glue heuristic, Cohen's kappa, percentiles). No
@@ -49,7 +65,9 @@ POSTGRES_DB=docgrading_test uv run python -m evaluation.run_all                #
 ```
 
 Do not run the `*_migration_roundtrip` DB tests against `docgrading_test`
-while it holds the benchmark copy: they downgrade and wipe it.
+while it holds the benchmark copy: they downgrade and wipe it. The copy must
+be at alembic head (`POSTGRES_DB=docgrading_test uv run alembic upgrade
+head`; head is `20261009_0020`, which adds `document_summaries.source_hash`).
 
 Both keys are required (`LLM_API_KEY`, `EMBEDDING_API_KEY`); without them the
 runner exits instead of producing partial numbers. Before any call it prints
@@ -139,20 +157,28 @@ bound: every gold number appears somewhere in the reply.
 
 ### Grouping by PDF word-gluing
 
-Each document gets the glue rate of the chunk-audit heuristic
+The language is detected first (`scoring.detect_language`): a document is
+Vietnamese when it contains more Vietnamese than English function words.
+On the anchor dataset the populations don't overlap: Vietnamese reports have
+≥ 39% accented words and ≤ 2.1% English function words; English ones have
+≤ 0.1% accented words and ≥ 14% English function words. English documents
+form the group **en** and stay out of the glue groups, because the glue
+heuristic only sees Vietnamese. Before this rule, one English report sat in
+"high" because 1 of its 2 accented words was a person's name.
+
+Vietnamese documents get the glue rate of the chunk-audit heuristic
 (`scoring.glue_candidates`): among words carrying Vietnamese diacritics, the
 share that are 9+ letters long or switch lower→upper case mid-word.
-Groups: low < 2%, mid 2–10%, high ≥ 10%. The heuristic only sees
-Vietnamese. An English report scores ~0% even if its words are glued, and
-one English report lands in "high" because 1 of its 2 accented words is a
-person's name; the report lists each document's accented-word count so
-this can be checked.
+Groups: low < 2%, mid 2–10%, high ≥ 10%. In tiers 2–3 "mid" and "high" each
+contain a single document, so a group comparison is a per-document one.
 
 ### Tier 3 (LLM-as-judge)
 
-Only `ASK_ABOUT_REQUIREMENT` cases, judged by the same model that generates
-answers (`gpt-4o-mini`): self-preference bias is possible. The judge sees the
-full text of every chunk the generator received.
+Only `ASK_ABOUT_REQUIREMENT` cases. The judge model is `JUDGE_LLM_MODEL`
+(environment or root `.env`) if set, else the system's `LLM_MODEL`, with
+the same OpenAI key. Every report states the judge model and whether it is
+the system's model; when it is, self-preference bias is possible. The judge
+sees the full text of every chunk the generator received.
 
 - Faithfulness, citation recall, relevancy, claim coverage: one call per answer.
 - Citation precision: one call per citation ("does chunk [n] support the
@@ -169,44 +195,87 @@ All of these are **uncalibrated** until `calibration/` has hand labels.
    judge's verdict, and the verdict is not written into the file, so the
    labeler isn't anchored by it. The script won't overwrite a file that
    already has a label.
-2. A human fills `human_label` (`true` = the chunk supports the claim,
-   `false` = it doesn't) and optionally `human_note`.
-3. `uv run python -m evaluation.calibration.calibrate_judge` joins each label
-   with the verdict recorded in that sample's `source_run`. It prints
-   agreement, Cohen's kappa and the confusion matrix, and writes
-   `calibration/calibration_result.json`. With no labels it prints "chưa hiệu
-   chỉnh" and no numbers. Below 30 labeled pairs it reports the numbers but
-   doesn't call the judge calibrated.
+2. `uv run python -m evaluation.calibration.add_synthetic_negatives` adds 14
+   synthetic negatives. Each copies a real sample's question, answer and
+   cited sentence, and swaps the chunk for one that cannot support it:
+   7 come from another submission, 7 from the same submission but a
+   different top-level section at least 3 pages away. All have < 20%
+   content-word overlap with the claim. Real and synthetic samples are
+   shuffled and renumbered together. Which ids are synthetic is recorded
+   only in `private/calibration_key.jsonl`.
+3. A human fills `human_label` (`true` = the chunk supports the claim,
+   `false` = it doesn't) and optionally `human_note`, without opening
+   `private/`.
+4. `uv run python -m evaluation.calibration.calibrate_judge` judges each
+   labeled sample with the configured judge model (verdicts cached in
+   `private/judge_verdicts_<model>.jsonl`; `--rejudge` refreshes them). It
+   prints agreement, Cohen's kappa and the confusion matrix: overall, for
+   real samples only, and for synthetic negatives only. It also reports how
+   often the labeler rejected the synthetic negatives, as a check on the
+   labels. It writes `calibration/calibration_result.json`. With no labels it
+   prints "chưa hiệu chỉnh", makes no LLM call and prints no numbers. Below
+   30 labeled pairs it reports the numbers but doesn't call the judge
+   calibrated.
+
+`calibrate_judge --negative-controls` needs no labels. It judges only the
+synthetic negatives and counts how many the judge rejects. That is a sanity
+check against samples that are unsupported by construction, **not** a
+calibration.
 
 The label file contains report text: do not commit it.
 
 ## Cache correctness
 
 `cache_suite.py` runs the 12 cases in `cache_cases.jsonl`, each in its own
-rolled-back transaction:
+rolled-back transaction (`POSTGRES_DB=docgrading_test uv run python -m
+evaluation.cache_suite` runs them alone):
 
 | kind | N | passes when |
 |---|---|---|
 | `miss_then_hit` | 6 | request 1 makes ≥1 LLM call, request 2 makes 0 and returns the same text |
-| `precached_hit` | 2 | both requests make 0 LLM calls and return the stored summary |
+| `legacy_row_regenerates` | 2 | a row without a matching `source_hash` exists; request 1 rebuilds it (≥1 call) and stamps the hash, request 2 hits |
 | `content_change_same_version` | 2 | after miss+hit, one chunk of the same version is edited (1-row `UPDATE`); the next request must rebuild (≥1 LLM call) |
 | `new_version` | 2 | a new version (version_number+1, one chunk changed) is inserted; the next request builds a summary for it, the one after hits |
 
-A case whose precondition doesn't hold (e.g. a "miss" submission that
-already has a summary) is reported as `precondition_failed` and not counted.
-The old `T3-CACHE-*` golden rows are superseded. `T3-CACHE-EvoPrompt-01`
-became pre-cached by an earlier benchmark run against the dev DB, which
-could never happen now that requests are rolled back. It continues as
-`CACHE-PRECACHED-08` and `CACHE-NEW-VERSION-12`.
+`precached_hit` (a row whose hash matches: 0 calls) is still supported. Its
+two cases became `legacy_row_regenerates` once `source_hash` existed: their
+rows predate the column, and the fix regenerates such rows by design. A case
+whose precondition doesn't hold is reported as `precondition_failed` and
+not counted. The old `T3-CACHE-*` golden rows are superseded.
 
-The summary cache is keyed on `document_version_id` only
-(`app/services/rag.py`, `summarize_document`). Editing the chunks of an
-existing version (e.g. re-indexing after a PDF-reader fix) is **not**
-detected: the `content_change_same_version` cases measure exactly that.
+The summary cache is keyed on `document_version_id` **and** `source_hash`
+(migration `20261009_0020`). The hash is the sha256 of the IR parser version
+plus the version's chunks in order (section path, token count, text), see
+`rag.summary_source_hash`. A row whose hash doesn't match the current
+chunks, including every row written before the column existed (NULL), is
+regenerated on its next request and updated in place. The cache does
+**not** depend on the LLM model, so changing `LLM_MODEL` keeps old summaries.
+
+## Retrieval-only comparison
+
+`POSTGRES_DB=docgrading_test uv run python -m evaluation.retrieval_eval`
+runs every tier-2 case through `vector`, `tsvector` (full-text stages only),
+`substring` (the ILIKE fallback on its own), `keyword` (`_keyword_ranked` as
+shipped: full-text, then substring when full-text finds nothing) and
+`hybrid_rrf` (`retrieve_chunks` as shipped). Each method uses the
+chatbot's query and k = 6. Reported:
+
+- Recall, P@6 (denominator fixed at 6, so a method returning fewer chunks
+  isn't rewarded), P@6 / ceiling and MRR;
+- 95% percentile-bootstrap intervals (2000 resamples of cases);
+- the same tables per document group;
+- cases where the query covers < 1/3 of its terms in every relevant chunk
+  ("low lexical overlap"), the place to add cases.
+
+The 36 cases come from 6 documents, so cases are not independent. The
+case-level intervals are therefore optimistic. It makes no LLM calls,
+only one query embedding per case.
 
 ## Adding a new case
 
-1. Append a line to `golden_set.jsonl` with a new unique `id`.
+1. Append a line to the original `golden_set.jsonl` with a new unique `id`,
+   then rerun `anonymize_golden` so the committed file follows. It stops if
+   a student name appears outside the id.
 2. Decide the `gold` value **before** running with it, by reading the real
    DB/DocumentIR content directly, never from what the chatbot answers
    (benchmark doc section 4).

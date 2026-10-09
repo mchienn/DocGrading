@@ -44,6 +44,7 @@ from app.models.submission import DocumentVersion
 from app.services.chat import handle_chat
 from evaluation import judge, scoring
 from evaluation.cache_suite import load_cache_cases, run_cache_case, score_cache
+from evaluation.golden import golden_path, load_golden_set
 from evaluation.instrumentation import (
     CONFIG_DESCRIPTIONS,
     CONFIGS,
@@ -52,13 +53,13 @@ from evaluation.instrumentation import (
     TokenBudgetExceeded,
     TokenLedger,
     ablation_config,
-    make_llm_client,
+    judge_model_name,
+    make_judge_client,
 )
 from evaluation.sandbox import rolled_back_session
 
 EVAL_DIR = Path(__file__).resolve().parent
 REPO_ROOT = EVAL_DIR.parents[1]
-GOLDEN_SET_PATH = EVAL_DIR / "golden_set.jsonl"
 RESULTS_DIR = EVAL_DIR / "results"
 LABELS_PATH = EVAL_DIR / "calibration" / "citation_labels.jsonl"
 
@@ -77,11 +78,6 @@ ASSIGNMENT_TITLES = {
 # Rough per-call LLM token costs, only for the pre-run budget estimate.
 _EST = {"answer": 4_500, "router": 1_500, "judge_answer": 5_500, "judge_cit": 1_200}
 _EST_SUMMARY_PER_DOC = 11_000
-
-
-def load_golden_set() -> list[dict[str, Any]]:
-    with GOLDEN_SET_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
 
 
 @dataclass
@@ -225,12 +221,13 @@ async def load_documents(cases: list[dict[str, Any]]) -> dict[str, dict[str, Any
                 }
                 for r in rows
             ]
-            glue = scoring.glue_stats(" ".join(c["text"] for c in corpus))
+            full_text = " ".join(c["text"] for c in corpus)
             docs[version_id] = {
                 "submission_id": submission_id,
                 "corpus": corpus,
-                "glue": glue,
-                "glue_group": scoring.glue_group(glue["rate"]),
+                "glue": scoring.glue_stats(full_text),
+                "language": scoring.detect_language(full_text),
+                "glue_group": scoring.document_group(full_text),
             }
     return docs
 
@@ -431,7 +428,7 @@ def score_tier2(
         "all": _aggregate_tier2(rows),
         "by_group": {
             g: _aggregate_tier2([r for r in rows if r["group"] == g])
-            for g in ("low", "mid", "high")
+            for g in scoring.GROUPS
         },
         "n_errors": sum(1 for r in runs if r.error),
         "per_case": rows,
@@ -527,7 +524,7 @@ def score_tier3_ask(
         "all": _aggregate_tier3(runs),
         "by_group": {
             g: _aggregate_tier3([r for r in runs if group(r) == g])
-            for g in ("low", "mid", "high")
+            for g in scoring.GROUPS
         },
         "intent_counts": {
             i: sum(1 for r in runs if r.intent == i)
@@ -626,7 +623,11 @@ def estimate_llm_tokens(
 
 
 async def main(
-    configs: list[str], label: str, run_cache: bool, sample: int | None = None
+    configs: list[str],
+    label: str,
+    run_cache: bool,
+    sample: int | None = None,
+    golden: str | None = None,
 ) -> int:
     settings = get_settings()
     print(f"[ablation] POSTGRES_DB={settings.postgres_db}")
@@ -643,7 +644,9 @@ async def main(
     from app.services.chat import classify_intent
 
     cases_list = [
-        c for c in load_golden_set() if not c["gold"].get("cache_correctness_case")
+        c
+        for c in load_golden_set(golden)
+        if not c["gold"].get("cache_correctness_case")
     ]
     if sample:
         # Smoke-test mode: the first N cases of each tier/intent pair.
@@ -718,7 +721,7 @@ async def main(
             ]
             if config != "rule_only":
                 print(f"  judging {len(ask)} ASK answers...")
-                await judge_tier3(ask, cases, make_llm_client(ledger))
+                await judge_tier3(ask, cases, make_judge_client(ledger))
             latencies = [r.latency_s for r in runs]
             results[config] = {
                 "description": CONFIG_DESCRIPTIONS[config],
@@ -778,11 +781,13 @@ async def main(
     snapshot = {
         "timestamp": timestamp.strftime("%Y%m%dT%H%M%SZ"),
         "label": label,
+        "golden_set": golden_path(golden).name,
         "git_commit": _git_commit(),
         "app_code_dirty": _git_dirty(),
         "postgres_db": settings.postgres_db,
         "llm_model": settings.llm_model,
-        "judge_model": settings.llm_model,
+        "judge_model": judge_model_name(),
+        "judge_same_model_as_system": judge_model_name() == settings.llm_model,
         "embedding_model": settings.embedding_model,
         "aborted": aborted,
         "token_usage_total": ledger.snapshot(),
@@ -793,6 +798,7 @@ async def main(
                 "glue_rate": doc["glue"]["rate"],
                 "vi_words": doc["glue"]["vi_words"],
                 "glue_group": doc["glue_group"],
+                "language": doc["language"],
                 "n_chunks": len(doc["corpus"]),
             }
             for version, doc in docs.items()
@@ -856,9 +862,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sample", type=int, default=None, help="smoke test: N cases per tier/intent"
     )
+    parser.add_argument(
+        "--golden",
+        default=None,
+        help="anonymized (default) | original | <path>; or set EVAL_GOLDEN_SET",
+    )
     args = parser.parse_args()
     sys.exit(
         asyncio.run(
-            main(args.configs, args.label, not args.no_cache_suite, args.sample)
+            main(
+                args.configs,
+                args.label,
+                not args.no_cache_suite,
+                args.sample,
+                args.golden,
+            )
         )
     )

@@ -2,4 +2,5 @@
 golden_set.jsonl
 results/*_details.json
 calibration/citation_labels.jsonl
+private/
 __pycache__/

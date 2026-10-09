@@ -24,6 +24,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from evaluation.golden import golden_path
+
 LABELS_PATH = Path(__file__).resolve().parent / "citation_labels.jsonl"
 TARGET = 40
 SEED = 20261009
@@ -131,8 +133,8 @@ if __name__ == "__main__":
     parser.add_argument("details", type=Path)
     parser.add_argument(
         "--golden",
-        type=Path,
-        default=Path(__file__).resolve().parents[1] / "golden_set.jsonl",
+        default=None,
+        help="anonymized (default) | original | <path>; or set EVAL_GOLDEN_SET",
     )
     args = parser.parse_args()
-    sys.exit(main(args.details, args.golden))
+    sys.exit(main(args.details, golden_path(args.golden)))

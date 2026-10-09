@@ -8,32 +8,53 @@ Case kinds:
 
 - ``miss_then_hit``: no summary row yet. Request 1 must call the LLM (proves
   the write path); request 2 must make no LLM call and return the same text.
-- ``precached_hit``: a summary row already exists. Both requests must make no
-  LLM call and return exactly the stored text.
+- ``precached_hit``: a summary row already exists and its ``source_hash``
+  matches the current chunks. Both requests must make no LLM call and return
+  exactly the stored text.
+- ``legacy_row_regenerates``: a summary row exists but was written before
+  ``source_hash`` existed (NULL) or for other chunks. Request 1 must rebuild
+  it (>= 1 LLM call) and stamp the current hash; request 2 must hit it.
 - ``content_change_same_version``: after a miss + hit, one chunk of the SAME
   document version gets new text (``UPDATE`` of one row). Request 3 must
   rebuild the summary (>= 1 LLM call) instead of serving the stale one.
 - ``new_version``: a new document version (version_number + 1, one chunk
   changed) is inserted for the submission. The next request must build a
   summary for it (>= 1 LLM call) and the one after must hit the new row.
+
+Run on its own (hybrid configuration, real LLM, rolled back):
+
+    POSTGRES_DB=docgrading_test uv run python -m evaluation.cache_suite
 """
 
 from __future__ import annotations
 
+import argparse
+import asyncio
 import json
+import sys
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
 
+from app.core.config import get_settings
+from app.db.session import _engine
+from app.models.analysis import DocumentIR
 from app.models.chunk import DocumentChunk, DocumentSummary
 from app.models.identity import User
 from app.models.submission import DocumentVersion
 from app.services.chat import handle_chat
+from app.services.rag import SummaryChunk, summary_source_hash
 from evaluation import scoring
-from evaluation.instrumentation import CountingChatClient
+from evaluation.instrumentation import (
+    CountingChatClient,
+    RetrievalRecorder,
+    TokenLedger,
+    ablation_config,
+)
 from evaluation.sandbox import rolled_back_session
 
 CACHE_CASES_PATH = Path(__file__).resolve().parent / "cache_cases.jsonl"
@@ -61,6 +82,38 @@ async def _stored_summary(db: Any, version_id: uuid.UUID) -> str | None:
             DocumentSummary.document_version_id == version_id
         )
     )
+
+
+async def _row_state(db: Any, version_id: uuid.UUID) -> str:
+    """ "none" (no summary row), "fresh" (row hash matches the current
+    chunks) or "stale" (NULL/other hash), computed with the service's own
+    hash function, so it says what ``summarize_document`` will do."""
+    row = await db.scalar(
+        sa.select(DocumentSummary).where(
+            DocumentSummary.document_version_id == version_id
+        )
+    )
+    if row is None:
+        return "none"
+    rows = (
+        await db.execute(
+            sa.select(
+                DocumentChunk.section_path,
+                DocumentChunk.text,
+                DocumentChunk.token_count,
+            )
+            .where(DocumentChunk.document_version_id == version_id)
+            .order_by(DocumentChunk.chunk_index)
+        )
+    ).all()
+    chunks = [SummaryChunk(r[0], r[1], r[2]) for r in rows]
+    parser_version = await db.scalar(
+        sa.select(DocumentIR.parser_version).where(
+            DocumentIR.document_version_id == version_id
+        )
+    )
+    fresh = row.source_hash == summary_source_hash(parser_version, chunks)
+    return "fresh" if fresh else "stale"
 
 
 async def _edit_one_chunk(db: Any, version_id: uuid.UUID) -> uuid.UUID:
@@ -161,11 +214,15 @@ async def run_cache_case(
 
             version_id = await _latest_version(db, submission_id)
             stored = await _stored_summary(db, version_id)
-            out["precached"] = stored is not None
-            needs_uncached = kind in ("miss_then_hit", "content_change_same_version")
-            if (needs_uncached and stored is not None) or (
-                kind == "precached_hit" and stored is None
-            ):
+            state = await _row_state(db, version_id)
+            out["row_state_before"] = state
+            required = {
+                "miss_then_hit": "none",
+                "content_change_same_version": "none",
+                "precached_hit": "fresh",
+                "legacy_row_regenerates": "stale",
+            }.get(kind)
+            if required is not None and state != required:
                 out.update(ok=None, status="precondition_failed")
                 return out
 
@@ -176,6 +233,12 @@ async def run_cache_case(
                 ok = scoring.cache_case_ok(calls1, calls2, reply1, reply2)
             elif kind == "precached_hit":
                 ok = calls1 == 0 and calls2 == 0 and reply1 == reply2 == stored
+            elif kind == "legacy_row_regenerates":
+                out["row_state_after"] = await _row_state(db, version_id)
+                ok = (
+                    scoring.cache_case_ok(calls1, calls2, reply1, reply2)
+                    and out["row_state_after"] == "fresh"
+                )
             elif kind == "content_change_same_version":
                 await _edit_one_chunk(db, version_id)
                 calls3, reply3 = await ask()
@@ -192,7 +255,8 @@ async def run_cache_case(
                 out["new_version_summary_row"] = (
                     await _stored_summary(db, new_version) is not None
                 )
-                old_ok = (calls1 > 0) != out["precached"] and calls2 == 0
+                # Old version: served from cache only if its row was fresh.
+                old_ok = (calls1 > 0) == (state != "fresh") and calls2 == 0
                 ok = (
                     old_ok
                     and scoring.cache_invalidated_ok(calls3, reply2, reply3)
@@ -226,3 +290,47 @@ def score_cache(details: list[dict[str, Any]]) -> dict[str, Any]:
         "by_kind": by_kind,
         "details": details,
     }
+
+
+async def main(label: str) -> int:
+    settings = get_settings()
+    print(f"[cache] POSTGRES_DB={settings.postgres_db}")
+    if settings.postgres_db == "docgrading":
+        print("[cache] refusing to run against the dev database")
+        return 2
+    from evaluation.run_ablation import ANCHOR_COURSE_ID, TEACHER_ID
+
+    ledger = TokenLedger()
+    details = []
+    try:
+        with ablation_config("hybrid", ledger, RetrievalRecorder()) as llm:
+            for case in load_cache_cases():
+                d = await run_cache_case(case, llm, TEACHER_ID, ANCHOR_COURSE_ID)
+                print(f"  - {d}")
+                details.append(d)
+    finally:
+        await _engine().dispose()
+    result = score_cache(details)
+    result["tokens"] = ledger.snapshot()
+    result["llm_model"] = settings.llm_model
+    stamp = datetime.now(UTC)
+    result["timestamp"] = stamp.strftime("%Y%m%dT%H%M%SZ")
+    out = (
+        Path(__file__).resolve().parent
+        / "results"
+        / f"cache_{stamp.strftime('%Y%m%d')}_{label}.json"
+    )
+    out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(
+        f"[cache] pass {result['pass']}/{result['n_counted']} "
+        f"(precondition_failed {result['n_precondition_failed']}); "
+        f"by kind {result['by_kind']}; LLM tokens {ledger.llm_total:,}; "
+        f"wrote {out.name}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--label", default="source_hash_fix")
+    sys.exit(asyncio.run(main(parser.parse_args().label)))

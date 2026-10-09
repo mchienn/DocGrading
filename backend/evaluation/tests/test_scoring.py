@@ -11,6 +11,8 @@ from evaluation.scoring import (
     context_precision_at_k,
     context_recall,
     count_relevant_chunks,
+    detect_language,
+    document_group,
     fold,
     fold_compact,
     glue_candidates,
@@ -405,3 +407,20 @@ def test_cache_invalidated_ok_needs_a_rebuild() -> None:
     assert cache_invalidated_ok(1, "old", "new") is True
     # Served the stale summary without calling the LLM -> not invalidated.
     assert cache_invalidated_ok(0, "old", "old") is False
+
+
+def test_detect_language_by_function_words() -> None:
+    vi = "Bài báo này đề xuất một phương pháp mới và các kết quả được trình bày"
+    en = "This paper proposes a new method and the results are reported in the table"
+    assert detect_language(vi) == "vi"
+    assert detect_language(en) == "en"
+    # Glued Vietnamese still has standalone function words somewhere.
+    assert detect_language("Bàibáođềxuất của nhóm và các thànhviên") == "vi"
+
+
+def test_document_group_puts_english_outside_glue_groups() -> None:
+    # An English text with one accented name would be "high" by the glue rate.
+    en = "The method of Gutiérrez and the results of the model are in the table"
+    assert glue_group(glue_stats(en)["rate"]) == "high"
+    assert document_group(en) == "en"
+    assert document_group("Bài báo này và các kết quả của nhóm được trình bày") == "low"

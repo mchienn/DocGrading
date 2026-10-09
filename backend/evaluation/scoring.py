@@ -383,6 +383,42 @@ def glue_group(glue_rate: float) -> str:
     return "mid"
 
 
+# Very frequent function words; which list a document hits more decides its
+# language. On the anchor dataset the two populations don't overlap at all
+# (Vietnamese reports: >= 4.7% Vietnamese / <= 2.1% English function words;
+# English reports: <= 0.1% / >= 14%).
+_VI_FUNCTION_WORDS = frozenset(
+    {
+        "và", "của", "các", "là", "được", "trong", "cho", "với", "những",
+        "này", "có", "không", "một", "để", "từ", "khi", "theo",
+    }
+)  # fmt: skip
+_EN_FUNCTION_WORDS = frozenset(
+    {
+        "the", "and", "of", "to", "in", "is", "for", "with", "that", "this",
+        "are", "on", "by", "we", "as",
+    }
+)  # fmt: skip
+
+GROUPS = ("en", "low", "mid", "high")
+
+
+def detect_language(text: str) -> str:
+    """ "vi" or "en" for a whole document."""
+    words = [w.lower() for w in _WORD_RE.findall(text)]
+    vi = sum(1 for w in words if w in _VI_FUNCTION_WORDS)
+    en = sum(1 for w in words if w in _EN_FUNCTION_WORDS)
+    return "vi" if vi > en else "en"
+
+
+def document_group(text: str) -> str:
+    """ "en" for English documents (the glue heuristic only sees Vietnamese,
+    so they are kept out of the glue groups); otherwise the glue group."""
+    if detect_language(text) == "en":
+        return "en"
+    return glue_group(glue_stats(text)["rate"])
+
+
 # --- Judge calibration ----------------------------------------------------------
 
 

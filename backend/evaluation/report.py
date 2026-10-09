@@ -278,7 +278,14 @@ def render_markdown(snapshot: dict[str, Any]) -> str:
         "",
         f"- Commit: `{snapshot['git_commit']}` (app code dirty: "
         f"{snapshot['app_code_dirty']}); DB: `{snapshot['postgres_db']}`",
-        f"- LLM: `{snapshot['llm_model']}` (judge dùng cùng model); embedding: "
+        f"- LLM hệ thống: `{snapshot['llm_model']}`; judge: "
+        f"`{snapshot.get('judge_model', snapshot['llm_model'])}` ("
+        + (
+            "CÙNG model với hệ thống"
+            if snapshot.get("judge_same_model_as_system", True)
+            else "khác model hệ thống"
+        )
+        + "); embedding: "
         f"`{snapshot['embedding_model']}`",
         f"- Token: LLM {tokens['llm_total_tokens']:,} (ước tính trước khi chạy "
         f"{snapshot['token_estimate_before_run']:,}; trần {tokens['llm_budget']:,}); "
@@ -327,7 +334,8 @@ def render_markdown(snapshot: dict[str, Any]) -> str:
         "",
         "## Tầng 2 (truy hồi) tách theo tỉ lệ dính chữ của tài liệu",
         "",
-        "Nhóm: low < 2%, mid 2–10%, high ≥ 10% (heuristic của chunk audit). "
+        "Nhóm: en = tài liệu tiếng Anh (loại khỏi phân nhóm dính chữ); tài liệu "
+        "tiếng Việt: low < 2%, mid 2–10%, high ≥ 10% (heuristic của chunk audit). "
         "Hai cột cuối là kiểm tra độ nhạy với dung sai trang ±2 (quy tắc cũ).",
         "",
         _table(
@@ -482,9 +490,8 @@ def render_markdown(snapshot: dict[str, Any]) -> str:
             doc_rows,
         ),
         "",
-        "Heuristic chỉ phát hiện dính chữ tiếng Việt; tài liệu tiếng Anh "
-        "(ít từ có dấu) "
-        "luôn có tỉ lệ ~0% dù có thể dính chữ, và một tài liệu tiếng Anh có thể bị "
-        "xếp nhóm cao chỉ vì 1–2 tên riêng có dấu (xem cột 'Từ có dấu').",
+        "Ngôn ngữ phát hiện bằng từ chức năng (scoring.detect_language). Heuristic "
+        "dính chữ chỉ áp dụng cho tài liệu tiếng Việt; tài liệu tiếng Anh (nhóm en) "
+        "có thể dính chữ mà không bị phát hiện.",
     ]
     return "\n".join(parts) + "\n"
