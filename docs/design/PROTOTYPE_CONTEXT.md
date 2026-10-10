@@ -192,6 +192,7 @@ T06 — Publish result
 T07 — Review request/appeal inbox
 - Danh sách yêu cầu xem lại.
 - Filter theo trạng thái và criterion.
+- Ưu tiên tên/email Student, `code`/`title` criterion và mô tả finding; không dùng request, submission, result, criterion hoặc finding UUID làm nhãn.
 - Hiển thị lý do của Student.
 - Liên kết tới đúng kết quả và bằng chứng.
 - Teacher giữ nguyên hoặc điều chỉnh kết quả.
@@ -231,6 +232,7 @@ S04 — Theo dõi trạng thái
 S05 — Kết quả đã công bố
 - Tổng điểm và trạng thái.
 - Breakdown theo criterion.
+- Breakdown dùng `code` và `title` criterion; finding dùng thứ tự, mô tả và số trang, không hiển thị UUID, bbox hoặc element ID.
 - Nhận xét của Teacher.
 - Finding theo mức độ.
 - Vị trí và bằng chứng trong PDF.
@@ -243,11 +245,11 @@ S06 — So sánh phiên bản
 - Finding mới, đã giải quyết và còn tồn tại.
 - Không cần diff toàn bộ PDF ở giai đoạn đầu.
 S07 — Yêu cầu xem lại
-- Chọn criterion hoặc finding.
+- Chọn criterion bằng `code` và `title`, hoặc finding bằng mô tả ngắn; UUID chỉ dùng làm giá trị API nội bộ.
 - Nhập lý do.
 - Đính kèm thông tin liên quan nếu cần.
-- Xem trạng thái yêu cầu.
-- Hiển thị phản hồi và lịch sử xử lý.
+- Xem trạng thái yêu cầu bằng criterion/finding đã chọn, không dùng request UUID làm tiêu đề.
+- Hiển thị tên người phản hồi, nội dung phản hồi và lịch sử xử lý.
 8. Các modal, drawer và cửa sổ phụ
 Cần thiết kế tối thiểu:
 - Criterion editor drawer.

@@ -28,16 +28,23 @@ function trapFocus(event: React.KeyboardEvent<HTMLDialogElement>) {
 
 
 export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCreated }) => {
-  const criteria = useMemo(() => {
-    const firstFindingByCriterion = new Map<string, string>();
-    for (const finding of result.findings) {
-      if (!firstFindingByCriterion.has(finding.criterion_version_id)) {
-        firstFindingByCriterion.set(finding.criterion_version_id, finding.finding_id);
-      }
-    }
-    return [...firstFindingByCriterion.entries()];
+  const findingOptions = useMemo(() => {
+    return (result.findings as Array<typeof result.findings[number] & { criterion_code?: string; criterion_title?: string }>).map((finding) => {
+      const critText = finding.criterion_code && finding.criterion_title
+        ? `${finding.criterion_code} — ${finding.criterion_title}`
+        : (finding.criterion_title ?? finding.criterion_code ?? 'Criterion');
+      const page = finding.evidence?.[0]?.page_number;
+      const pageSuffix = page != null ? ` (Page ${page})` : '';
+      const shortDesc = finding.description
+        ? `: ${finding.description.length > 60 ? `${finding.description.slice(0, 57)}...` : finding.description}`
+        : '';
+      return {
+        id: finding.finding_id,
+        label: `${critText}${shortDesc}${pageSuffix}`,
+      };
+    });
   }, [result.findings]);
-  const [findingId, setFindingId] = useState(criteria[0]?.[1] ?? '');
+  const [findingId, setFindingId] = useState(findingOptions[0]?.id ?? '');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
@@ -106,15 +113,15 @@ export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCre
         {error && <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">{error}</div>}
 
         <form onSubmit={submit} className="space-y-4">
-          <label className="block text-sm font-semibold text-slate-700">Criterion
+          <label className="block text-sm font-semibold text-slate-700">Criterion / Finding
             <select
               required
               value={findingId}
               onChange={(event) => setFindingId(event.target.value)}
-              className="block w-full mt-2 p-3 border border-slate-300 rounded-lg bg-white font-mono text-xs"
+              className="block w-full mt-2 p-3 border border-slate-300 rounded-lg bg-white text-xs"
             >
-              {criteria.map(([criterionVersionId, firstFindingId]) => (
-                <option key={criterionVersionId} value={firstFindingId}>{criterionVersionId}</option>
+              {findingOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>{opt.label}</option>
               ))}
             </select>
           </label>
@@ -128,7 +135,7 @@ export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCre
               className="block w-full mt-2 p-3 border border-slate-300 rounded-lg font-normal"
             />
           </label>
-          {criteria.length === 0 && <p className="text-sm text-amber-700">Published result has no criterion finding available for review request.</p>}
+          {findingOptions.length === 0 && <p className="text-sm text-amber-700">Published result has no criterion finding available for review request.</p>}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={onClose} className="px-3 py-2 border border-slate-300 rounded-lg text-sm">Cancel</button>
             <button
