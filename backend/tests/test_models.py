@@ -7,6 +7,7 @@ from app.db.base import Base
 from app.models import (
     AnalysisJob,
     AnalysisJobDispatch,
+    Announcement,
     Assignment,
     AssignmentRequirement,
     AuditEvent,
@@ -36,6 +37,7 @@ from app.models import (
 
 MODEL_TABLE_MAP: dict[type[Base], str] = {
     User: "users",
+    Announcement: "announcements",
     Course: "courses",
     CourseInvite: "course_invites",
     CourseJoinCode: "course_join_codes",
