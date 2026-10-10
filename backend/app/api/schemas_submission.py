@@ -568,13 +568,22 @@ class ReviewRequestResponse(BaseModel):
     published_result_id: uuid.UUID
     submission_id: uuid.UUID
     student_id: uuid.UUID
+    student_display_name: str
+    student_email: str
     criterion_id: uuid.UUID | None = None
+    criterion_code: str
+    criterion_title: str
     finding_id: uuid.UUID | None = None
+    finding_description: str | None = None
     status: ReviewRequestStatus
     reason: str
     response: str | None = None
     responded_by_user_id: uuid.UUID | None = None
+    responded_by_display_name: str | None = None
     responded_at: datetime | None = None
+    assignment_title: str
+    course_code: str
+    course_name: str
     created_at: datetime
     updated_at: datetime
 
