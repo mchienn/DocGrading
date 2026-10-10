@@ -86,16 +86,16 @@ export const AssignmentWizardModal: React.FC<AssignmentWizardModalProps> = ({
           <input required type="number" min={1} max={5} value={maxSubmissions} onChange={(event) => setMaxSubmissions(Number(event.target.value))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg" />
         </label>
         <label className="block text-sm text-slate-700">
-          Published rubric
+          Rubric
           <select required value={rubricVersionId} onChange={(event) => setRubricVersionId(event.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg">
             {rubrics.map((rubric) => (
-              <option key={rubric.id} value={rubric.id}>{rubric.name} v{rubric.version_number}</option>
+              <option key={rubric.id} value={rubric.id}>{rubric.name}</option>
             ))}
           </select>
         </label>
         {rubrics.length === 0 && (
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            Publish a rubric before creating an assignment.
+            Create a rubric before creating an assignment.
           </p>
         )}
         <button disabled={saving || rubrics.length === 0} className="w-full px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold disabled:opacity-50">

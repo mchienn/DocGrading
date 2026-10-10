@@ -352,6 +352,24 @@ async def _run_domain_invariants_test() -> None:
                     },
                 )
 
+                # Published legacy rows remain directly editable until first submission.
+                await conn.execute(
+                    text("""
+                        UPDATE rubric_versions
+                        SET name = 'Edited before first submission'
+                        WHERE id = :id
+                    """),
+                    {"id": rubric_version_1_id},
+                )
+                await conn.execute(
+                    text("""
+                        UPDATE criterion_versions
+                        SET title = 'Edited before first submission'
+                        WHERE id = :id
+                    """),
+                    {"id": criterion_version_1_id},
+                )
+
                 # 5. Reject Submission by Student without ACTIVE Student
                 # Membership in Assignment's Course
                 with pytest.raises(
@@ -384,11 +402,11 @@ async def _run_domain_invariants_test() -> None:
                     },
                 )
 
-                # 6. After valid Submission, reject UPDATE/DELETE of rubric
-                # version and criterion, and assignment rubric change
+                # 6. After valid Submission, reject rubric and criterion
+                # mutation, plus assignment rubric change.
                 with pytest.raises(
                     DBAPIError,
-                    match=r"published rubric version is immutable",
+                    match=r"rubric version is immutable after first submission",
                 ):
                     async with conn.begin_nested():
                         await conn.execute(
@@ -402,7 +420,7 @@ async def _run_domain_invariants_test() -> None:
 
                 with pytest.raises(
                     DBAPIError,
-                    match=r"published rubric version is immutable",
+                    match=r"rubric version is immutable after first submission",
                 ):
                     async with conn.begin_nested():
                         await conn.execute(
@@ -415,7 +433,7 @@ async def _run_domain_invariants_test() -> None:
 
                 with pytest.raises(
                     DBAPIError,
-                    match=r"published rubric criterion is immutable",
+                    match=r"criterion version is immutable after first submission",
                 ):
                     async with conn.begin_nested():
                         await conn.execute(
@@ -429,7 +447,7 @@ async def _run_domain_invariants_test() -> None:
 
                 with pytest.raises(
                     DBAPIError,
-                    match=r"published rubric criterion is immutable",
+                    match=r"criterion version is immutable after first submission",
                 ):
                     async with conn.begin_nested():
                         await conn.execute(
@@ -1267,10 +1285,7 @@ async def _run_rubric_freeze_after_delete_case(conn, ids) -> None:
             WHERE id = :id
         """,
     ):
-        with pytest.raises(
-            DBAPIError,
-            match=r"published rubric version is immutable",
-        ):
+        with pytest.raises(DBAPIError):
             async with conn.begin_nested():
                 await conn.execute(
                     text(statement),
@@ -1295,10 +1310,7 @@ async def _run_criterion_freeze_after_delete_case(conn, ids) -> None:
             WHERE id = :id
         """,
     ):
-        with pytest.raises(
-            DBAPIError,
-            match=r"published rubric criterion is immutable",
-        ):
+        with pytest.raises(DBAPIError):
             async with conn.begin_nested():
                 await conn.execute(
                     text(statement),
@@ -1312,10 +1324,7 @@ async def _run_criterion_insert_into_frozen_case(conn, ids) -> None:
         text("DELETE FROM submissions WHERE id = :id"),
         {"id": ids["submission_id"]},
     )
-    with pytest.raises(
-        DBAPIError,
-        match=r"published rubric criterion is immutable",
-    ):
+    with pytest.raises(DBAPIError):
         async with conn.begin_nested():
             await conn.execute(
                 text("""
@@ -1357,7 +1366,7 @@ async def _run_criterion_reparent_into_frozen_case(conn, ids) -> None:
     ):
         with pytest.raises(
             DBAPIError,
-            match=r"published rubric criterion is immutable",
+            match=r"criterion version is immutable after first submission",
         ):
             async with conn.begin_nested():
                 await conn.execute(
@@ -2344,8 +2353,8 @@ def test_postgresql_serializes_new_assignment_and_rubric_update() -> None:
     asyncio.run(_run_new_assignment_rubric_update_race_test())
 
 
-async def _run_published_rubric_immutability_test() -> None:
-    """Direct SQL cannot mutate a rubric after it is published."""
+async def _run_legacy_published_rubric_mutability_test() -> None:
+    """Legacy PUBLISHED status remains mutable before the first submission."""
     settings = get_settings()
     engine = create_async_engine(settings.database_url)
     teacher_id = uuid.uuid4()
@@ -2422,35 +2431,46 @@ async def _run_published_rubric_immutability_test() -> None:
                     {"id": rubric_version_id},
                 )
 
-                with pytest.raises(DBAPIError, match="published"):
-                    async with conn.begin_nested():
-                        await conn.execute(
-                            text("""
-                                UPDATE public.rubric_versions
-                                SET name = 'Mutated Rubric'
-                                WHERE id = :id
-                            """),
-                            {"id": rubric_version_id},
-                        )
-
-                with pytest.raises(DBAPIError, match="published"):
-                    async with conn.begin_nested():
-                        await conn.execute(
-                            text("""
-                                UPDATE public.criterion_versions
-                                SET title = 'Mutated Criterion'
-                                WHERE id = :id
-                            """),
-                            {"id": criterion_version_id},
-                        )
+                await conn.execute(
+                    text("""
+                        UPDATE public.rubric_versions
+                        SET name = 'Mutated Rubric'
+                        WHERE id = :id
+                    """),
+                    {"id": rubric_version_id},
+                )
+                await conn.execute(
+                    text("""
+                        UPDATE public.criterion_versions
+                        SET title = 'Mutated Criterion'
+                        WHERE id = :id
+                    """),
+                    {"id": criterion_version_id},
+                )
+                assert (
+                    await conn.scalar(
+                        text("SELECT name FROM public.rubric_versions WHERE id = :id"),
+                        {"id": rubric_version_id},
+                    )
+                    == "Mutated Rubric"
+                )
+                assert (
+                    await conn.scalar(
+                        text(
+                            "SELECT title FROM public.criterion_versions WHERE id = :id"
+                        ),
+                        {"id": criterion_version_id},
+                    )
+                    == "Mutated Criterion"
+                )
             finally:
                 await trans.rollback()
     finally:
         await engine.dispose()
 
 
-def test_postgresql_rejects_published_rubric_mutation() -> None:
-    asyncio.run(_run_published_rubric_immutability_test())
+def test_postgresql_allows_legacy_published_rubric_mutation_before_submission() -> None:
+    asyncio.run(_run_legacy_published_rubric_mutability_test())
 
 
 async def _run_concurrent_course_archive_test() -> None:
