@@ -60,16 +60,12 @@ Các trạng thái chính:
 - Xử lý lỗi.
 - Yêu cầu nộp lại.
 5. View Admin
-A01 — Admin dashboard
-Hiển thị:
-- Tổng số người dùng.
-- Số đợt đánh giá đang mở.
-- Queue depth.
-- Job đang chạy, lỗi và quá hạn.
-- Thời gian xử lý trung bình.
-- Tỷ lệ lỗi theo evaluator.
-- Các cảnh báo cần xử lý.
-- Danh sách hoạt động gần nhất.
+A01 — Admin Analysis
+- KPI: tổng người dùng, queue depth, job đang chạy/lỗi, review request đang mở và tuổi trung bình của job active.
+- Biểu đồ trạng thái job, xu hướng throughput/lỗi của job terminal theo `finished_at` trong bảy ngày, submission theo Course và trạng thái review request; chỉ dùng aggregate từ dữ liệu thật.
+- Ưu tiên cảnh báo có hành động: mở Monitoring với filter tương ứng, mở Appeals hoặc Audit trail.
+- Mọi biểu đồ có title, label, giá trị trực tiếp và bảng dữ liệu thay thế; không chỉ dùng màu để phân biệt.
+- Dashboard có loading, empty, error và retry state; tuần không có job terminal hiển thị empty state, không vẽ cột dương giả.
 A02 — Quản lý người dùng và quyền
 - Danh sách người dùng.
 - Search, filter theo vai trò và trạng thái.
@@ -103,9 +99,10 @@ A05 — AI providers và routing
 - Loading, empty, error, stale và success state có text/icon ngoài màu. Form/dialog có label, focus management, keyboard operation và reflow 320 CSS px. Metadata kỹ thuật ít dùng nằm trong disclosure.
 - Audit chỉ ghi safe fields: provider/source/enabled/policy/status/route/model/protocol/revision/actor/time; không ghi plaintext key, ciphertext, header, response body hoặc exception.
 A06 — Audit log và retention
-- Filter theo người dùng, thao tác, đối tượng và thời gian.
+- Filter theo tên/email người dùng, thao tác, đối tượng và thời gian; UUID actor chỉ là giá trị API nội bộ.
 - Xem before/after của thay đổi.
 - Theo dõi publish, override, retry, đổi quyền và xóa dữ liệu.
+- Dòng audit ưu tiên tên/email actor và loại tài nguyên; resource UUID nằm trong disclosure `Technical details`.
 - Cấu hình thời gian lưu dữ liệu.
 6. View Teacher
 T01 — Danh sách Course

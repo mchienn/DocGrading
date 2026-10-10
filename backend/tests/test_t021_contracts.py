@@ -234,8 +234,12 @@ ADMIN_JOB_LIST_ITEM_FIELDS = {
     "course_code",
     "course_name",
     "assignment_id",
+    "assignment_title",
     "submission_id",
+    "student_display_name",
+    "student_email",
     "document_version_id",
+    "filename",
     "rubric_version_id",
     "status",
     "attempt_count",
@@ -255,6 +259,8 @@ AUDIT_EVENT_FIELDS = {
     "action",
     "actor_type",
     "actor_user_id",
+    "actor_display_name",
+    "actor_email",
     "before",
     "after",
     "reason",
@@ -264,6 +270,10 @@ DASHBOARD_FIELDS = {
     "jobs_by_status",
     "submissions_by_course",
     "open_review_requests",
+    "total_users",
+    "review_requests_by_status",
+    "average_active_job_age_seconds",
+    "jobs_last_7_days",
 }
 COURSE_COUNT_FIELDS = {"course_id", "course_code", "course_name", "submission_count"}
 
