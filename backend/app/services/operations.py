@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -17,6 +17,7 @@ from app.api.schemas_operations import (
     AdminAuditEventListResponse,
     AdminAuditEventResponse,
     AdminDashboardResponse,
+    AdminJobTrendPoint,
     AdminUserCreateRequest,
     AdminUserListResponse,
     AdminUserResponse,
@@ -150,6 +151,21 @@ _AUDIT_SAFE_FIELDS: dict[str, frozenset[str]] = {
     ),
     "Session": frozenset(),
     "User": frozenset({"roles", "status"}),
+    "LLMProviderConfig": frozenset(
+        {
+            "enabled",
+            "credential_source",
+            "data_policy_approved",
+            "revision",
+            "status",
+            "provider",
+            "credential_revision",
+            "latency_ms",
+        }
+    ),
+    "LLMRoute": frozenset(
+        {"active", "state", "revision", "provider", "protocol", "model_id"}
+    ),
 }
 
 
@@ -443,7 +459,11 @@ def _analysis_job_select(*, include_error_detail: bool = False):  # noqa: ANN202
         Course.code.label("course_code"),
         Course.name.label("course_name"),
         Assignment.id.label("assignment_id"),
+        Assignment.title.label("assignment_title"),
         Submission.id.label("submission_id"),
+        DocumentVersion.original_filename.label("filename"),
+        User.display_name.label("student_display_name"),
+        User.email.label("student_email"),
         AnalysisJob.document_version_id.label("document_version_id"),
         AnalysisJob.rubric_version_id.label("rubric_version_id"),
         AnalysisJob.status.label("status"),
@@ -467,6 +487,7 @@ def _analysis_job_select(*, include_error_detail: bool = False):  # noqa: ANN202
         )
         .join(Submission, Submission.id == DocumentVersion.submission_id)
         .join(Assignment, Assignment.id == Submission.assignment_id)
+        .join(User, User.id == Submission.student_id)
         .join(Course, Course.id == Assignment.course_id)
     )
 
@@ -585,13 +606,14 @@ async def list_audit_events(
     events = list(
         (
             await db.execute(
-                sa.select(AuditEvent)
+                sa.select(AuditEvent, User)
+                .outerjoin(User, User.id == AuditEvent.actor_user_id)
                 .where(*filters)
                 .order_by(AuditEvent.occurred_at.desc(), AuditEvent.id)
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )
-        ).scalars()
+        ).all()
     )
     return AdminAuditEventListResponse(
         items=[
@@ -602,12 +624,14 @@ async def list_audit_events(
                 action=event.action,
                 actor_type=event.actor_type,
                 actor_user_id=event.actor_user_id,
+                actor_display_name=actor.display_name if actor else None,
+                actor_email=actor.email if actor else None,
                 before=_redact_snapshot(event.resource_type, event.before),
                 after=_redact_snapshot(event.resource_type, event.after),
                 reason=_redact_text(event.reason),
                 occurred_at=event.occurred_at,
             )
-            for event in events
+            for event, actor in events
         ],
         page=page,
         page_size=page_size,
@@ -630,27 +654,25 @@ async def _jobs_by_status(
     return counts
 
 
-async def get_metrics(db: AsyncSession) -> str:
-    jobs_by_status = await _jobs_by_status(db)
-    average_active_age = (
-        await db.execute(
-            sa.select(
-                sa.func.coalesce(
-                    sa.func.avg(
-                        sa.extract(
-                            "epoch",
-                            sa.func.now() - AnalysisJob.queued_at,
-                        )
-                    ),
-                    0,
-                )
-            ).where(
-                AnalysisJob.status.in_(
-                    (AnalysisJobStatus.QUEUED, AnalysisJobStatus.RUNNING)
-                )
+async def _average_active_job_age(db: AsyncSession) -> float:
+    value = await db.scalar(
+        sa.select(
+            sa.func.coalesce(
+                sa.func.avg(sa.extract("epoch", sa.func.now() - AnalysisJob.queued_at)),
+                0,
+            )
+        ).where(
+            AnalysisJob.status.in_(
+                (AnalysisJobStatus.QUEUED, AnalysisJobStatus.RUNNING)
             )
         )
-    ).scalar_one()
+    )
+    return max(float(value or 0), 0.0)
+
+
+async def get_metrics(db: AsyncSession) -> str:
+    jobs_by_status = await _jobs_by_status(db)
+    average_active_age = await _average_active_job_age(db)
     lines = [
         "# HELP docgrading_analysis_jobs Current analysis jobs by status.",
         "# TYPE docgrading_analysis_jobs gauge",
@@ -661,19 +683,78 @@ async def get_metrics(db: AsyncSession) -> str:
         ],
         "# HELP docgrading_analysis_queue_depth Current queued analysis jobs.",
         "# TYPE docgrading_analysis_queue_depth gauge",
-        f"docgrading_analysis_queue_depth "
-        f"{jobs_by_status[AnalysisJobStatus.QUEUED]}",
+        f"docgrading_analysis_queue_depth {jobs_by_status[AnalysisJobStatus.QUEUED]}",
         "# HELP docgrading_analysis_job_age_seconds_avg "
         "Average age of queued and running jobs.",
         "# TYPE docgrading_analysis_job_age_seconds_avg gauge",
-        f"docgrading_analysis_job_age_seconds_avg {float(average_active_age):.6f}",
+        f"docgrading_analysis_job_age_seconds_avg {average_active_age:.6f}",
     ]
     return "\n".join(lines) + "\n"
 
 
+async def _jobs_last_7_days(db: AsyncSession) -> list[AdminJobTrendPoint]:
+    today = datetime.now(UTC).date()
+    start = datetime.combine(today - timedelta(days=6), datetime.min.time(), UTC)
+    end = start + timedelta(days=7)
+    day = sa.cast(sa.func.date_trunc("day", AnalysisJob.finished_at), sa.Date).label(
+        "day"
+    )
+    processing_seconds = sa.case(
+        (
+            sa.and_(
+                AnalysisJob.started_at.is_not(None),
+                AnalysisJob.finished_at.is_not(None),
+            ),
+            sa.extract(
+                "epoch",
+                AnalysisJob.finished_at - AnalysisJob.started_at,
+            ),
+        ),
+        else_=None,
+    )
+    rows = (
+        await db.execute(
+            sa.select(
+                day,
+                sa.func.count(AnalysisJob.id),
+                sa.func.count(AnalysisJob.id).filter(
+                    AnalysisJob.status == AnalysisJobStatus.ERROR
+                ),
+                sa.func.coalesce(sa.func.avg(processing_seconds), 0),
+            )
+            .where(
+                AnalysisJob.status.in_(
+                    (AnalysisJobStatus.DONE, AnalysisJobStatus.ERROR)
+                ),
+                AnalysisJob.finished_at >= start,
+                AnalysisJob.finished_at < end,
+            )
+            .group_by(day)
+            .order_by(day)
+        )
+    ).all()
+    by_day = {
+        row_day: (
+            int(total_jobs),
+            int(error_jobs),
+            max(float(average_processing_seconds), 0.0),
+        )
+        for row_day, total_jobs, error_jobs, average_processing_seconds in rows
+    }
+    return [
+        AdminJobTrendPoint(
+            day=trend_day,
+            total_jobs=by_day.get(trend_day, (0, 0, 0.0))[0],
+            error_jobs=by_day.get(trend_day, (0, 0, 0.0))[1],
+            average_processing_seconds=by_day.get(trend_day, (0, 0, 0.0))[2],
+        )
+        for trend_day in (today - timedelta(days=offset) for offset in range(6, -1, -1))
+    ]
+
+
 async def get_dashboard(db: AsyncSession) -> AdminDashboardResponse:
     jobs_by_status = await _jobs_by_status(db)
-
+    average_active_age = await _average_active_job_age(db)
     course_rows = (
         await db.execute(
             sa.select(
@@ -689,13 +770,18 @@ async def get_dashboard(db: AsyncSession) -> AdminDashboardResponse:
             .order_by(Course.code, Course.id)
         )
     ).all()
-    open_review_requests = (
+    total_users = int(await db.scalar(sa.select(sa.func.count(User.id))) or 0)
+    review_rows = (
         await db.execute(
-            sa.select(sa.func.count())
-            .select_from(ReviewRequest)
-            .where(ReviewRequest.status == ReviewRequestStatus.OPEN)
+            sa.select(ReviewRequest.status, sa.func.count(ReviewRequest.id)).group_by(
+                ReviewRequest.status
+            )
         )
-    ).scalar_one()
+    ).all()
+    review_requests_by_status = {
+        request_status: 0 for request_status in ReviewRequestStatus
+    }
+    review_requests_by_status.update(dict(review_rows))
     return AdminDashboardResponse(
         jobs_by_status=jobs_by_status,
         submissions_by_course=[
@@ -707,5 +793,9 @@ async def get_dashboard(db: AsyncSession) -> AdminDashboardResponse:
             )
             for course_id, course_code, course_name, submission_count in course_rows
         ],
-        open_review_requests=open_review_requests,
+        open_review_requests=review_requests_by_status[ReviewRequestStatus.OPEN],
+        total_users=total_users,
+        average_active_job_age_seconds=average_active_age,
+        jobs_last_7_days=await _jobs_last_7_days(db),
+        review_requests_by_status=review_requests_by_status,
     )

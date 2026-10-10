@@ -54,6 +54,25 @@ def test_storage_path_redaction_covers_staging_and_sealed_keys() -> None:
     )
 
 
+def test_dashboard_job_trend_zero_fills_seven_utc_days() -> None:
+    class EmptyResult:
+        def all(self) -> list[object]:
+            return []
+
+    class EmptyDb:
+        async def execute(self, _statement: object) -> EmptyResult:
+            return EmptyResult()
+
+    points = asyncio.run(operations_svc._jobs_last_7_days(EmptyDb()))
+    today = datetime.now(UTC).date()
+    assert [point.day for point in points] == [
+        today - timedelta(days=offset) for offset in range(6, -1, -1)
+    ]
+    assert all(point.total_jobs == 0 for point in points)
+    assert all(point.error_jobs == 0 for point in points)
+    assert all(point.average_processing_seconds == 0 for point in points)
+
+
 def test_admin_operation_contracts_are_explicit_and_admin_only() -> None:
     schema = app.openapi()
     methods = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
@@ -100,6 +119,8 @@ def test_admin_operation_contracts_are_explicit_and_admin_only() -> None:
         "action",
         "actor_type",
         "actor_user_id",
+        "actor_display_name",
+        "actor_email",
         "before",
         "after",
         "reason",
@@ -731,6 +752,14 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
             expected_job_counts[AnalysisJobStatus.DONE] += 1
             expected_job_counts[AnalysisJobStatus.ERROR] += 1
             assert dashboard.jobs_by_status == expected_job_counts
+            assert (
+                dashboard.jobs_last_7_days[-1].total_jobs
+                == baseline_dashboard.jobs_last_7_days[-1].total_jobs + 2
+            )
+            assert (
+                dashboard.jobs_last_7_days[-1].error_jobs
+                == baseline_dashboard.jobs_last_7_days[-1].error_jobs + 1
+            )
             course_counts = {
                 item.course_id: item.submission_count
                 for item in dashboard.submissions_by_course
