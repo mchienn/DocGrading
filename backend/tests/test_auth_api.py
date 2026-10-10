@@ -209,6 +209,7 @@ class TestSessionCookieSecurity:
             storage_access_key_id="explicit-key",
             storage_secret_access_key="explicit-secret",
             join_rate_limit_hash_secret="test-rate-limit-hash-secret-32-bytes",
+            storage_public_endpoint_url="https://storage.example.test",
         )
         assert settings.session_cookie_secure is expected
 

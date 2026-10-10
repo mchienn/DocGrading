@@ -1,6 +1,7 @@
 import re
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -125,6 +126,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Default join rate-limit hash secret is not allowed outside "
                 "development environment"
+            )
+        if (
+            self.app_env != "development"
+            and urlsplit(self.storage_public_endpoint_url.strip()).scheme.lower()
+            != "https"
+        ):
+            raise ValueError(
+                "Public storage endpoint must use HTTPS outside development "
+                "environment"
             )
         prefix = self.semantic_source_cache_prefix.strip()
         if prefix:

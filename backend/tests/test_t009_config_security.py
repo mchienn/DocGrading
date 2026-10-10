@@ -146,6 +146,26 @@ def test_settings_rejects_default_postgres_password_outside_development() -> Non
     assert "change-me" not in str(exc_info.value).lower()
 
 
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://storage.example.test", " HTTP://storage.example.test", "storage:9000"],
+)
+def test_settings_rejects_cleartext_public_storage_outside_development(
+    endpoint: str,
+) -> None:
+    with pytest.raises(ValidationError, match="must use HTTPS"):
+        Settings(
+            app_env="production",
+            postgres_db="docgrading",
+            postgres_user="docgrading",
+            postgres_password="pw",
+            storage_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            storage_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            join_rate_limit_hash_secret="test-rate-limit-hash-secret-32-bytes",
+            storage_public_endpoint_url=endpoint,
+        )
+
+
 def test_settings_accepts_valid_custom_credentials_outside_development() -> None:
     settings = Settings(
         app_env="production",
@@ -155,6 +175,7 @@ def test_settings_accepts_valid_custom_credentials_outside_development() -> None
         storage_access_key_id="AKIAIOSFODNN7EXAMPLE",
         storage_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         join_rate_limit_hash_secret="test-rate-limit-hash-secret-32-bytes",
+        storage_public_endpoint_url="https://storage.example.test",
     )
     assert settings.storage_access_key_id == "AKIAIOSFODNN7EXAMPLE"
 
@@ -201,6 +222,7 @@ def test_api_startup_succeeds_in_production_with_valid_custom_credentials(
     monkeypatch.setenv(
         "JOIN_RATE_LIMIT_HASH_SECRET", "test-rate-limit-hash-secret-32-bytes"
     )
+    monkeypatch.setenv("STORAGE_PUBLIC_ENDPOINT_URL", "https://storage.example.test")
 
     app = create_app()
     with TestClient(app) as client:

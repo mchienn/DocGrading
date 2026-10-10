@@ -375,6 +375,7 @@ def test_login_cookies_are_secure_outside_development(
     monkeypatch.setenv(
         "JOIN_RATE_LIMIT_HASH_SECRET", "test-rate-limit-hash-secret-32-bytes"
     )
+    monkeypatch.setenv("STORAGE_PUBLIC_ENDPOINT_URL", "https://storage.example.test")
     get_settings.cache_clear()
     try:
         asyncio.run(_run_secure_cookie_login())
