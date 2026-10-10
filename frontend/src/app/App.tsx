@@ -364,9 +364,9 @@ export const App: React.FC = () => {
   const activeRole = strongestRole(user.roles);
   const home = defaultPath(activeRole);
   const adminTitles: Record<string, string> = {
-    '/admin/dashboard': 'Admin dashboard',
+    '/admin/dashboard': 'Analysis',
     '/admin/users': 'Users',
-    '/admin/jobs': 'Analysis jobs',
+    '/admin/jobs': 'Monitoring',
     '/admin/audit': 'Audit trail',
     '/admin/appeals': 'Appeals',
     '/admin/ai-providers': 'AI providers',

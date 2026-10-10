@@ -48,9 +48,9 @@ export const AppSidebar: React.FC<SidebarProps> = ({
       : [
           ...(activeRole === 'admin'
             ? [
-                { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                { path: '/admin/dashboard', label: 'Analysis', icon: LayoutDashboard },
                 { path: '/admin/users', label: 'Users', icon: Users },
-                { path: '/admin/jobs', label: 'Analysis jobs', icon: Activity },
+                { path: '/admin/jobs', label: 'Monitoring', icon: Activity },
                 { path: '/admin/audit', label: 'Audit trail', icon: History },
                 { path: '/admin/ai-providers', label: 'AI providers', icon: Cpu },
               ]
