@@ -36,6 +36,7 @@ interface CourseWorkspaceViewProps {
   onOpenSubmissionQueue: () => void;
   onOpenRoster: () => void;
   onSaveAssignment: (input: AssignmentInput, assignmentId?: string) => Promise<void>;
+  onDeleteAssignment: (assignmentId: string) => Promise<void>;
   onPublishAssignment: (assignmentId: string) => Promise<void>;
   onCloseAssignment: (assignmentId: string) => Promise<void>;
 }
@@ -50,6 +51,7 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   onOpenSubmissionQueue,
   onOpenRoster,
   onSaveAssignment,
+  onDeleteAssignment,
   onPublishAssignment,
   onCloseAssignment,
 }) => {
@@ -158,7 +160,119 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
                         >
                           <Send className="w-3.5 h-3.5" /> Publish
                         </button>
-                      </>
+                        {course.status === 'ACTIVE' && assignment.status === 'DRAFT' && (
+                          <>
+                            <button type="button" onClick={() => { setEditingAssignment(assignment); setShowAssignmentForm(true); }} className="p-2 border border-slate-200 rounded-lg text-slate-600" aria-label={`Edit ${assignment.title}`}>
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Delete draft “${assignment.title}”?`)) void runAction(() => onDeleteAssignment(assignment.id));
+                              }}
+                              className="p-2 border border-rose-200 rounded-lg text-rose-700"
+                              aria-label={`Delete ${assignment.title}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <button type="button" onClick={() => void runAction(() => onPublishAssignment(assignment.id))} className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-700 text-white rounded-lg text-xs font-semibold">
+                              <Send className="w-3.5 h-3.5" /> Publish
+                            </button>
+                          </>
+                        )}
+                        {course.status === 'ACTIVE' && assignment.status === 'OPEN' && (
+                          <button type="button" onClick={() => void runAction(() => onCloseAssignment(assignment.id))} className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 text-white rounded-lg text-xs font-semibold">
+                            <Square className="w-3.5 h-3.5" /> Close
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {expanded && (
+                      <div className="border-t border-slate-200 bg-slate-50/60 p-4 space-y-3">
+                        {submissionsQuery.error && <p role="alert" className="text-sm text-rose-700">{getErrorMessage(submissionsQuery.error)}</p>}
+                        <div className="overflow-x-auto bg-white border border-slate-200 rounded-lg">
+                          <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-50 text-xs text-slate-500 border-b border-slate-200">
+                              <tr>
+                                <th className="px-3 py-2">Student</th>
+                                <th className="px-3 py-2">Latest file</th>
+                                <th className="px-3 py-2">Latest submission</th>
+                                <th className="px-3 py-2">Attempts</th>
+                                <th className="px-3 py-2">Status</th>
+                                <th className="px-3 py-2 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {submissionsQuery.isLoading ? (
+                                <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">Loading submissions...</td></tr>
+                              ) : !submissions?.items.length ? (
+                                <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No student submissions.</td></tr>
+                              ) : submissions.items.map((item) => {
+                                const attemptsExpanded = expandedSubmissionId === item.submission_id;
+                                return (
+                                  <React.Fragment key={item.submission_id}>
+                                    <tr>
+                                      <td className="px-3 py-3">
+                                        <p className="font-semibold text-slate-800">{item.student_display_name}</p>
+                                        <p className="text-xs text-slate-500">{item.student_email}</p>
+                                      </td>
+                                      <td className="px-3 py-3 max-w-64">
+                                        <p className="truncate font-medium text-slate-700" title={item.filename ?? undefined}>{item.filename ?? 'No file'}</p>
+                                        {item.file_size_bytes && <p className="text-xs text-slate-500">{item.file_size_bytes.toLocaleString()} bytes</p>}
+                                      </td>
+                                      <td className="px-3 py-3 whitespace-nowrap text-xs text-slate-600">{item.submitted_at ? new Date(item.submitted_at).toLocaleString() : '—'}</td>
+                                      <td className="px-3 py-3">
+                                        <button
+                                          type="button"
+                                          aria-expanded={attemptsExpanded}
+                                          aria-controls={`submission-attempts-${item.submission_id}`}
+                                          onClick={() => setExpandedSubmissionId(attemptsExpanded ? undefined : item.submission_id)}
+                                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-sky-200 bg-sky-50 text-sky-800 font-semibold"
+                                        >
+                                          {item.attempt_count}/{assignment.max_submissions}
+                                          {attemptsExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                        </button>
+                                      </td>
+                                      <td className="px-3 py-3"><span className="font-mono text-xs">{item.document_status ?? 'NO_DOCUMENT'}</span></td>
+                                      <td className="px-3 py-3 text-right whitespace-nowrap">
+                                        {item.document_version_id && (
+                                          <button type="button" disabled={openingDocumentId === item.document_version_id} onClick={() => void openPdf(item.document_version_id!)} className="p-2 text-sky-700 hover:bg-sky-50 rounded-lg disabled:opacity-40" aria-label={`Open latest ${item.filename ?? 'PDF'}`}>
+                                            <Download className="w-4 h-4" />
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          disabled={!item.document_status || !reviewableStatuses.includes(item.document_status)}
+                                          onClick={() => onOpenSubmission(item.submission_id, item.document_status)}
+                                          className="ml-1 px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold disabled:opacity-40"
+                                        >
+                                          Review latest
+                                        </button>
+                                      </td>
+                                    </tr>
+                                    {attemptsExpanded && (
+                                      <SubmissionAttemptHistory
+                                        submissionId={item.submission_id}
+                                        openingDocumentId={openingDocumentId}
+                                        onOpenPdf={openPdf}
+                                        onOpenResult={onOpenVersionResult}
+                                      />
+                                    )}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-600">
+                          <span>{submissions?.total ?? 0} submissions · page {submissionPage} of {submissionPages}</span>
+                          <div className="flex gap-2">
+                            <button type="button" disabled={submissionPage <= 1 || submissionsQuery.isFetching} onClick={() => setSubmissionPage((page) => page - 1)} className="p-1.5 border border-slate-300 rounded disabled:opacity-40" aria-label="Previous submission page"><ChevronLeft className="w-4 h-4" /></button>
+                            <button type="button" disabled={submissionPage >= submissionPages || submissionsQuery.isFetching} onClick={() => setSubmissionPage((page) => page + 1)} className="p-1.5 border border-slate-300 rounded disabled:opacity-40" aria-label="Next submission page"><ChevronRight className="w-4 h-4" /></button>
+                          </div>
+                        </div>
+                      </div>
                     )}
                     {assignment.status === 'OPEN' && (
                       <button

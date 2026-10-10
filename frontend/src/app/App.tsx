@@ -8,6 +8,7 @@ import {
   ApiError,
   api,
   apiData,
+  apiVoid,
   broadcastAuthChange,
   getErrorMessage,
   type AuthChangeKind,
@@ -188,6 +189,35 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
     await refreshAssignments();
   };
 
+  const deleteAssignment = async (assignmentId: string) => {
+    await apiVoid(api.DELETE('/api/v1/courses/{course_id}/assignments/{assignment_id}', {
+      params: { path: { course_id: courseId, assignment_id: assignmentId } },
+    }));
+    await refreshAssignments();
+  };
+
+  const saveAnnouncement = async (input: AnnouncementInput, announcementId?: string) => {
+    if (announcementId) {
+      await apiData(api.PUT('/api/v1/courses/{course_id}/announcements/{announcement_id}', {
+        params: { path: { course_id: courseId, announcement_id: announcementId } },
+        body: input,
+      }));
+    } else {
+      await apiData(api.POST('/api/v1/courses/{course_id}/announcements', {
+        params: { path: { course_id: courseId } },
+        body: input,
+      }));
+    }
+    await queryClient.invalidateQueries({ queryKey: ['announcements', courseId] });
+  };
+
+  const deleteAnnouncement = async (announcementId: string) => {
+    await apiVoid(api.DELETE('/api/v1/courses/{course_id}/announcements/{announcement_id}', {
+      params: { path: { course_id: courseId, announcement_id: announcementId } },
+    }));
+    await queryClient.invalidateQueries({ queryKey: ['announcements', courseId] });
+  };
+
   const publishAssignment = async (assignmentId: string) => {
     await apiData(api.POST('/api/v1/courses/{course_id}/assignments/{assignment_id}/publish', {
       params: { path: { course_id: courseId, assignment_id: assignmentId } },
@@ -219,6 +249,7 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
       onOpenRoster={() => navigate(`/${role}/courses/${courseId}/roster`)}
       onSaveAssignment={saveAssignment}
       onPublishAssignment={publishAssignment}
+      onDeleteAssignment={deleteAssignment}
       onCloseAssignment={closeAssignment}
     />
   );
