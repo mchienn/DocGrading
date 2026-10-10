@@ -41,6 +41,13 @@ Xem yêu cầu, tải PDF, theo dõi trạng thái xử lý, xem kết quả đ�
 - Status badge luôn có text rõ ràng.
 - Error message phải nêu nguyên nhân và hành động tiếp theo.
 - Không để lộ tên queue, worker, model hoặc lỗi kỹ thuật cho Student.
+4.1. Account center theo vai trò
+- Bốn destination dùng chung: Profile, Notifications, Files và Settings; URL giữ prefix workspace `admin`, `teacher` hoặc `student`.
+- Profile hiển thị email, role, trạng thái, ngày tham gia; chỉ display name được tự sửa. Role summary dùng dữ liệu thật: Admin có quick link quản trị, Teacher có Course phụ trách, Student có Course đã tham gia.
+- Notifications có view đầy đủ ngoài panel chuông: All/Unread, phân trang, mark read từng item hoặc tất cả và deep link tới object liên quan.
+- Files chỉ tổng hợp DocumentVersion đã có; không tạo file manager hoặc luồng upload song song. Admin xem toàn hệ thống, Teacher xem file trong Course mình phụ trách, Student chỉ xem phiên bản của mình khi membership Course còn `ACTIVE`. Download luôn dùng URL ký ngắn hạn.
+- Settings chứa đổi mật khẩu và mô tả delivery hiện hành. Không thêm tùy chọn giả, avatar, department, student ID, theme hoặc notification preference khi chưa có contract lưu trữ.
+- Account view dùng tab/link có selected state rõ, focus theo thứ tự DOM, reflow 320 CSS px. Table Files chuyển thành card/list ở màn hình hẹp.
 Các trạng thái chính:
 - Đã nhận.
 - Đang kiểm tra PDF.

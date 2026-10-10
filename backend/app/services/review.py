@@ -85,7 +85,7 @@ from app.models.submission import (
 from app.services import course as course_svc
 from app.services import notification as notification_svc
 from app.services.audit import record_audit
-from app.services.storage import S3Storage
+from app.services.storage import S3Storage, StorageObjectNotFound
 
 LOCK_TTL = timedelta(minutes=10)
 _REVIEWED_STATUSES = (DocumentStatus.APPROVED, DocumentStatus.PUBLISHED)
@@ -2196,7 +2196,24 @@ async def get_document_download(
     if version is None:
         raise HTTPException(status_code=404, detail="Document version not found")
     await _submission_for_read(db, version.submission_id, user)
+    if version.status == DocumentStatus.UPLOADING:
+        raise HTTPException(
+            status_code=409,
+            detail="Document upload is not complete",
+        )
     storage = storage or S3Storage()
+    try:
+        await asyncio.to_thread(storage.head, version.storage_key)
+    except StorageObjectNotFound as exc:
+        raise HTTPException(
+            status_code=410,
+            detail="Document file is missing from storage. Re-upload the PDF.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Object storage is temporarily unavailable",
+        ) from exc
     return DocumentDownloadResponse(
         url=storage.create_presigned_get(version.storage_key),
         expires_in=storage.expiry_seconds,

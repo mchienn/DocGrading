@@ -59,6 +59,35 @@ class DocumentDownloadResponse(BaseModel):
     expires_in: int = Field(ge=1, le=300)
 
 
+class DocumentVersionListItem(BaseModel):
+    document_version_id: uuid.UUID
+    submission_id: uuid.UUID
+    version_number: int
+    filename: str
+    file_size_bytes: int = Field(ge=1)
+    sha256: str
+    document_status: DocumentStatus
+    created_at: datetime
+    course_id: uuid.UUID
+    course_code: str
+    course_name: str
+    assignment_id: uuid.UUID
+    assignment_title: str
+    student_id: uuid.UUID
+    student_display_name: str
+
+    model_config = {"extra": "forbid"}
+
+
+class DocumentVersionListResponse(BaseModel):
+    items: list[DocumentVersionListItem]
+    page: int
+    page_size: int
+    total: int
+
+    model_config = {"extra": "forbid"}
+
+
 class AnalysisJobResponse(BaseModel):
     id: uuid.UUID
     document_version_id: uuid.UUID

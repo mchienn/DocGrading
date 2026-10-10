@@ -13,13 +13,13 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.api.routers import auth as auth_router
-from app.api.schemas import LoginRequest
+from app.api.schemas import LoginRequest, ProfileUpdateRequest
 from app.core.config import Settings, get_settings
 from app.models.enums import UserRole, UserStatus
 from app.models.identity import User
@@ -50,6 +50,64 @@ class TestArgon2id:
     def test_needs_rehash_returns_false_for_fresh_hash(self) -> None:
         h = hash_password("test")
         assert needs_rehash(h) is False
+
+
+def test_profile_patch_rejects_stale_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime.now(UTC)
+    user = User(
+        id=uuid.uuid4(),
+        email="profile@test.local",
+        display_name="Before",
+        password_hash=hash_password("TestPassword!123"),
+        roles=[UserRole.STUDENT],
+        status=UserStatus.ACTIVE,
+        created_at=now,
+        revision=1,
+    )
+
+    class Result:
+        def scalar_one_or_none(self) -> User:
+            return user
+
+    class FakeDb:
+        async def execute(self, _statement: object) -> Result:
+            return Result()
+
+        async def flush(self) -> None:
+            pass
+
+        async def commit(self) -> None:
+            pass
+
+    async def fake_record_audit(*_args: object, **_kwargs: object) -> None:
+        pass
+
+    monkeypatch.setattr(auth_router, "record_audit", fake_record_audit)
+    db = FakeDb()
+    response = asyncio.run(
+        auth_router.update_me(
+            ProfileUpdateRequest(display_name="  After  "),
+            '"rev-1"',
+            user,
+            db,
+        )
+    )
+    assert response.display_name == "After"
+    assert response.revision == 2
+    assert user.display_name == "After"
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            auth_router.update_me(
+                ProfileUpdateRequest(display_name="Another"),
+                '"rev-1"',
+                user,
+                db,
+            )
+        )
+    assert getattr(exc_info.value, "status_code", None) == 412
 
 
 class TestSessionCookieSecurity:
@@ -90,6 +148,8 @@ class TestSessionCookieSecurity:
             password_hash=hash_password("TestPassword!123"),
             roles=[UserRole.TEACHER],
             status=UserStatus.ACTIVE,
+            created_at=now,
+            revision=1,
         )
 
         class FakeDb:

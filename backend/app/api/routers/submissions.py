@@ -38,7 +38,7 @@ from app.api.schemas_submission import (
     VersionComparisonResponse,
 )
 from app.db.session import get_db_session
-from app.models.enums import AnalysisJobStatus, ReviewRequestStatus
+from app.models.enums import AnalysisJobStatus, DocumentStatus, ReviewRequestStatus
 from app.models.identity import User
 from app.services import analysis_job as job_svc
 from app.services import appeal as appeal_svc
@@ -75,6 +75,45 @@ async def presign_upload(
     )
     await db.commit()
     return PresignResponse.model_validate(response)
+
+
+@router.get("/document-versions", response_model=DocumentVersionListResponse)
+async def list_document_versions(
+    status_filter: DocumentStatus | None = Query(default=None, alias="status"),
+    search: str | None = Query(default=None, max_length=255),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> DocumentVersionListResponse:
+    return await submission_svc.list_document_versions(
+        db,
+        user=user,
+        status=status_filter,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/assignments/{assignment_id}/submissions",
+    response_model=AssignmentSubmissionListResponse,
+)
+async def list_assignment_submissions(
+    assignment_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> AssignmentSubmissionListResponse:
+    return await review_svc.list_assignment_submissions(
+        db,
+        assignment_id=assignment_id,
+        user=user,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.post(
