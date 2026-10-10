@@ -47,6 +47,7 @@ export const AppSidebar: React.FC<SidebarProps> = ({
                 { path: '/admin/users', label: 'Users', icon: Users },
                 { path: '/admin/jobs', label: 'Analysis jobs', icon: Activity },
                 { path: '/admin/audit', label: 'Audit trail', icon: History },
+                { path: '/admin/ai-providers', label: 'AI providers', icon: Cpu },
               ]
             : []),
           { path: `/${activeRole}/courses`, label: 'Courses', icon: BookOpen },
