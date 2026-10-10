@@ -40,8 +40,7 @@ class Finding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         _not_blank("severity", "ck_findings_severity_not_blank"),
         _not_blank("description", "ck_findings_description_not_blank"),
         sa.CheckConstraint(
-            "proposed_score IS NULL "
-            "OR (proposed_score >= 0 AND proposed_score <= 100)",
+            "proposed_score IS NULL OR (proposed_score >= 0 AND proposed_score <= 100)",
             name="ck_findings_proposed_score_range",
         ),
         sa.ForeignKeyConstraint(

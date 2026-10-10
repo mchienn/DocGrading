@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import uuid
 from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import boto3
 from botocore.client import BaseClient
@@ -33,6 +37,23 @@ class S3Storage:
         self.expiry_seconds = settings.storage_presign_expiry_seconds
         self._internal = self._client(settings.storage_endpoint_url, settings)
         self._public = self._client(settings.storage_public_endpoint_url, settings)
+        self._recovery_dir = (
+            Path(settings.storage_recovery_dir).resolve()
+            if settings.storage_recovery_dir
+            else None
+        )
+        frontend_origin = settings.frontend_origin.rstrip("/")
+        parsed_origin = urlsplit(frontend_origin)
+        alternate_host = {
+            "localhost": "127.0.0.1",
+            "127.0.0.1": "localhost",
+        }.get(parsed_origin.hostname or "")
+        self._recovery_cors_origins = [frontend_origin]
+        if alternate_host:
+            port = f":{parsed_origin.port}" if parsed_origin.port else ""
+            self._recovery_cors_origins.append(
+                urlunsplit(parsed_origin._replace(netloc=f"{alternate_host}{port}"))
+            )
 
     @staticmethod
     def _client(endpoint: str, settings: Settings) -> BaseClient:
@@ -99,16 +120,120 @@ class S3Storage:
             ):
                 raise StorageObjectChanged from exc
             raise
-        return self.head(destination_key)
+        sealed = self.head(destination_key)
+        self._backup(destination_key)
+        return sealed
 
-    def head(self, key: str) -> ObjectHead:
+    def _recovery_path(self, key: str) -> Path | None:
+        recovery_dir = getattr(self, "_recovery_dir", None)
+        if recovery_dir is None:
+            return None
+        relative = PurePosixPath(key)
+        if (
+            relative.is_absolute()
+            or Path(key).is_absolute()
+            or "\\" in key
+            or any(part in {"", ".", ".."} for part in key.split("/"))
+        ):
+            raise ValueError("Storage key is not a safe relative path")
+        return recovery_dir.joinpath(*relative.parts)
+
+    def _backup(self, key: str) -> None:
+        destination = self._recovery_path(key)
+        if destination is None:
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        result = self._internal.get_object(Bucket=self.bucket, Key=key)
+        body = result["Body"]
         try:
-            result = self._internal.head_object(Bucket=self.bucket, Key=key)
+            with temporary.open("wb") as target:
+                while chunk := body.read(1024 * 1024):
+                    target.write(chunk)
+            os.replace(temporary, destination)
+        finally:
+            body.close()
+            temporary.unlink(missing_ok=True)
+
+    def _create_recovery_bucket(self) -> None:
+        self._internal.create_bucket(Bucket=self.bucket)
+        self._internal.put_bucket_cors(
+            Bucket=self.bucket,
+            CORSConfiguration={
+                "CORSRules": [
+                    {
+                        "AllowedHeaders": ["*"],
+                        "AllowedMethods": ["GET", "HEAD", "POST"],
+                        "AllowedOrigins": self._recovery_cors_origins,
+                        "ExposeHeaders": [
+                            "Accept-Ranges",
+                            "Content-Length",
+                            "Content-Range",
+                            "ETag",
+                        ],
+                        "MaxAgeSeconds": 300,
+                    }
+                ]
+            },
+        )
+        self._internal.put_bucket_lifecycle_configuration(
+            Bucket=self.bucket,
+            LifecycleConfiguration={
+                "Rules": [
+                    {
+                        "ID": "expire-staging-uploads",
+                        "Filter": {"Prefix": "uploads/"},
+                        "Status": "Enabled",
+                        "Expiration": {"Days": 1},
+                    }
+                ]
+            },
+        )
+
+    def _restore(self, key: str) -> bool:
+        source = self._recovery_path(key)
+        if source is None or not source.is_file():
+            return False
+        with source.open("rb") as body:
+            try:
+                self._internal.put_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    Body=body,
+                    ContentType="application/pdf",
+                )
+            except Exception as exc:
+                error = getattr(exc, "response", {}).get("Error", {})
+                if error.get("Code") != "NoSuchBucket":
+                    raise
+                self._create_recovery_bucket()
+                body.seek(0)
+                self._internal.put_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    Body=body,
+                    ContentType="application/pdf",
+                )
+        return True
+
+    def _head(self, key: str) -> dict[str, Any]:
+        try:
+            return self._internal.head_object(Bucket=self.bucket, Key=key)
         except Exception as exc:
             error = getattr(exc, "response", {}).get("Error", {})
-            if error.get("Code") in {"404", "NoSuchKey", "NotFound"}:
+            if error.get("Code") not in {
+                "404",
+                "NoSuchBucket",
+                "NoSuchKey",
+                "NotFound",
+            }:
+                raise
+            if not self._restore(key):
                 raise StorageObjectNotFound from exc
-            raise
+        return self._internal.head_object(Bucket=self.bucket, Key=key)
+
+    def head(self, key: str) -> ObjectHead:
+        result = self._head(key)
         return ObjectHead(
             content_type=str(result.get("ContentType", "")),
             content_length=int(result.get("ContentLength", 0)),
@@ -120,9 +245,16 @@ class S3Storage:
             result = self._internal.get_object(Bucket=self.bucket, Key=key)
         except Exception as exc:
             error = getattr(exc, "response", {}).get("Error", {})
-            if error.get("Code") in {"404", "NoSuchKey", "NotFound"}:
+            if error.get("Code") not in {
+                "404",
+                "NoSuchBucket",
+                "NoSuchKey",
+                "NotFound",
+            }:
+                raise
+            if not self._restore(key):
                 raise StorageObjectNotFound from exc
-            raise
+            result = self._internal.get_object(Bucket=self.bucket, Key=key)
         body = result["Body"]
         try:
             data = body.read(max_size + 1)
