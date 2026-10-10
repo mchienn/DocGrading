@@ -25,11 +25,15 @@ import type { ApiAssignment, ApiCourse, ApiRubric } from '../../types/api';
 import { AssignmentWizardModal } from './AssignmentWizardModal';
 
 type AssignmentInput = components['schemas']['AssignmentCreate'];
+type AnnouncementInput = components['schemas']['AnnouncementCreate'];
+type Announcement = components['schemas']['AnnouncementResponse'];
+type SubmissionVersion = components['schemas']['SubmissionVersionResponse'];
 
 interface CourseWorkspaceViewProps {
   course: ApiCourse;
   assignments: ApiAssignment[];
   rubrics: ApiRubric[];
+  announcements: Announcement[];
   loading: boolean;
   error?: string;
   onBack: () => void;
@@ -39,12 +43,15 @@ interface CourseWorkspaceViewProps {
   onDeleteAssignment: (assignmentId: string) => Promise<void>;
   onPublishAssignment: (assignmentId: string) => Promise<void>;
   onCloseAssignment: (assignmentId: string) => Promise<void>;
+  onSaveAnnouncement: (input: AnnouncementInput, announcementId?: string) => Promise<void>;
+  onDeleteAnnouncement: (announcementId: string) => Promise<void>;
 }
 
 export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   course,
   assignments,
   rubrics,
+  announcements,
   loading,
   error,
   onBack,
@@ -54,9 +61,21 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   onDeleteAssignment,
   onPublishAssignment,
   onCloseAssignment,
+  onSaveAnnouncement,
+  onDeleteAnnouncement,
 }) => {
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState<ApiAssignment>();
+  const [activeTab, setActiveTab] = useState<'assignments' | 'announcements'>('assignments');
+  const [showAssignmentForm, setShowAssignmentForm] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState<ApiAssignment>();
+  const [expandedAssignmentId, setExpandedAssignmentId] = useState<string>();
+  const [submissionPage, setSubmissionPage] = useState(1);
+  const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
+  const [expandedSubmissionId, setExpandedSubmissionId] = useState<string>();
+  const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement>();
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementBody, setAnnouncementBody] = useState('');
+  const [announcementSaving, setAnnouncementSaving] = useState(false);
+  const [openingDocumentId, setOpeningDocumentId] = useState<string>();
   const [actionError, setActionError] = useState<string>();
 
   const runAction = async (action: () => Promise<void>) => {
@@ -66,6 +85,65 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
     } catch (requestError) {
       setActionError(getErrorMessage(requestError));
     }
+  };
+
+  const startAnnouncement = (announcement?: Announcement) => {
+    setEditingAnnouncement(announcement);
+    setAnnouncementTitle(announcement?.title ?? '');
+    setAnnouncementBody(announcement?.body ?? '');
+    setShowAnnouncementForm(true);
+  };
+
+  const saveAnnouncement = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setAnnouncementSaving(true);
+    setActionError(undefined);
+    try {
+      await onSaveAnnouncement(
+        { title: announcementTitle.trim(), body: announcementBody.trim() },
+        editingAnnouncement?.id,
+      );
+      setEditingAnnouncement(undefined);
+      setAnnouncementTitle('');
+      setAnnouncementBody('');
+      setShowAnnouncementForm(false);
+    } catch (requestError) {
+      setActionError(getErrorMessage(requestError));
+    } finally {
+      setAnnouncementSaving(false);
+    }
+  };
+
+  const openPdf = async (documentVersionId: string) => {
+    setOpeningDocumentId(documentVersionId);
+    setActionError(undefined);
+    try {
+      const download = await apiData(api.GET('/api/v1/document-versions/{version_id}/download', {
+        params: { path: { version_id: documentVersionId } },
+      }));
+      const link = document.createElement('a');
+      link.href = download.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.click();
+    } catch (requestError) {
+      setActionError(getErrorMessage(requestError));
+    } finally {
+      setOpeningDocumentId(undefined);
+    }
+  };
+
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    let nextTab: 'assignments' | 'announcements' | undefined;
+    if (event.key === 'Home') nextTab = 'assignments';
+    if (event.key === 'End') nextTab = 'announcements';
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      nextTab = activeTab === 'assignments' ? 'announcements' : 'assignments';
+    }
+    if (!nextTab) return;
+    event.preventDefault();
+    setActiveTab(nextTab);
+    document.getElementById(`course-tab-${nextTab}`)?.focus();
   };
 
   return (
@@ -119,29 +197,51 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-slate-500">Loading assignments...</p>
-      ) : assignments.length === 0 ? (
-        <p className="p-8 text-center border border-dashed border-slate-300 rounded-xl text-sm text-slate-500">No assignments in this course.</p>
-      ) : (
-        <div className="space-y-3">
-          {assignments.map((assignment) => (
-            <article key={assignment.id} className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="font-bold text-slate-900">{assignment.title}</h2>
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">{assignment.status}</span>
-                  </div>
-                  {assignment.description && <p className="text-sm text-slate-600 mt-2">{assignment.description}</p>}
-                  <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
-                    <CalendarClock className="w-3.5 h-3.5" /> Due {new Date(assignment.due_at).toLocaleString()} · max {assignment.max_submissions}
-                  </p>
-                </div>
-                {course.status === 'ACTIVE' && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    {assignment.status === 'DRAFT' && (
-                      <>
+      <div role="tablist" aria-label="Course content" className="inline-flex p-1 bg-slate-100 border border-slate-200 rounded-xl">
+        <button id="course-tab-assignments" type="button" role="tab" aria-selected={activeTab === 'assignments'} aria-controls="course-panel-assignments" tabIndex={activeTab === 'assignments' ? 0 : -1} onClick={() => setActiveTab('assignments')} onKeyDown={handleTabKeyDown} className={`px-4 py-2 rounded-lg text-sm font-semibold ${activeTab === 'assignments' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}>
+          Assignments ({assignments.length})
+        </button>
+        <button id="course-tab-announcements" type="button" role="tab" aria-selected={activeTab === 'announcements'} aria-controls="course-panel-announcements" tabIndex={activeTab === 'announcements' ? 0 : -1} onClick={() => setActiveTab('announcements')} onKeyDown={handleTabKeyDown} className={`px-4 py-2 rounded-lg text-sm font-semibold ${activeTab === 'announcements' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}>
+          Announcements ({announcements.length})
+        </button>
+      </div>
+
+      {activeTab === 'assignments' ? (
+        <section id="course-panel-assignments" role="tabpanel" aria-labelledby="course-tab-assignments" className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Assignments</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Create, publish, close, and inspect each assignment's submissions.</p>
+            </div>
+            {course.status === 'ACTIVE' && (
+              <button type="button" onClick={() => { setEditingAssignment(undefined); setShowAssignmentForm(true); }} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold">
+                <Plus className="w-4 h-4" /> Create assignment
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <p className="text-sm text-slate-500">Loading assignments...</p>
+          ) : assignments.length === 0 ? (
+            <p className="p-8 text-center border border-dashed border-slate-300 rounded-xl text-sm text-slate-500">No assignments in this course.</p>
+          ) : (
+            <div className="space-y-3">
+              {assignments.map((assignment) => {
+                const expanded = expandedAssignmentId === assignment.id;
+                return (
+                  <article key={assignment.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="p-5 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-bold text-slate-900">{assignment.title}</h3>
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">{assignment.status}</span>
+                        </div>
+                        {assignment.description && <p className="text-sm text-slate-600 mt-2">{assignment.description}</p>}
+                        <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+                          <CalendarClock className="w-3.5 h-3.5" /> Due {new Date(assignment.due_at).toLocaleString()} · max {assignment.max_submissions} attempts
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <button
                           type="button"
                           onClick={() => {
