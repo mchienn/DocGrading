@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -50,6 +51,83 @@ class TestArgon2id:
     def test_needs_rehash_returns_false_for_fresh_hash(self) -> None:
         h = hash_password("test")
         assert needs_rehash(h) is False
+
+
+def test_login_throttles_failed_clients_before_off_loop_hashing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import auth as auth_service
+
+    password = "TestPassword!123"
+    user = User(
+        id=uuid.uuid4(),
+        email="known@example.test",
+        display_name="Known",
+        password_hash=hash_password(password),
+        roles=[UserRole.STUDENT],
+        status=UserStatus.ACTIVE,
+    )
+    hashed_on_loop_thread: list[bool] = []
+    original_verify = auth_service.verify_password
+
+    def tracked_verify(candidate: str, password_hash: str) -> bool:
+        hashed_on_loop_thread.append(
+            threading.current_thread() is threading.main_thread()
+        )
+        return original_verify(candidate, password_hash)
+
+    class FakeDb:
+        def __init__(self, found: User | None) -> None:
+            self.found = found
+
+        async def execute(self, _statement: object) -> SimpleNamespace:
+            return SimpleNamespace(scalar_one_or_none=lambda: self.found)
+
+        async def flush(self) -> None:
+            pass
+
+    monkeypatch.setattr(auth_service, "verify_password", tracked_verify)
+    monkeypatch.setattr(
+        auth_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            login_failure_window_seconds=900, login_ip_max_failed_attempts=2
+        ),
+    )
+    client_ip = f"throttle-test-{uuid.uuid4()}"
+
+    async def scenario() -> None:
+        for _ in range(3):
+            assert (
+                await auth_service.authenticate_user(
+                    FakeDb(user), user.email, password, client_ip=client_ip
+                )
+                is user
+            )
+        for _ in range(2):
+            assert (
+                await auth_service.authenticate_user(
+                    FakeDb(None), "missing@example.test", "wrong", client_ip=client_ip
+                )
+                is None
+            )
+        hashes_before_throttle = len(hashed_on_loop_thread)
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_service.authenticate_user(
+                FakeDb(None), "missing@example.test", "wrong", client_ip=client_ip
+            )
+        assert exc_info.value.status_code == 429
+        assert int(exc_info.value.headers["Retry-After"]) > 0
+        assert len(hashed_on_loop_thread) == hashes_before_throttle
+        assert (
+            await auth_service.authenticate_user(
+                FakeDb(None), "missing@example.test", "wrong", client_ip="other-client"
+            )
+            is None
+        )
+
+    asyncio.run(scenario())
+    assert hashed_on_loop_thread and not any(hashed_on_loop_thread)
 
 
 def test_profile_patch_rejects_stale_revision(
@@ -156,7 +234,7 @@ class TestSessionCookieSecurity:
             async def commit(self) -> None:
                 pass
 
-        async def fake_authenticate_user(*_args: object) -> User:
+        async def fake_authenticate_user(*_args: object, **_kwargs: object) -> User:
             return user
 
         async def fake_create_session(*_args: object) -> SimpleNamespace:
@@ -184,6 +262,7 @@ class TestSessionCookieSecurity:
         response = asyncio.run(
             auth_router.login(
                 LoginRequest(email=user.email, password="TestPassword!123"),
+                Request({"type": "http", "client": ("203.0.113.10", 0), "headers": []}),
                 FakeDb(),
             )
         )

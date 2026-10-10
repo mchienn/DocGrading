@@ -30,6 +30,7 @@ from app.services.auth import (
     create_session,
     csrf_token_for_session,
     hash_password,
+    password_check_slot,
     revoke_session,
     verify_password,
 )
@@ -85,10 +86,16 @@ def _set_csrf_cookie(response: Response, session_id: uuid.UUID) -> None:
 @router.post("/login", response_model=UserResponse)
 async def login(
     body: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> JSONResponse:
     """Authenticate with email + password, receive a session cookie."""
-    user = await authenticate_user(db, body.email, body.password)
+    user = await authenticate_user(
+        db,
+        body.email,
+        body.password,
+        client_ip=request.client.host if request.client else "unknown",
+    )
     if user is None:
         await db.commit()
         raise HTTPException(
@@ -227,21 +234,23 @@ async def change_password(
     db: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
     current_session_id = _request_session_id(request)
-    fresh_user = (
-        await db.execute(select(User).where(User.id == user.id).with_for_update())
-    ).scalar_one_or_none()
-    if fresh_user is None or fresh_user.status is not UserStatus.ACTIVE:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if not await asyncio.to_thread(
-        verify_password, body.current_password, fresh_user.password_hash
-    ):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-    if await asyncio.to_thread(
-        verify_password, body.new_password, fresh_user.password_hash
-    ):
-        raise HTTPException(status_code=400, detail="New password must differ")
-
-    fresh_user.password_hash = await asyncio.to_thread(hash_password, body.new_password)
+    async with password_check_slot():
+        fresh_user = (
+            await db.execute(select(User).where(User.id == user.id).with_for_update())
+        ).scalar_one_or_none()
+        if fresh_user is None or fresh_user.status is not UserStatus.ACTIVE:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if not await asyncio.to_thread(
+            verify_password, body.current_password, fresh_user.password_hash
+        ):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        if await asyncio.to_thread(
+            verify_password, body.new_password, fresh_user.password_hash
+        ):
+            raise HTTPException(status_code=400, detail="New password must differ")
+        fresh_user.password_hash = await asyncio.to_thread(
+            hash_password, body.new_password
+        )
     previous_revision = fresh_user.revision
     fresh_user.revision += 1
     now = datetime.now(UTC)
