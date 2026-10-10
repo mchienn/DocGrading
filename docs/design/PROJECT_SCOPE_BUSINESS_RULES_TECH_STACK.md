@@ -133,7 +133,7 @@ Rubric có thể thay đổi metadata, trọng số, evaluator hoặc tiêu chí
 
 - `User`, `Role`, `Course`, `CourseMembership`, `CourseInvite`, `CourseJoinCode`, `Assignment`.
 - `RubricVersion`, `CriterionVersion`, `PerformanceLevel`, `TemplateVersion`.
-- `Submission`, `DocumentVersion`, `AnalysisJob`.
+- `Submission`, `DocumentVersion`, `DocumentStatusEvent`, `AnalysisJob`.
 - `EvaluationResult`, `CriterionResult`, `Finding`, `EvidenceAnchor`.
 - `ReviewDraft`, `ReviewDecision`, `ReviewLock`, `PublishedResultVersion`, `ReviewRequest`.
 - `Notification`, `AuditEvent`.
@@ -207,8 +207,8 @@ QUEUED → RUNNING → DONE
 | BR-18 | Một bài chỉ có một người giữ soft lock review tại một thời điểm. Lock hết hạn sau 10 phút không có heartbeat; người khác vẫn xem được nhưng không được sửa cho tới khi nhận lock. Admin có thể giải phóng lock và hành động phải được audit. |
 | BR-19 | Duyệt không đồng nghĩa công bố. Chỉ `APPROVED` mới được publish. Publish là thao tác atomic trên toàn bộ result snapshot; không công bố từng criterion rời rạc. |
 | BR-20 | Sau khi công bố, chỉnh sửa tạo `PublishedResultVersion` mới. Sinh viên mặc định thấy phiên bản mới nhất; phiên bản cũ được giữ cho audit và không bị sửa tại chỗ. |
-| BR-21 | Sinh viên chỉ thấy finding được giảng viên chấp nhận hoặc tạo, feedback được phép công khai và kết quả đã publish; không thấy prompt, model detail, confidence thô, finding bị loại hoặc log nội bộ. |
-| BR-22 | Nộp lại tạo phiên bản mới và phân tích lại bằng snapshot áp dụng tại thời điểm nộp. Có thể so sánh hai phiên bản bất kỳ được chọn trong cùng Submission theo score, review decision, comment và số evidence đã lưu; không chấm lại hoặc diff pixel toàn bộ PDF. |
+| BR-21 | Sinh viên chỉ thấy finding được giảng viên chấp nhận hoặc tạo, feedback được phép công khai và kết quả đã publish; nội dung chính dùng tên, mã/tiêu đề criterion, tên file, mô tả finding và số trang thay cho UUID, SHA-256, bbox hoặc element ID; không thấy prompt, model detail, confidence thô, finding bị loại hoặc log nội bộ. |
+| BR-22 | Nộp lại tạo `DocumentVersion` mới và phân tích lại bằng snapshot áp dụng tại thời điểm nộp. Finding, evidence, review draft/decision và published snapshot gắn với đúng DocumentVersion; draft của cùng reviewer unique theo `(document_version_id, reviewer_user_id)` nên lần nộp mới không được chuyển hoặc xóa dữ liệu review của lần cũ. Mọi thay đổi `DocumentVersion.status` mới được database trigger ghi append-only vào `DocumentStatusEvent`. Phiên bản có trước migration không được bịa lịch sử đã mất; API chỉ dựng timeline từ job/audit/current state đã lưu và đánh dấu `recorded=false`. Có thể mở kết quả read-only hoặc so sánh hai phiên bản bất kỳ được chọn trong cùng Submission theo score, review decision, comment và evidence đã lưu; không chấm lại hoặc diff pixel toàn bộ PDF. |
 | BR-23 | Mỗi sinh viên chỉ có một review request đang mở cho một criterion của một PublishedResultVersion. Giảng viên trả lời và đóng yêu cầu; việc mở yêu cầu không tự thay đổi điểm. |
 | BR-24 | LLM bên ngoài chỉ được dùng khi cấu hình không dùng dữ liệu để huấn luyện, có chính sách lưu giữ phù hợp và text đã loại metadata/định danh có thể loại. Không đáp ứng điều kiện thì toàn bộ LLM evaluator bị tắt, rule và review thủ công vẫn hoạt động. |
 | BR-25 | Tối đa hai job đang hoạt động cho mỗi sinh viên và năm upload/phút/tài khoản. Vượt giới hạn trả lỗi có thời gian thử lại; không tạo job ngầm. |
@@ -286,7 +286,7 @@ AT-01 đến AT-28 và AT-30 là release blocker. AT-29 là SLO vận hành ph�
 | AT-12 | Autosave hoàn tất trong 2 giây ở p95; refresh sau khi báo Đã lưu không mất dữ liệu. Hai phiên sửa cùng revision gây conflict rõ ràng và không ghi đè âm thầm. |
 | AT-13 | Không thể duyệt khi còn criterion chưa xác nhận hoặc review item bắt buộc chưa xử lý. Duyệt thành công tạo immutable review snapshot. |
 | AT-14 | Chỉ bài đã duyệt mới publish được. Publish thành công làm toàn bộ kết quả xuất hiện cùng lúc; batch publish tự loại/chặn bài chưa duyệt; publish lỗi không để sinh viên thấy dữ liệu một phần. Unpublish phải ẩn kết quả, giữ version/audit và gửi thông báo đúng BR-33. |
-| AT-15 | Sinh viên chỉ thấy kết quả đã công bố, feedback được phép công khai và evidence tương ứng; không thấy dữ liệu kỹ thuật hoặc finding bị loại. |
+| AT-15 | Sinh viên chỉ thấy kết quả đã công bố, feedback được phép công khai và evidence tương ứng; mọi nhãn dùng dữ liệu nghiệp vụ nhận ra được, không thấy UUID, SHA-256, bbox, element ID hoặc finding bị loại. |
 | AT-16 | Nộp lại giữ phiên bản cũ, tạo phiên bản mới và cho phép so sánh hai phiên bản bất kỳ trong cùng Submission từ dữ liệu đã lưu mà không trộn hoặc tính lại kết quả. |
 | AT-17 | Sinh viên mở được tối đa một review request cho mỗi criterion/result version; giảng viên trả lời, đóng và mọi thay đổi điểm tạo published version mới. |
 | AT-18 | Admin lọc được job lỗi, thử lại an toàn và xem audit của upload, auto-evaluation, override, approve, publish, role change và retry. |

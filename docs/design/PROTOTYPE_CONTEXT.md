@@ -136,6 +136,7 @@ T04 — Rubric builder
 - Không hiển thị publish, status versioning hoặc new version cho rubric.
 T05 — Submission queue
 - Bảng danh sách bài nộp.
+- Mỗi dòng ưu tiên tên và email Student; Student UUID chỉ dùng nội bộ.
 - Filter theo trạng thái, mức điểm, độ tin cậy và lỗi.
 - Tab hoặc filter nhanh:
   - Cần xem xét.

@@ -153,6 +153,8 @@ async def _transition_scenario() -> None:
         assert approved_snapshot["rejected_findings"] == [
             {
                 "criterion_version_id": str(ids["criterion"]),
+                "criterion_code": "C1",
+                "criterion_title": "Criterion",
                 "finding_id": str(rejected_finding_id),
                 "score": None,
                 "description": "Internal rejected finding",
@@ -182,6 +184,16 @@ async def _transition_scenario() -> None:
                 session, submission_id=ids["submission_1"], user=student
             )
         assert still_hidden.value.status_code == 404
+        await connection.execute(
+            text(
+                "UPDATE public.document_versions SET approved_snapshot = jsonb_set("
+                "approved_snapshot, '{findings,0}', "
+                "(approved_snapshot #> '{findings,0}') "
+                "- 'criterion_code' - 'criterion_title') "
+                "WHERE id = :document"
+            ),
+            {"document": ids["document_1"]},
+        )
 
         published = await publish_document_version(
             session,
@@ -214,8 +226,12 @@ async def _transition_scenario() -> None:
         }
         assert visible.comment == "Public teacher comment"
         assert visible.findings[0].finding_id == ids["finding"]
+        assert visible.findings[0].criterion_code == "C1"
+        assert visible.findings[0].criterion_title == "Criterion"
         assert set(visible.findings[0].model_dump()) == {
             "criterion_version_id",
+            "criterion_code",
+            "criterion_title",
             "finding_id",
             "score",
             "description",

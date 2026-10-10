@@ -216,10 +216,61 @@ class DocumentVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         foreign_keys="AnalysisJob.document_version_id",
         passive_deletes="all",
     )
+    status_events: Mapped[list[DocumentStatusEvent]] = relationship(
+        "DocumentStatusEvent",
+        back_populates="document_version",
+        foreign_keys="DocumentStatusEvent.document_version_id",
+        passive_deletes="all",
+    )
     document_ir: Mapped[DocumentIR | None] = relationship(
         "DocumentIR",
         back_populates="document_version",
         foreign_keys="DocumentIR.document_version_id",
         uselist=False,
         passive_deletes=True,
+    )
+
+
+class DocumentStatusEvent(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "document_status_events"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "from_status IS NULL OR from_status <> to_status",
+            name="ck_document_status_events_changed",
+        ),
+        sa.Index(
+            "ix_document_status_events_document_changed",
+            "document_version_id",
+            "changed_at",
+            "id",
+        ),
+    )
+
+    document_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "document_versions.id",
+            ondelete="CASCADE",
+            name="fk_document_status_events_document_version_id_document_versions",
+        ),
+        nullable=False,
+    )
+    from_status: Mapped[DocumentStatus | None] = mapped_column(
+        pg_enum(DocumentStatus, name="document_status"),
+        nullable=True,
+    )
+    to_status: Mapped[DocumentStatus] = mapped_column(
+        pg_enum(DocumentStatus, name="document_status"),
+        nullable=False,
+    )
+    changed_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        server_default=sa.func.now(),
+        nullable=False,
+    )
+
+    document_version: Mapped[DocumentVersion] = relationship(
+        "DocumentVersion",
+        back_populates="status_events",
+        foreign_keys=[document_version_id],
     )

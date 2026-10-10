@@ -22,6 +22,7 @@ import { AppSidebar } from '../components/common/AppSidebar';
 import { AuthShell } from '../components/auth/AuthShell';
 import { CourseListView } from '../components/teacher/CourseListView';
 import { CourseWorkspaceView } from '../components/teacher/CourseWorkspaceView';
+import { DocumentGradingResultView } from '../components/teacher/DocumentGradingResultView';
 import { CourseRosterView } from '../components/teacher/CourseRosterView';
 import { RubricTemplatesView } from '../components/teacher/RubricTemplatesView';
 import { SubmissionQueueView } from '../components/teacher/SubmissionQueueView';
@@ -259,6 +260,13 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
       onOpenSubmissionQueue={() => navigate(`/${role}/courses/${courseId}/submissions`)}
       onOpenRoster={() => navigate(`/${role}/courses/${courseId}/roster`)}
       onSaveAssignment={saveAssignment}
+      onOpenSubmission={(submissionId, documentStatus) => navigate(
+        `/${role}/courses/${courseId}/submissions/${submissionId}`,
+        { state: { documentStatus } },
+      )}
+      onOpenVersionResult={(versionId) => navigate(
+        `/${role}/courses/${courseId}/document-versions/${versionId}/result`,
+      )}
       onPublishAssignment={publishAssignment}
       onDeleteAssignment={deleteAssignment}
       onCloseAssignment={closeAssignment}
@@ -416,6 +424,11 @@ export const App: React.FC = () => {
             <Route path="/teacher/appeals" element={activeRole === 'teacher' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions" element={activeRole === 'teacher' ? <SubmissionQueueView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions/:submissionId" element={activeRole === 'teacher' ? <ReviewWorkspaceView role="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/courses/:courseId/document-versions/:versionId/result" element={activeRole === 'teacher' ? <DocumentGradingResultView /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/profile" element={activeRole === 'teacher' ? <AccountProfileView activeRole="teacher" user={user} /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/notifications" element={activeRole === 'teacher' ? <AccountNotificationsView activeRole="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/files" element={activeRole === 'teacher' ? <AccountFilesView activeRole="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/settings" element={activeRole === 'teacher' ? <AccountSettingsView activeRole="teacher" user={user} /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses" element={activeRole === 'admin' ? <CoursesPage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/dashboard" element={activeRole === 'admin' ? <AdminDashboardView /> : <Navigate to={home} replace />} />
             <Route path="/admin/users" element={activeRole === 'admin' ? <UserManagementView currentUserId={user.id} /> : <Navigate to={home} replace />} />
@@ -427,6 +440,11 @@ export const App: React.FC = () => {
             <Route path="/admin/rubrics" element={activeRole === 'admin' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions" element={activeRole === 'admin' ? <SubmissionQueueView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions/:submissionId" element={activeRole === 'admin' ? <ReviewWorkspaceView role="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/courses/:courseId/document-versions/:versionId/result" element={activeRole === 'admin' ? <DocumentGradingResultView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/profile" element={activeRole === 'admin' ? <AccountProfileView activeRole="admin" user={user} /> : <Navigate to={home} replace />} />
+            <Route path="/admin/notifications" element={activeRole === 'admin' ? <AccountNotificationsView activeRole="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/files" element={activeRole === 'admin' ? <AccountFilesView activeRole="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/settings" element={activeRole === 'admin' ? <AccountSettingsView activeRole="admin" user={user} /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments" element={activeRole === 'student' ? <StudentAssignmentsView /> : <Navigate to={home} replace />} />
             <Route path="/student/join" element={activeRole === 'student' ? <StudentJoinCourseView /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments/:courseId/:assignmentId/upload" element={activeRole === 'student' ? <StudentUploadView /> : <Navigate to={home} replace />} />

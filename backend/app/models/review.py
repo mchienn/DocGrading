@@ -171,9 +171,9 @@ class ReviewDraft(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
     __tablename__ = "review_drafts"
     __table_args__ = (
         sa.UniqueConstraint(
-            "submission_id",
+            "document_version_id",
             "reviewer_user_id",
-            name="uq_review_drafts_submission_reviewer",
+            name="uq_review_drafts_document_reviewer",
         ),
         sa.CheckConstraint("revision > 0", name="ck_review_drafts_revision_positive"),
         sa.ForeignKeyConstraint(

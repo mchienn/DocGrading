@@ -25,6 +25,7 @@ from app.models.enums import UserRole, UserStatus
 from app.models.identity import User
 from app.services.review import (
     acquire_review_lock,
+    get_document_grading_result,
     get_evidence,
     get_review_draft,
     heartbeat_review_lock,
@@ -494,6 +495,8 @@ async def _queue_evidence_scenario() -> None:
             QueueStatus.REVIEWED,
             QueueStatus.ERROR,
         ]
+        assert queue.items[0].student_display_name == "Student 1"
+        assert queue.items[0].student_email == f"{ids['student_1']}@test.local"
         errors = await list_submission_queue(
             session,
             course_id=ids["course"],
@@ -534,12 +537,16 @@ async def _queue_evidence_scenario() -> None:
         assert set(payload["findings"][0]) == {
             "id",
             "criterion_version_id",
+            "criterion_code",
+            "criterion_title",
             "severity",
             "description",
             "suggestion",
             "proposed_score",
             "evidence",
         }
+        assert payload["findings"][0]["criterion_code"] == "C1"
+        assert payload["findings"][0]["criterion_title"] == "Criterion"
         assert set(payload["findings"][0]["evidence"][0]) == {
             "document_ir_id",
             "element_id",
@@ -714,6 +721,7 @@ async def _autosave_override_scenario() -> None:
         await _seed_graph(connection, ids)
         owner = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER, UserRole.STUDENT)
         admin = _actor(ids["admin"], "Teacher Admin", UserRole.ADMIN, UserRole.TEACHER)
+        other = _actor(ids["other_teacher"], "Teacher B", UserRole.TEACHER)
         acquired = await acquire_review_lock(
             session,
             submission_id=ids["submission_1"],
@@ -927,7 +935,7 @@ async def _autosave_override_scenario() -> None:
             user=owner,
         )
         assert rolled_over.document_version_id == ids["document_4"]
-        assert rolled_over.revision == saved.revision
+        assert rolled_over.revision == 1
         assert rolled_over.comment == ""
         assert rolled_over.decisions == []
         with pytest.raises(HTTPException) as error:
@@ -951,13 +959,31 @@ async def _autosave_override_scenario() -> None:
             user=owner,
             body=ReviewDraftRequest(
                 document_version_id=ids["document_4"],
-                revision=rolled_over.revision,
+                revision=1,
                 comment="Reviewing latest version",
             ),
         )
         assert reset.document_version_id == ids["document_4"]
-        assert reset.revision == saved.revision + 1
+        assert reset.revision == 2
         assert reset.decisions == []
+        previous_result = await get_document_grading_result(
+            session,
+            document_version_id=ids["document_1"],
+            user=owner,
+        )
+        assert len(previous_result.reviews) == 1
+        assert previous_result.reviews[0].comment == "Teacher comment"
+        assert len(previous_result.reviews[0].decisions) == 1
+        assert previous_result.reviews[0].decisions[0].finding_id == ids["finding"]
+        assert previous_result.status_history[-1].to_status == "AWAITING_REVIEW"
+        assert previous_result.status_history[-1].recorded is True
+        with pytest.raises(HTTPException) as forbidden:
+            await get_document_grading_result(
+                session,
+                document_version_id=ids["document_1"],
+                user=other,
+            )
+        assert forbidden.value.status_code == 404
 
         with pytest.raises(HTTPException) as error:
             await save_review_draft(

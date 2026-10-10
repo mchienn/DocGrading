@@ -58,7 +58,6 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({ role }
 
       <div className="border-b border-slate-200 pb-5">
         <h1 className="text-2xl font-bold text-slate-900">Submission Queue</h1>
-        <p className="text-sm text-slate-500 mt-1 font-mono break-all">Course {courseId}</p>
       </div>
 
       <section aria-label="Queue controls" className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap gap-4">
@@ -126,7 +125,7 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({ role }
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3">Student ID</th>
+                <th className="px-4 py-3">Student</th>
                 <th className="px-4 py-3">Submitted</th>
                 <th className="px-4 py-3">Document status</th>
                 <th className="px-4 py-3">Queue status</th>
@@ -143,7 +142,10 @@ export const SubmissionQueueView: React.FC<SubmissionQueueViewProps> = ({ role }
                 <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No submissions match this API filter.</td></tr>
               ) : queue.items.map((item) => (
                 <tr key={item.submission_id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono text-xs break-all">{item.student_id}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-slate-900">{item.student_display_name}</div>
+                    <div className="text-xs text-slate-500">{item.student_email}</div>
+                  </td>
                   <td className="px-4 py-3 whitespace-nowrap">{new Date(item.submitted_at).toLocaleString()}</td>
                   <td className="px-4 py-3 font-mono text-xs">{item.document_status ?? 'NO_DOCUMENT'}</td>
                   <td className="px-4 py-3">

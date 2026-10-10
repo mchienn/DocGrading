@@ -111,6 +111,8 @@ QUEUE_ITEM_FIELDS = {
     "submission_id",
     "document_version_id",
     "student_id",
+    "student_display_name",
+    "student_email",
     "document_status",
     "queue_status",
     "submitted_at",
@@ -126,6 +128,8 @@ EVIDENCE_WORKSPACE_FIELDS = {
 FINDING_FIELDS = {
     "id",
     "criterion_version_id",
+    "criterion_code",
+    "criterion_title",
     "severity",
     "description",
     "suggestion",
@@ -161,6 +165,8 @@ PUBLISHED_RESULT_FIELDS = {
 }
 PUBLISHED_FINDING_FIELDS = {
     "criterion_version_id",
+    "criterion_code",
+    "criterion_title",
     "finding_id",
     "score",
     "description",
@@ -187,6 +193,8 @@ SUBMISSION_VERSION_FIELDS = {
     "document_version_id",
     "version_number",
     "created_at",
+    "filename",
+    "file_size_bytes",
     "processing_status",
     "publication_status",
     "published_result_id",

@@ -39,6 +39,8 @@ interface CourseWorkspaceViewProps {
   onBack: () => void;
   onOpenSubmissionQueue: () => void;
   onOpenRoster: () => void;
+  onOpenSubmission: (submissionId: string, documentStatus?: string | null) => void;
+  onOpenVersionResult: (documentVersionId: string) => void;
   onSaveAssignment: (input: AssignmentInput, assignmentId?: string) => Promise<void>;
   onDeleteAssignment: (assignmentId: string) => Promise<void>;
   onPublishAssignment: (assignmentId: string) => Promise<void>;
@@ -46,6 +48,108 @@ interface CourseWorkspaceViewProps {
   onSaveAnnouncement: (input: AnnouncementInput, announcementId?: string) => Promise<void>;
   onDeleteAnnouncement: (announcementId: string) => Promise<void>;
 }
+
+const reviewableStatuses = ['AWAITING_REVIEW', 'APPROVED', 'PUBLISHED'];
+
+interface SubmissionAttemptHistoryProps {
+  submissionId: string;
+  openingDocumentId?: string;
+  onOpenPdf: (documentVersionId: string) => Promise<void>;
+  onOpenResult: (documentVersionId: string) => void;
+}
+
+const SubmissionAttemptHistory: React.FC<SubmissionAttemptHistoryProps> = ({
+  submissionId,
+  openingDocumentId,
+  onOpenPdf,
+  onOpenResult,
+}) => {
+  const versionsQuery = useQuery({
+    queryKey: ['submission-versions', submissionId],
+    queryFn: () => apiData(api.GET('/api/v1/submissions/{submission_id}/versions', {
+      params: {
+        path: { submission_id: submissionId },
+        query: { page: 1, page_size: 100 },
+      },
+    })),
+  });
+  const versions = [...(versionsQuery.data?.items ?? [])].reverse();
+
+  return (
+    <tr className="bg-sky-50/40">
+      <td id={`submission-attempts-${submissionId}`} colSpan={6} className="px-4 py-4">
+        <div className="rounded-lg border border-sky-200 bg-white overflow-hidden">
+          <div className="px-3 py-2 border-b border-sky-100">
+            <h4 className="text-xs font-bold text-slate-800">Submission attempts</h4>
+          </div>
+          {versionsQuery.isLoading ? (
+            <p className="px-3 py-5 text-xs text-slate-500">Loading attempts...</p>
+          ) : versionsQuery.error ? (
+            <p role="alert" className="px-3 py-5 text-xs text-rose-700">
+              {getErrorMessage(versionsQuery.error)}
+            </p>
+          ) : versions.length === 0 ? (
+            <p className="px-3 py-5 text-xs text-slate-500">No attempts.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Attempt</th>
+                    <th className="px-3 py-2">File</th>
+                    <th className="px-3 py-2">Submitted</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {versions.map((version: SubmissionVersion) => (
+                    <tr key={version.document_version_id}>
+                      <td className="px-3 py-2 font-semibold">#{version.version_number}</td>
+                      <td className="px-3 py-2">
+                        <p className="max-w-64 truncate font-medium text-slate-700" title={version.filename}>
+                          {version.filename}
+                        </p>
+                        <p className="text-[11px] text-slate-500">{version.file_size_bytes.toLocaleString()} bytes</p>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-600">
+                        {new Date(version.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="font-mono">
+                          {version.processing_status}
+                          {version.publication_status ? ` · ${version.publication_status}` : ''}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onOpenResult(version.document_version_id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 px-2.5 py-1.5 font-semibold text-sky-800 hover:bg-sky-50"
+                        >
+                          <ClipboardCheck className="w-3.5 h-3.5" /> Result
+                        </button>
+                        <button
+                          type="button"
+                          disabled={openingDocumentId === version.document_version_id}
+                          onClick={() => void onOpenPdf(version.document_version_id)}
+                          className="ml-1 p-2 text-sky-700 hover:bg-sky-50 rounded-lg disabled:opacity-40"
+                          aria-label={`Open attempt ${version.version_number}: ${version.filename}`}
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+};
 
 export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   course,
@@ -57,6 +161,8 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   onBack,
   onOpenSubmissionQueue,
   onOpenRoster,
+  onOpenSubmission,
+  onOpenVersionResult,
   onSaveAssignment,
   onDeleteAssignment,
   onPublishAssignment,
@@ -77,6 +183,19 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   const [announcementSaving, setAnnouncementSaving] = useState(false);
   const [openingDocumentId, setOpeningDocumentId] = useState<string>();
   const [actionError, setActionError] = useState<string>();
+
+  const submissionsQuery = useQuery({
+    queryKey: ['assignment-submissions', expandedAssignmentId, submissionPage],
+    queryFn: () => apiData(api.GET('/api/v1/assignments/{assignment_id}/submissions', {
+      params: {
+        path: { assignment_id: expandedAssignmentId ?? '' },
+        query: { page: submissionPage, page_size: 25 },
+      },
+    })),
+    enabled: Boolean(expandedAssignmentId),
+  });
+  const submissions = submissionsQuery.data;
+  const submissionPages = Math.max(1, Math.ceil((submissions?.total ?? 0) / 25));
 
   const runAction = async (action: () => Promise<void>) => {
     setActionError(undefined);
@@ -245,20 +364,12 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setEditing(assignment);
-                            setShowForm(true);
+                            setSubmissionPage(1);
+                            setExpandedAssignmentId(expanded ? undefined : assignment.id);
                           }}
-                          className="p-2 border border-slate-200 rounded-lg text-slate-600"
-                          aria-label={`Edit ${assignment.title}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-xs font-semibold"
                         >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => runAction(() => onPublishAssignment(assignment.id))}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-700 text-white rounded-lg text-xs font-semibold"
-                        >
-                          <Send className="w-3.5 h-3.5" /> Publish
+                          <FileText className="w-3.5 h-3.5" /> {expanded ? 'Hide submissions' : 'Submissions'}
                         </button>
                         {course.status === 'ACTIVE' && assignment.status === 'DRAFT' && (
                           <>
@@ -374,14 +485,61 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
                         </div>
                       </div>
                     )}
-                    {assignment.status === 'OPEN' && (
-                      <button
-                        type="button"
-                        onClick={() => runAction(() => onCloseAssignment(assignment.id))}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 text-white rounded-lg text-xs font-semibold"
-                      >
-                        <Square className="w-3.5 h-3.5" /> Close
-                      </button>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : (
+        <section id="course-panel-announcements" role="tabpanel" aria-labelledby="course-tab-announcements" className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Announcements</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Messages here are visible to enrolled students immediately.</p>
+            </div>
+            {course.status === 'ACTIVE' && !showAnnouncementForm && (
+              <button type="button" onClick={() => startAnnouncement()} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold">
+                <Plus className="w-4 h-4" /> New announcement
+              </button>
+            )}
+          </div>
+
+          {showAnnouncementForm && (
+            <form onSubmit={saveAnnouncement} className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-900">{editingAnnouncement ? 'Edit announcement' : 'New announcement'}</h3>
+                <button type="button" onClick={() => { setShowAnnouncementForm(false); setEditingAnnouncement(undefined); setAnnouncementTitle(''); setAnnouncementBody(''); }} aria-label="Cancel announcement"><X className="w-4 h-4" /></button>
+              </div>
+              <label className="block text-sm text-slate-700">Title
+                <input required maxLength={255} value={announcementTitle} onChange={(event) => setAnnouncementTitle(event.target.value)} className="block mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg" />
+              </label>
+              <label className="block text-sm text-slate-700">Message
+                <textarea required maxLength={10_000} rows={5} value={announcementBody} onChange={(event) => setAnnouncementBody(event.target.value)} className="block mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg" />
+              </label>
+              <button disabled={announcementSaving} className="px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold disabled:opacity-40">{announcementSaving ? 'Saving...' : 'Save announcement'}</button>
+            </form>
+          )}
+
+          {loading ? (
+            <p className="text-sm text-slate-500">Loading announcements...</p>
+          ) : announcements.length === 0 ? (
+            <p className="p-8 text-center border border-dashed border-slate-300 rounded-xl text-sm text-slate-500">No announcements yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {announcements.map((announcement) => (
+                <article key={announcement.id} className="bg-white border border-slate-200 rounded-xl p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-slate-900 flex items-center gap-2"><Bell className="w-4 h-4 text-sky-700" /> {announcement.title}</h3>
+                      <p className="text-sm text-slate-700 mt-2 whitespace-pre-wrap">{announcement.body}</p>
+                      <p className="text-xs text-slate-500 mt-3">Updated {new Date(announcement.updated_at).toLocaleString()}</p>
+                    </div>
+                    {course.status === 'ACTIVE' && (
+                      <div className="flex gap-1 shrink-0">
+                        <button type="button" onClick={() => startAnnouncement(announcement)} className="p-2 border border-slate-200 rounded-lg text-slate-600" aria-label={`Edit ${announcement.title}`}><Pencil className="w-4 h-4" /></button>
+                        <button type="button" onClick={() => { if (window.confirm(`Delete announcement “${announcement.title}”?`)) void runAction(() => onDeleteAnnouncement(announcement.id)); }} className="p-2 border border-rose-200 rounded-lg text-rose-700" aria-label={`Delete ${announcement.title}`}><Trash2 className="w-4 h-4" /></button>
+                      </div>
                     )}
                   </div>
                 </article>
