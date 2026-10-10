@@ -41,7 +41,7 @@ from app.models.review import (
 )
 from app.models.rubric import CriterionVersion, RubricVersion, TemplateVersion
 from app.models.session import Session
-from app.models.submission import DocumentVersion, Submission
+from app.models.submission import DocumentStatusEvent, DocumentVersion, Submission
 
 __all__ = [
     "Announcement",
@@ -64,6 +64,7 @@ __all__ = [
     "CourseStatus",
     "DocumentIR",
     "DocumentStatus",
+    "DocumentStatusEvent",
     "DocumentVersion",
     "EvidenceAnchor",
     "Finding",

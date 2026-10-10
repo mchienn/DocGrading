@@ -220,6 +220,8 @@ class EvidenceResponse(BaseModel):
 class FindingResponse(BaseModel):
     id: uuid.UUID
     criterion_version_id: uuid.UUID
+    criterion_code: str
+    criterion_title: str
     severity: str
     description: str
     suggestion: str | None
@@ -245,6 +247,8 @@ class SubmissionQueueItem(BaseModel):
     submission_id: uuid.UUID
     document_version_id: uuid.UUID | None
     student_id: uuid.UUID
+    student_display_name: str
+    student_email: str
     document_status: str | None
     queue_status: QueueStatus
     submitted_at: datetime
@@ -253,6 +257,26 @@ class SubmissionQueueItem(BaseModel):
 
 class SubmissionQueueResponse(BaseModel):
     items: list[SubmissionQueueItem]
+    page: int
+    page_size: int
+    total: int
+
+
+class AssignmentSubmissionItem(BaseModel):
+    submission_id: uuid.UUID
+    student_id: uuid.UUID
+    student_display_name: str
+    student_email: str
+    attempt_count: int = Field(ge=0)
+    document_version_id: uuid.UUID | None
+    filename: str | None
+    file_size_bytes: int | None = Field(default=None, ge=1)
+    document_status: str | None
+    submitted_at: datetime | None
+
+
+class AssignmentSubmissionListResponse(BaseModel):
+    items: list[AssignmentSubmissionItem]
     page: int
     page_size: int
     total: int
@@ -390,6 +414,8 @@ class UnpublishRequest(PublishRequest):
 
 class PublishedFindingResponse(BaseModel):
     criterion_version_id: uuid.UUID
+    criterion_code: str
+    criterion_title: str
     finding_id: uuid.UUID
     score: Decimal | None
     description: str
@@ -407,6 +433,75 @@ class PublishedResultResponse(BaseModel):
     findings: list[PublishedFindingResponse]
 
 
+class GradingAnalysisJobResponse(BaseModel):
+    id: uuid.UUID
+    status: AnalysisJobStatus
+    attempt_count: int = Field(ge=0)
+    max_attempts: int = Field(gt=0)
+    queued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_code: str | None
+
+
+class GradingReviewDecisionResponse(ReviewDecisionResponse):
+    created_at: datetime
+    updated_at: datetime
+
+
+class GradingReviewResponse(BaseModel):
+    id: uuid.UUID
+    reviewer_user_id: uuid.UUID
+    reviewer_display_name: str
+    revision: int = Field(gt=0)
+    comment: str
+    created_at: datetime
+    updated_at: datetime
+    decisions: list[GradingReviewDecisionResponse]
+
+
+class GradingStatusEventResponse(BaseModel):
+    from_status: str | None
+    to_status: str
+    changed_at: datetime
+    recorded: bool
+
+
+class GradingActionResponse(BaseModel):
+    id: uuid.UUID
+    resource_type: Literal["DocumentVersion", "Finding"]
+    resource_id: uuid.UUID
+    action: str
+    actor_display_name: str
+    reason: str
+    occurred_at: datetime
+    before: dict[str, str | None]
+    after: dict[str, str | None]
+
+
+class DocumentGradingResultResponse(BaseModel):
+    submission_id: uuid.UUID
+    document_version_id: uuid.UUID
+    version_number: int = Field(gt=0)
+    filename: str
+    file_size_bytes: int = Field(gt=0)
+    submitted_at: datetime
+    current_status: str
+    failure_code: str | None
+    assignment_title: str
+    student_id: uuid.UUID
+    student_display_name: str
+    student_email: str
+    analysis_jobs: list[GradingAnalysisJobResponse]
+    findings: list[FindingResponse]
+    citation: CitationReportResponse | None = None
+    semantic_citation: SemanticCitationReportResponse | None = None
+    reviews: list[GradingReviewResponse]
+    published_results: list[PublishedResultResponse]
+    status_history: list[GradingStatusEventResponse]
+    actions: list[GradingActionResponse]
+
+
 class BulkPublishResponse(BaseModel):
     results: list[PublishedResultResponse]
 
@@ -415,6 +510,8 @@ class SubmissionVersionResponse(BaseModel):
     document_version_id: uuid.UUID
     version_number: int
     created_at: datetime
+    filename: str
+    file_size_bytes: int = Field(ge=1)
     processing_status: VersionProcessingStatus
     publication_status: VersionPublicationStatus | None = None
     published_result_id: uuid.UUID | None = None

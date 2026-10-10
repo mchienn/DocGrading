@@ -10,10 +10,13 @@ from app.api.deps import get_current_user
 from app.api.schemas_submission import (
     AnalysisJobResponse,
     ApprovalResponse,
+    AssignmentSubmissionListResponse,
     BulkPublishRequest,
     BulkPublishResponse,
     CompletionResponse,
     DocumentDownloadResponse,
+    DocumentGradingResultResponse,
+    DocumentVersionListResponse,
     EvidenceWorkspaceResponse,
     PresignRequest,
     PresignResponse,
@@ -178,6 +181,22 @@ async def submission_queue(
         sort=sort.value,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get(
+    "/document-versions/{version_id}/grading-result",
+    response_model=DocumentGradingResultResponse,
+)
+async def document_version_grading_result(
+    version_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> DocumentGradingResultResponse:
+    return await review_svc.get_document_grading_result(
+        db,
+        document_version_id=version_id,
+        user=user,
     )
 
 

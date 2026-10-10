@@ -116,6 +116,8 @@ def test_t015_routes_and_response_contract() -> None:
         "document_version_id",
         "version_number",
         "created_at",
+        "filename",
+        "file_size_bytes",
         "processing_status",
         "publication_status",
         "published_result_id",
@@ -314,6 +316,16 @@ async def _version_history_scenario() -> None:
             "total": 3,
         }
         assert [item.version_number for item in student_versions.items] == [1, 2, 3]
+        assert [item.filename for item in student_versions.items] == [
+            "one.pdf",
+            "second.pdf",
+            "failed.pdf",
+        ]
+        assert [item.file_size_bytes for item in student_versions.items] == [
+            100,
+            200,
+            200,
+        ]
         assert [item.processing_status for item in student_versions.items] == [
             "AWAITING_REVIEW",
             "AWAITING_REVIEW",
