@@ -51,7 +51,11 @@ export const StudentAppealDetailView: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Review Request Details</h1>
-            <p className="font-mono text-xs text-slate-500 mt-0.5 break-all">ID: {requestId}</p>
+            {request && (
+              <p className="text-xs text-slate-500 mt-0.5">
+                {request.course_code ? `${request.course_code} · ${request.assignment_title}` : 'Review Request'}
+              </p>
+            )}
           </div>
           {request && (
             <div>
@@ -131,9 +135,9 @@ export const StudentAppealDetailView: React.FC = () => {
                       Responded on: <strong className="text-slate-700">{new Date(request.responded_at).toLocaleString()}</strong>
                     </span>
                   )}
-                  {request.responded_by_user_id && (
-                    <span className="font-mono">
-                      Instructor ID: {request.responded_by_user_id}
+                  {request.responded_by_display_name && (
+                    <span>
+                      Reviewed by: <strong className="text-slate-700">{request.responded_by_display_name}</strong>
                     </span>
                   )}
                 </div>
@@ -170,41 +174,39 @@ export const StudentAppealDetailView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Exact Published Result & Metadata Context */}
+              {/* Course, Assignment, Criterion & Finding Context */}
               <div className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200 grid sm:grid-cols-2 gap-3 text-xs">
                 <div>
                   <span className="text-slate-400 text-[10px] font-bold uppercase block">
-                    Published Result ID
+                    Course
                   </span>
-                  <span className="font-mono text-slate-700 text-[11px] break-all">
-                    {request.published_result_id}
+                  <span className="text-slate-700 font-medium text-[11px]">
+                    {request.course_code} — {request.course_name}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] font-bold uppercase block">
-                    Submission ID
+                    Assignment
                   </span>
-                  <span className="font-mono text-slate-700 text-[11px] break-all">
-                    {request.submission_id}
+                  <span className="text-slate-700 font-medium text-[11px]">
+                    {request.assignment_title}
                   </span>
                 </div>
-                {request.criterion_id && (
+                <div className={request.finding_description ? '' : 'sm:col-span-2'}>
+                  <span className="text-slate-400 text-[10px] font-bold uppercase block">
+                    Criterion
+                  </span>
+                  <span className="text-slate-700 font-medium text-[11px]">
+                    {request.criterion_code} — {request.criterion_title}
+                  </span>
+                </div>
+                {request.finding_description && (
                   <div>
                     <span className="text-slate-400 text-[10px] font-bold uppercase block">
-                      Target Criterion ID
+                      Finding
                     </span>
-                    <span className="font-mono text-slate-700 text-[11px] break-all">
-                      {request.criterion_id}
-                    </span>
-                  </div>
-                )}
-                {request.finding_id && (
-                  <div>
-                    <span className="text-slate-400 text-[10px] font-bold uppercase block">
-                      Target Finding ID
-                    </span>
-                    <span className="font-mono text-slate-700 text-[11px] break-all">
-                      {request.finding_id}
+                    <span className="text-slate-700 text-[11px]">
+                      {request.finding_description}
                     </span>
                   </div>
                 )}
