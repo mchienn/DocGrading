@@ -115,6 +115,66 @@ NOTIFICATION_PAYLOAD_KEYS: dict[NotificationType, frozenset[str]] = {
 }
 
 
+class LLMProvider(StrEnum):
+    OPENAI = "OPENAI"
+    ANTHROPIC = "ANTHROPIC"
+    GEMINI = "GEMINI"
+    DEEPSEEK = "DEEPSEEK"
+    OPENCODE_ZEN = "OPENCODE_ZEN"
+    BEDROCK = "BEDROCK"
+
+
+class LLMCredentialSource(StrEnum):
+    NONE = "NONE"
+    ENVIRONMENT = "ENVIRONMENT"
+    STORED = "STORED"
+
+
+class LLMCatalogStatus(StrEnum):
+    UNTESTED = "UNTESTED"
+    CATALOG_VERIFIED = "CATALOG_VERIFIED"
+    INVALID_CREDENTIAL = "INVALID_CREDENTIAL"
+    RATE_LIMITED = "RATE_LIMITED"
+    UNAVAILABLE = "UNAVAILABLE"
+    TIMEOUT = "TIMEOUT"
+    INVALID_RESPONSE = "INVALID_RESPONSE"
+
+
+class LLMProtocol(StrEnum):
+    OPENAI_CHAT = "OPENAI_CHAT"
+    OPENAI_RESPONSES = "OPENAI_RESPONSES"
+    ANTHROPIC_MESSAGES = "ANTHROPIC_MESSAGES"
+    GEMINI_GENERATE_CONTENT = "GEMINI_GENERATE_CONTENT"
+    BEDROCK_CONVERSE = "BEDROCK_CONVERSE"
+
+
+class LLMTask(StrEnum):
+    CITATION_SEMANTIC = "CITATION_SEMANTIC"
+
+
+class LLMRouteState(StrEnum):
+    DRAFT = "DRAFT"
+    ACTIVE = "ACTIVE"
+    DISABLED = "DISABLED"
+
+
+def llm_provider_protocols(provider: LLMProvider) -> tuple[LLMProtocol, ...]:
+    if provider is LLMProvider.OPENCODE_ZEN:
+        return (
+            LLMProtocol.OPENAI_CHAT,
+            LLMProtocol.OPENAI_RESPONSES,
+            LLMProtocol.ANTHROPIC_MESSAGES,
+            LLMProtocol.GEMINI_GENERATE_CONTENT,
+        )
+    return {
+        LLMProvider.OPENAI: (LLMProtocol.OPENAI_CHAT, LLMProtocol.OPENAI_RESPONSES),
+        LLMProvider.ANTHROPIC: (LLMProtocol.ANTHROPIC_MESSAGES,),
+        LLMProvider.GEMINI: (LLMProtocol.GEMINI_GENERATE_CONTENT,),
+        LLMProvider.DEEPSEEK: (LLMProtocol.OPENAI_CHAT,),
+        LLMProvider.BEDROCK: (LLMProtocol.BEDROCK_CONVERSE,),
+    }[provider]
+
+
 def pg_enum(
     enum_cls: type[StrEnum],
     name: str,

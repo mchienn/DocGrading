@@ -2,7 +2,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     pdf_max_decoded_bytes: int = Field(default=50_000_000, gt=0)
     pdf_max_page_count: int = Field(default=100, gt=0)
     pdf_ir_max_nodes: int = Field(default=100_000, gt=0)
+    semantic_arxiv_fetch_enabled: bool = False
+    semantic_source_cache_prefix: str = ""
+    semantic_model_call_budget: int = Field(default=32, ge=1, le=256)
+    semantic_coverage_threshold: float = Field(default=1.0, gt=0, le=1)
+    semantic_max_source_bytes: int = Field(default=50_000_000, gt=0, le=50_000_000)
+    llm_credential_keyring: SecretStr = Field(default=SecretStr(""), repr=False)
+    llm_credential_active_key_id: str = ""
 
     analysis_job_lease_seconds: int = Field(default=300, gt=0)
     analysis_job_heartbeat_seconds: int = Field(default=30, gt=0)
