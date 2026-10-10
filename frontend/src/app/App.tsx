@@ -35,7 +35,7 @@ import { StudentStatusTimelineView } from '../components/student/StudentStatusTi
 import { LoginPage } from '../pages/LoginPage';
 import { authService } from '../services/authService';
 import type { UserSession } from '../types/auth';
-import { strongestRole, type WorkspaceRole } from '../types/api';
+import { strongestRole, type ApiCourse, type ApiUser, type WorkspaceRole } from '../types/api';
 
 type AssignmentInput = components['schemas']['AssignmentCreate'];
 
@@ -57,35 +57,91 @@ const CoursesPage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
     queryKey: ['courses'],
     queryFn: () => apiData(api.GET('/api/v1/courses')),
   });
+  const teachersQuery = useQuery({
+    queryKey: ['admin-users', 'course-owners'],
+    queryFn: async () => {
+      const loadPage = (page: number) => apiData(api.GET('/api/v1/users', {
+        params: {
+          query: {
+            role: 'TEACHER',
+            status: 'ACTIVE',
+            page,
+            page_size: 100,
+          },
+        },
+      }));
+      const firstPage = await loadPage(1);
+      const owners: ApiUser[] = [...firstPage.items];
+      for (let page = 2; page <= Math.ceil(firstPage.total / 100); page += 1) {
+        owners.push(...(await loadPage(page)).items);
+      }
+      return owners;
+    },
+    enabled: role === 'admin',
+  });
 
-  const saveCourse = async (input: { code: string; name: string; term: string }, courseId?: string) => {
-    if (courseId) {
+  const saveCourse = async (
+    input: { code: string; name: string; term: string; ownerTeacherId?: string },
+    course?: ApiCourse,
+  ) => {
+    if (course) {
       await apiData(api.PUT('/api/v1/courses/{course_id}', {
-        params: { path: { course_id: courseId } },
+        params: {
+          path: { course_id: course.id },
+          header: { 'If-Match': `"rev-${course.revision}"` },
+        },
         body: { name: input.name, term: input.term },
       }));
     } else {
-      await apiData(api.POST('/api/v1/courses', { body: input }));
+      await apiData(api.POST('/api/v1/courses', {
+        body: {
+          code: input.code,
+          name: input.name,
+          term: input.term,
+          owner_teacher_id: input.ownerTeacherId,
+        },
+      }));
     }
     await queryClient.invalidateQueries({ queryKey: ['courses'] });
   };
 
-  const archiveCourse = async (courseId: string) => {
+  const archiveCourse = async (course: ApiCourse) => {
     await apiData(api.POST('/api/v1/courses/{course_id}/archive', {
-      params: { path: { course_id: courseId } },
+      params: {
+        path: { course_id: course.id },
+        header: { 'If-Match': `"rev-${course.revision}"` },
+      },
+    }));
+    await queryClient.invalidateQueries({ queryKey: ['courses'] });
+  };
+
+  const deleteCourse = async (course: ApiCourse) => {
+    await apiVoid(api.DELETE('/api/v1/courses/{course_id}', {
+      params: {
+        path: { course_id: course.id },
+        header: { 'If-Match': `"rev-${course.revision}"` },
+      },
     }));
     await queryClient.invalidateQueries({ queryKey: ['courses'] });
   };
 
   return (
     <CourseListView
+      role={role}
+      ownerOptions={role === 'admin' ? teachersQuery.data ?? [] : undefined}
       courses={coursesQuery.data ?? []}
-      canCreate={role === 'teacher'}
+      canCreate={role === 'teacher' || role === 'admin'}
+      canDelete={role === 'admin'}
       loading={coursesQuery.isLoading}
-      error={coursesQuery.error ? getErrorMessage(coursesQuery.error) : undefined}
+      error={
+        coursesQuery.error || teachersQuery.error
+          ? getErrorMessage(coursesQuery.error ?? teachersQuery.error)
+          : undefined
+      }
       onSelectCourse={(course) => navigate(`/${role}/courses/${course.id}`)}
       onSave={saveCourse}
       onArchive={archiveCourse}
+      onDelete={deleteCourse}
     />
   );
 };

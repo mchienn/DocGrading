@@ -36,7 +36,10 @@ export const AppSidebar: React.FC<SidebarProps> = ({
 }) => {
   const navItems =
     activeRole === 'student'
-      ? [{ path: '/student/assignments', label: 'Assignments', icon: FolderKanban }]
+      ? [
+          { path: '/student/assignments', label: 'Assignments', icon: FolderKanban },
+          { path: '/student/join', label: 'Join course', icon: GraduationCap },
+        ]
       : [
           ...(activeRole === 'admin'
             ? [
