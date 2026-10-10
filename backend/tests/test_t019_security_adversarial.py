@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from httpx2 import ASGITransport, AsyncClient
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ArrayObject, DictionaryObject, NameObject
@@ -58,6 +58,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _client_request() -> Request:
+    return Request(
+        {"type": "http", "client": (f"t019-{uuid.uuid4()}", 0), "headers": []}
+    )
+
+
 async def _run_brute_force_lockout(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
@@ -83,6 +89,7 @@ async def _run_brute_force_lockout(monkeypatch: pytest.MonkeyPatch) -> None:
         with pytest.raises(HTTPException) as rejected:
             await auth_router.login(
                 LoginRequest(email=candidate_email, password=candidate_password),
+                _client_request(),
                 database,
             )
         assert rejected.value.status_code == 401
@@ -186,7 +193,9 @@ async def _run_expired_failure_window() -> None:
 
             with pytest.raises(HTTPException) as rejected:
                 await auth_router.login(
-                    LoginRequest(email=email, password="wrong-password"), db
+                    LoginRequest(email=email, password="wrong-password"),
+                    _client_request(),
+                    db,
                 )
             assert rejected.value.status_code == 401
             await db.refresh(user)
@@ -231,7 +240,9 @@ async def _run_concurrent_lockout_threshold() -> None:
                 await barrier.wait()
                 with pytest.raises(HTTPException) as rejected:
                     await auth_router.login(
-                        LoginRequest(email=email, password="wrong-password"), db
+                        LoginRequest(email=email, password="wrong-password"),
+                        _client_request(),
+                        db,
                     )
                 assert rejected.value.status_code == 401
 

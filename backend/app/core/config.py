@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     login_max_failed_attempts: int = Field(default=5, ge=1)
     login_failure_window_seconds: int = Field(default=900, gt=0)
     login_lockout_seconds: int = Field(default=900, gt=0)
+    login_ip_max_failed_attempts: int = Field(default=30, ge=1)
 
     storage_bucket: str = "docgrading"
     storage_endpoint_url: str = "http://localhost:9000"
