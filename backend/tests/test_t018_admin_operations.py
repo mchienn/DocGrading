@@ -64,6 +64,13 @@ def test_admin_operation_contracts_are_explicit_and_admin_only() -> None:
         "/api/v1/operations/analysis-jobs/{job_id}/retry": {"post"},
         "/api/v1/operations/audit-events": {"get"},
         "/api/v1/operations/dashboard": {"get"},
+        "/api/v1/operations/llm/providers": {"get"},
+        "/api/v1/operations/llm/providers/{provider}": {"put"},
+        "/api/v1/operations/llm/providers/{provider}/credential": {"delete"},
+        "/api/v1/operations/llm/providers/{provider}/test": {"post"},
+        "/api/v1/operations/llm/routes/CITATION_SEMANTIC": {"get", "put"},
+        "/api/v1/operations/llm/routes/CITATION_SEMANTIC/activate": {"post"},
+        "/api/v1/operations/llm/routes/CITATION_SEMANTIC/deactivate": {"post"},
     }
     for path, allowed in expected.items():
         assert set(schema["paths"][path]) & methods == allowed
@@ -139,6 +146,46 @@ def test_non_admin_is_rejected_from_every_admin_endpoint(
         ),
         ("GET", "/api/v1/operations/audit-events", None),
         ("GET", "/api/v1/operations/dashboard", None),
+        ("GET", "/api/v1/operations/llm/providers", None),
+        (
+            "PUT",
+            "/api/v1/operations/llm/providers/OPENAI",
+            {
+                "enabled": True,
+                "credential_source": "ENVIRONMENT",
+                "environment_key_name": "OPENAI_API_KEY",
+                "data_policy_approved": True,
+            },
+        ),
+        (
+            "DELETE",
+            "/api/v1/operations/llm/providers/OPENAI/credential",
+            None,
+        ),
+        ("POST", "/api/v1/operations/llm/providers/OPENAI/test", None),
+        ("GET", "/api/v1/operations/llm/routes/CITATION_SEMANTIC", None),
+        (
+            "PUT",
+            "/api/v1/operations/llm/routes/CITATION_SEMANTIC",
+            {
+                "provider": "OPENAI",
+                "model_id": "gpt-5-mini",
+                "protocol": "OPENAI_RESPONSES",
+                "max_tokens": 512,
+                "call_budget": 32,
+                "quality_approved": True,
+            },
+        ),
+        (
+            "POST",
+            "/api/v1/operations/llm/routes/CITATION_SEMANTIC/activate",
+            {"acknowledge_provider_fees": True},
+        ),
+        (
+            "POST",
+            "/api/v1/operations/llm/routes/CITATION_SEMANTIC/deactivate",
+            None,
+        ),
     )
     try:
         client = TestClient(application)

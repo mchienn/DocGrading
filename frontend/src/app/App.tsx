@@ -18,6 +18,7 @@ import { AdminDashboardView } from '../components/admin/AdminDashboardView';
 import { UserManagementView } from '../components/admin/UserManagementView';
 import { JobMonitoringView } from '../components/admin/JobMonitoringView';
 import { AuditLogView } from '../components/admin/AuditLogView';
+import { LLMProviderSettingsView } from '../components/admin/LLMProviderSettingsView';
 import { AppSidebar } from '../components/common/AppSidebar';
 import { AuthShell } from '../components/auth/AuthShell';
 import { CourseListView } from '../components/teacher/CourseListView';
@@ -364,6 +365,7 @@ export const App: React.FC = () => {
     '/admin/jobs': 'Analysis jobs',
     '/admin/audit': 'Audit trail',
     '/admin/appeals': 'Appeals',
+    '/admin/ai-providers': 'AI providers',
   };
   const title = location.pathname.endsWith('/roster') ? 'Course roster' : (
     adminTitles[location.pathname] ?? (
@@ -435,6 +437,7 @@ export const App: React.FC = () => {
             <Route path="/admin/jobs" element={activeRole === 'admin' ? <JobMonitoringView /> : <Navigate to={home} replace />} />
             <Route path="/admin/audit" element={activeRole === 'admin' ? <AuditLogView /> : <Navigate to={home} replace />} />
             <Route path="/admin/appeals" element={activeRole === 'admin' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/ai-providers" element={activeRole === 'admin' ? <LLMProviderSettingsView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId" element={activeRole === 'admin' ? <CoursePage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/roster" element={activeRole === 'admin' ? <CourseRosterView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/rubrics" element={activeRole === 'admin' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />

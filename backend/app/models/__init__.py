@@ -16,6 +16,12 @@ from app.models.enums import (
     CourseJoinOutcome,
     CourseStatus,
     DocumentStatus,
+    LLMCatalogStatus,
+    LLMCredentialSource,
+    LLMProtocol,
+    LLMProvider,
+    LLMRouteState,
+    LLMTask,
     MembershipAddOutcome,
     MembershipJoinedVia,
     MembershipRole,
@@ -28,6 +34,7 @@ from app.models.enums import (
     UserStatus,
 )
 from app.models.identity import User
+from app.models.llm import LLMProviderConfig, LLMRoute
 from app.models.notification import Notification
 from app.models.review import (
     EvidenceAnchor,
@@ -89,4 +96,12 @@ __all__ = [
     "User",
     "UserRole",
     "UserStatus",
+    "LLMCatalogStatus",
+    "LLMCredentialSource",
+    "LLMProtocol",
+    "LLMProvider",
+    "LLMProviderConfig",
+    "LLMRoute",
+    "LLMRouteState",
+    "LLMTask",
 ]
