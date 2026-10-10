@@ -21,11 +21,20 @@ class CourseCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=255)
     term: str = Field(min_length=1, max_length=128)
+    owner_teacher_id: uuid.UUID | None = None
 
 
 class CourseUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     term: str | None = Field(None, min_length=1, max_length=128)
+
+
+class CourseOwnerSummary(BaseModel):
+    id: uuid.UUID
+    display_name: str
+    email: str
+
+    model_config = {"extra": "forbid", "from_attributes": True}
 
 
 class CourseResponse(BaseModel):
@@ -35,6 +44,9 @@ class CourseResponse(BaseModel):
     term: str
     status: CourseStatus
     owner_teacher_id: uuid.UUID
+    owner: CourseOwnerSummary
+    created_at: datetime
+    updated_at: datetime
     revision: int
 
     model_config = {"from_attributes": True}

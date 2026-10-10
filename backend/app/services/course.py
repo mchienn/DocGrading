@@ -7,9 +7,17 @@ import sqlalchemy as sa
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.models.course import Course, CourseInvite, Membership
+from app.models.assignment import Assignment
+from app.models.course import (
+    Announcement,
+    Course,
+    CourseInvite,
+    CourseJoinCode,
+    Membership,
+)
 from app.models.enums import (
     CourseStatus,
     MembershipAddOutcome,
@@ -29,6 +37,7 @@ async def create_course(
     name: str,
     term: str,
     owner_teacher_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
 ) -> Course:
     """Create a new course owned by a teacher."""
     course = Course(
@@ -44,20 +53,30 @@ async def create_course(
 
     await record_audit(
         db,
-        actor_user_id=owner_teacher_id,
+        actor_user_id=actor_user_id,
         resource_type="Course",
         resource_id=course.id,
         action="CREATE",
-        after={"code": code, "name": name, "term": term},
+        after={
+            "code": code,
+            "name": name,
+            "term": term,
+            "owner_teacher_id": str(owner_teacher_id),
+        },
         reason="Course created",
     )
     await db.flush()
-    return course
+    reloaded = await get_course(db, course.id)
+    return reloaded if reloaded is not None else course
 
 
 async def get_course(db: AsyncSession, course_id: uuid.UUID) -> Course | None:
     """Load a single course by ID."""
-    return await db.get(Course, course_id)
+    stmt = (
+        select(Course).where(Course.id == course_id).options(selectinload(Course.owner))
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
 
 
 def active_student_membership_exists(
@@ -81,7 +100,11 @@ async def list_courses(
     member_user_id: uuid.UUID | None = None,
 ) -> list[Course]:
     """List courses visible to an Admin, owning Teacher, or active Student member."""
-    stmt = select(Course).order_by(Course.created_at.desc())
+    stmt = (
+        select(Course)
+        .options(selectinload(Course.owner))
+        .order_by(Course.created_at.desc())
+    )
     if owner_teacher_id is not None:
         stmt = stmt.where(Course.owner_teacher_id == owner_teacher_id)
     elif member_user_id is not None:
@@ -99,15 +122,14 @@ async def update_course(
     course: Course,
     *,
     actor_user_id: uuid.UUID,
+    expected_revision: int,
     name: str | None = None,
     term: str | None = None,
 ) -> Course:
     """Update mutable fields on a course. Records audit."""
-    if course.status == CourseStatus.ARCHIVED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Archived courses are read-only",
-        )
+    course = await _lock_active_course(
+        db, course.id, expected_revision=expected_revision
+    )
 
     before: dict[str, str] = {}
     after: dict[str, str] = {}
@@ -144,12 +166,27 @@ async def delete_course(
     course: Course,
     *,
     actor_user_id: uuid.UUID,
+    expected_revision: int,
 ) -> None:
-    """Delete a course. Records audit."""
-    if course.status == CourseStatus.ARCHIVED:
+    """Delete a pristine course. Records audit."""
+    course = await _lock_active_course(
+        db, course.id, expected_revision=expected_revision
+    )
+    has_dependencies = await db.scalar(
+        sa.select(
+            sa.or_(
+                sa.exists().where(Announcement.course_id == course.id),
+                sa.exists().where(Assignment.course_id == course.id),
+                sa.exists().where(CourseInvite.course_id == course.id),
+                sa.exists().where(CourseJoinCode.course_id == course.id),
+                sa.exists().where(Membership.course_id == course.id),
+            )
+        )
+    )
+    if has_dependencies:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Archived courses cannot be deleted",
+            detail="Course has dependent records; archive it instead",
         )
 
     await record_audit(
@@ -170,31 +207,12 @@ async def archive_course(
     course: Course,
     *,
     actor_user_id: uuid.UUID,
+    expected_revision: int,
 ) -> Course:
     """Archive an ACTIVE course while preserving its read history."""
-    if course.status == CourseStatus.ARCHIVED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Course is already archived",
-        )
-
-    result = await db.execute(
-        select(Course)
-        .where(Course.id == course.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    course = await _lock_active_course(
+        db, course.id, expected_revision=expected_revision
     )
-    course = result.scalar_one_or_none()
-    if course is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Course not found",
-        )
-    if course.status == CourseStatus.ARCHIVED:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Course is already archived",
-        )
     course.status = CourseStatus.ARCHIVED
     course.revision += 1
     await record_audit(
@@ -263,10 +281,16 @@ async def list_members(
     return rows, total
 
 
-async def _lock_active_course(db: AsyncSession, course_id: uuid.UUID) -> Course:
+async def _lock_active_course(
+    db: AsyncSession,
+    course_id: uuid.UUID,
+    *,
+    expected_revision: int | None = None,
+) -> Course:
     result = await db.execute(
         select(Course)
         .where(Course.id == course_id)
+        .options(selectinload(Course.owner))
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -275,6 +299,11 @@ async def _lock_active_course(db: AsyncSession, course_id: uuid.UUID) -> Course:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Course not found",
+        )
+    if expected_revision is not None and course.revision != expected_revision:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="Course revision conflict",
         )
     if course.status == CourseStatus.ARCHIVED:
         raise HTTPException(

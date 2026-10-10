@@ -2520,12 +2520,13 @@ async def _run_concurrent_course_archive_test() -> None:
                         session,
                         course,
                         actor_user_id=teacher_id,
+                        expected_revision=1,
                     )
                     await session.commit()
                     return "success"
                 except HTTPException as exc:
                     await session.rollback()
-                    assert exc.status_code == 409
+                    assert exc.status_code == 412
                     return "conflict"
 
             outcomes = await asyncio.gather(

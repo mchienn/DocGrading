@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
+    get_accessible_course,
     get_active_owned_course,
     get_owned_course,
     require_roles,
@@ -31,7 +33,12 @@ from app.api.schemas_course import (
 )
 from app.db.session import get_db_session
 from app.models.course import Course, Membership
-from app.models.enums import MembershipAddOutcome, MembershipStatus, UserRole
+from app.models.enums import (
+    MembershipAddOutcome,
+    MembershipStatus,
+    UserRole,
+    UserStatus,
+)
 from app.models.identity import User
 from app.services import course as course_svc
 from app.services import course_join as join_svc
@@ -144,12 +151,37 @@ async def create_course(
     db: AsyncSession = Depends(get_db_session),
 ) -> CourseResponse:
     """Create a new course (Teacher/Admin only)."""
+    owner_teacher_id = user.id
+    if UserRole.ADMIN in user.roles:
+        if body.owner_teacher_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Admin must select an active Teacher as course owner",
+            )
+        owner = await db.get(User, body.owner_teacher_id)
+        if (
+            owner is None
+            or owner.status is not UserStatus.ACTIVE
+            or UserRole.TEACHER not in owner.roles
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Course owner must be an active Teacher",
+            )
+        owner_teacher_id = owner.id
+    elif body.owner_teacher_id not in (None, user.id):
+        raise HTTPException(
+            status_code=403,
+            detail="Teachers can only own their courses",
+        )
+
     course = await course_svc.create_course(
         db,
         code=body.code,
         name=body.name,
         term=body.term,
-        owner_teacher_id=user.id,
+        owner_teacher_id=owner_teacher_id,
+        actor_user_id=user.id,
     )
     await db.commit()
     return CourseResponse.model_validate(course)
@@ -174,15 +206,16 @@ async def list_courses(
 
 @router.get("/{course_id}", response_model=CourseResponse)
 async def get_course(
-    course: Course = Depends(get_owned_course),
+    course: Course = Depends(get_accessible_course),
 ) -> CourseResponse:
-    """Get a single course (owner or Admin)."""
+    """Get a single course."""
     return CourseResponse.model_validate(course)
 
 
 @router.put("/{course_id}", response_model=CourseResponse)
 async def update_course(
     body: CourseUpdate,
+    if_match: str = Header(alias="If-Match", pattern=r'^"rev-[1-9]\d*"$'),
     course: Course = Depends(get_active_owned_course),
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
@@ -192,6 +225,7 @@ async def update_course(
         db,
         course,
         actor_user_id=user.id,
+        expected_revision=int(if_match[5:-1]),
         name=body.name,
         term=body.term,
     )
@@ -201,23 +235,42 @@ async def update_course(
 
 @router.delete("/{course_id}", status_code=204)
 async def delete_course(
+    if_match: str = Header(alias="If-Match", pattern=r'^"rev-[1-9]\d*"$'),
     course: Course = Depends(get_active_owned_course),
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> None:
-    """Delete a course (owner or Admin)."""
-    await course_svc.delete_course(db, course, actor_user_id=user.id)
-    await db.commit()
+    """Delete a dependency-free course (owner or Admin)."""
+    try:
+        await course_svc.delete_course(
+            db,
+            course,
+            actor_user_id=user.id,
+            expected_revision=int(if_match[5:-1]),
+        )
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Course has dependent academic records; archive it instead",
+        ) from exc
 
 
 @router.post("/{course_id}/archive", response_model=CourseResponse)
 async def archive_course(
+    if_match: str = Header(alias="If-Match", pattern=r'^"rev-[1-9]\d*"$'),
     course: Course = Depends(get_owned_course),
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> CourseResponse:
     """Archive an ACTIVE course (owner or Admin)."""
-    course = await course_svc.archive_course(db, course, actor_user_id=user.id)
+    course = await course_svc.archive_course(
+        db,
+        course,
+        actor_user_id=user.id,
+        expected_revision=int(if_match[5:-1]),
+    )
     await db.commit()
     return CourseResponse.model_validate(course)
 

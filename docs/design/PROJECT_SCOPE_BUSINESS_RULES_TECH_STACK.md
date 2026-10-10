@@ -184,7 +184,7 @@ QUEUED → RUNNING → DONE
 
 | ID | Luật đã chốt |
 |---|---|
-| BR-01 | Admin quản lý toàn hệ thống; Giảng viên chỉ quản lý Course, Assignment, rubric và bài thuộc phạm vi được giao; Sinh viên chỉ thao tác với Assignment được giao và bài của chính mình. Mọi API phải kiểm tra quyền theo object, không chỉ ẩn nút trên UI. |
+| BR-01 | Admin quản lý toàn hệ thống; Giảng viên chỉ quản lý Course, Assignment, Announcement, rubric và bài thuộc phạm vi được giao; Sinh viên chỉ đọc Course/Assignment/Announcement có membership `ACTIVE` và thao tác với bài của chính mình. Course ngoài phạm vi trả `404` để không lộ sự tồn tại. Mọi API phải kiểm tra quyền theo object, không chỉ ẩn nút trên UI. |
 | BR-02 | Không có đăng ký công khai. Admin tạo, khóa hoặc mở khóa tài khoản. Admin không được tự bỏ role `ADMIN` hoặc tự khóa tài khoản; cập nhật đồng thời phải luôn giữ ít nhất một Admin đang `ACTIVE`. Mật khẩu tối thiểu 12 ký tự và được băm bằng Argon2id. |
 | BR-03 | Rubric hệ thống không được sửa trực tiếp. Giảng viên phải nhân bản. Khi Assignment nhận bài đầu tiên, rubric và liên kết RubricVersion của Assignment bị đóng băng. Phiên bản rubric mới chỉ dùng cho Assignment khác; không để sinh viên trong cùng một Assignment bị chấm bằng hai rubric khác nhau. |
 | BR-04 | Tổng trọng số tiêu chí đang bật phải bằng 100%. Mỗi tiêu chí phải có đủ mức 0–4, mô tả, trọng số và phương pháp đánh giá trước khi mở Assignment. |
@@ -362,6 +362,8 @@ Quyết định này thay thế dòng Web trước đây dùng Next.js tại SRS
 #### 9.4.2. Resource hierarchy và endpoint bắt buộc
 
 `Course` là aggregate quản lý người học và quyền truy cập. `Assignment` luôn thuộc đúng một Course và sở hữu yêu cầu nộp bài, deadline, số lượt, RubricVersion và Submission. Không dùng `Assessment` như một entity API song song.
+
+`GET /courses` và `GET /courses/{course_id}` dùng cùng phạm vi đọc: Admin thấy mọi Course, Teacher chỉ thấy Course mình sở hữu, Student chỉ thấy Course có membership `ACTIVE`; Course ngoài phạm vi trả `404` ở endpoint detail. `CourseResponse` trả owner summary (`id`, `display_name`, `email`), `created_at`, `updated_at` và revision phục vụ concurrency. UI project theo vai trò: Admin thấy owner ngay trong danh sách và metadata trong `Course details`; Teacher đặt owner/thời gian trong `Course details`; Student chỉ đặt instructor, học kỳ và trạng thái trong `Course information`, không hiển thị timestamp, revision hoặc UUID. Mutation, roster và join-code vẫn chỉ dành cho Admin hoặc Teacher sở hữu Course.
 
 | Nhóm | Endpoint v1 | Hợp đồng chính |
 |---|---|---|
