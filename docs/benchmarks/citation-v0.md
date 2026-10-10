@@ -74,6 +74,10 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 - Live Crossref result is an operational probe, not gold truth. Offline identity metrics use fixed records.
 - No OCR, arbitrary URL fetching, semantic claim support, or style grading is included.
 
+Semantic claim support is benchmarked separately in
+[`citation-semantic-v1.md`](citation-semantic-v1.md); that candidate set is not
+human gold, so its quality gate remains blocked.
+
 ## Reproduce
 
 ```bash

@@ -306,13 +306,22 @@ async def _seed_graph(connection: AsyncConnection, ids: dict[str, uuid.UUID]) ->
                 snapshot, queued_at, finished_at
             ) VALUES (
                 :job, :document, :rubric, 'DONE'::public.analysis_job_status,
-                '{}'::jsonb, :now, :now
+                CAST(:snapshot AS jsonb), :now, :now
             )
         """),
         {
             "job": ids["job"],
             "document": ids["document_1"],
             "rubric": ids["rubric"],
+            "snapshot": json.dumps(
+                {
+                    "semantic_citation": {
+                        "results": [
+                            {"finding_links": [{"finding_id": str(ids["finding"])}]}
+                        ]
+                    }
+                }
+            ),
             "now": now,
         },
     )
@@ -518,8 +527,10 @@ async def _queue_evidence_scenario() -> None:
             "document_version_id",
             "findings",
             "citation",
+            "semantic_citation",
         }
         assert payload["citation"] is None
+        assert payload["semantic_citation"] is None
         assert set(payload["findings"][0]) == {
             "id",
             "criterion_version_id",
@@ -768,14 +779,111 @@ async def _autosave_override_scenario() -> None:
             "decision": "PROPOSED",
             "score": "80.00",
             "analysis_job_id": str(ids["job"]),
+            "semantic_verdict": None,
         }
         assert after == {
             "decision": "EDIT",
             "score": "75.00",
             "analysis_job_id": str(ids["job"]),
+            "semantic_verdict": None,
         }
         assert reason == "Evidence supports a lower score"
         assert actor_user_id == ids["teacher"]
+
+        semantic_saved = await save_review_draft(
+            session,
+            submission_id=ids["submission_1"],
+            user=owner,
+            body=ReviewDraftRequest(
+                document_version_id=ids["document_1"],
+                revision=saved.revision,
+                comment="Teacher comment",
+                decisions=[
+                    {
+                        "finding_id": ids["finding"],
+                        "decision": "EDIT",
+                        "edited_description": "Corrected description",
+                        "final_score": 75,
+                        "edited_semantic_verdict": "CONTRADICTED",
+                        "reason": "The cited passage contradicts the numeric claim",
+                    }
+                ],
+            ),
+        )
+        assert semantic_saved.decisions[0].edited_semantic_verdict == "CONTRADICTED"
+        restored = await save_review_draft(
+            session,
+            submission_id=ids["submission_1"],
+            user=owner,
+            body=ReviewDraftRequest(
+                document_version_id=ids["document_1"],
+                revision=semantic_saved.revision,
+                comment="Teacher comment",
+                decisions=[
+                    {
+                        "finding_id": ids["finding"],
+                        "decision": "ACCEPT",
+                        "reason": "Restore the pipeline verdict and proposed score",
+                    }
+                ],
+            ),
+        )
+        assert restored.decisions[0].edited_semantic_verdict is None
+        semantic_audits = (
+            await session.execute(
+                text("""
+                    SELECT before, after, reason
+                    FROM public.audit_events
+                    WHERE resource_type = 'Finding'
+                      AND resource_id = :finding
+                      AND action = 'FINDING_OVERRIDE'
+                    ORDER BY occurred_at
+                """),
+                {"finding": ids["finding"]},
+            )
+        ).all()
+        assert len(semantic_audits) == 3
+        assert semantic_audits[1].before["semantic_verdict"] is None
+        assert semantic_audits[1].after["semantic_verdict"] == "CONTRADICTED"
+        assert semantic_audits[2].before["semantic_verdict"] == "CONTRADICTED"
+        assert semantic_audits[2].after["semantic_verdict"] is None
+        assert (
+            semantic_audits[2].reason
+            == "Restore the pipeline verdict and proposed score"
+        )
+        await session.execute(
+            text("""
+                UPDATE public.analysis_jobs
+                SET snapshot = '{}'::jsonb
+                WHERE id = :job
+            """),
+            {"job": ids["job"]},
+        )
+        session.expire_all()
+        with pytest.raises(HTTPException) as nonsemantic_error:
+            await save_review_draft(
+                session,
+                submission_id=ids["submission_1"],
+                user=owner,
+                body=ReviewDraftRequest(
+                    document_version_id=ids["document_1"],
+                    revision=restored.revision,
+                    comment="Teacher comment",
+                    decisions=[
+                        {
+                            "finding_id": ids["finding"],
+                            "decision": "EDIT",
+                            "edited_semantic_verdict": "CONTRADICTED",
+                            "reason": "Attempted API bypass",
+                        }
+                    ],
+                ),
+            )
+        assert nonsemantic_error.value.status_code == 422
+        assert (
+            nonsemantic_error.value.detail
+            == "Semantic verdict override requires a semantic finding"
+        )
 
         stale = body.model_copy(update={"comment": "Must not overwrite"})
         with pytest.raises(HTTPException) as error:

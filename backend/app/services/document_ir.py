@@ -1282,6 +1282,7 @@ def _parse_pages(
     *,
     pdf_links: Sequence[PDFLink] = (),
     links: list[dict[str, Any]] | None = None,
+    extract_tables: bool = True,
 ) -> list[dict[str, Any]]:
     """Extract bounded page geometry and structural containers."""
     all_sections = sections if sections is not None else []
@@ -1309,12 +1310,16 @@ def _parse_pages(
         ):
             raise PDFValidationError("PDF_IR_MALFORMED")
 
-        page_table_regions, table_needs_review = _extract_tables(
-            page,
-            page_number=page_number,
-            page_width=page_width,
-            page_height=page_height,
-            budget=budget,
+        page_table_regions, table_needs_review = (
+            _extract_tables(
+                page,
+                page_number=page_number,
+                page_width=page_width,
+                page_height=page_height,
+                budget=budget,
+            )
+            if extract_tables
+            else ([], False)
         )
         page_table_ids: list[str] = []
         current_page_table = None
@@ -1732,6 +1737,7 @@ def parse_document_ir(
     max_decoded_bytes: int = 50_000_000,
     max_page_count: int = 100,
     max_nodes: int = 100_000,
+    extract_tables: bool = True,
 ) -> ParsedDocumentIR:
     """Validate untrusted PDF bytes and extract bounded Document IR."""
     validation = validate_pdf(
@@ -1760,6 +1766,7 @@ def parse_document_ir(
                 tables,
                 pdf_links=validation.links,
                 links=links,
+                extract_tables=extract_tables,
             )
     except PDFValidationError:
         raise

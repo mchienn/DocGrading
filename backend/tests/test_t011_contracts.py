@@ -63,6 +63,13 @@ def test_decision_shape_allows_reason_only_when_service_needs_it() -> None:
         reason="Restore original scored proposal",
     )
     assert accepted.decision.value == "ACCEPT"
+    semantic_edit = ReviewDecisionRequest(
+        finding_id=finding_id,
+        decision="EDIT",
+        edited_semantic_verdict="PARTIALLY_SUPPORTED",
+        reason="The source supports only the bounded condition",
+    )
+    assert semantic_edit.edited_semantic_verdict == "PARTIALLY_SUPPORTED"
     with pytest.raises(ValidationError):
         ReviewDecisionRequest(finding_id=finding_id, decision="EDIT")
     with pytest.raises(ValidationError):
@@ -70,6 +77,12 @@ def test_decision_shape_allows_reason_only_when_service_needs_it() -> None:
             finding_id=finding_id,
             decision="REJECT",
             final_score=0,
+        )
+    with pytest.raises(ValidationError):
+        ReviewDecisionRequest(
+            finding_id=finding_id,
+            decision="ACCEPT",
+            edited_semantic_verdict="SUPPORTED",
         )
     with pytest.raises(ValidationError):
         ReviewDecisionRequest(
@@ -122,6 +135,11 @@ def test_review_model_metadata_matches_t011_tables() -> None:
     assert "bbox" not in evidence.columns
     draft = Base.metadata.tables["review_drafts"]
     assert "document_version_id" in draft.columns
+    constraint_names = {constraint.name for constraint in draft.constraints}
+    assert "uq_review_drafts_document_reviewer" in constraint_names
+    assert "uq_review_drafts_submission_reviewer" not in constraint_names
+    decisions = Base.metadata.tables["review_decisions"]
+    assert "edited_semantic_verdict" in decisions.columns
 
 
 def test_migration_enforces_sc1_sc2_sc3_and_downgrade_guard() -> None:

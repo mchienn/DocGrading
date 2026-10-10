@@ -9,7 +9,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.enums import AnalysisJobStatus, ReviewDecisionType, ReviewRequestStatus
+from app.models.enums import (
+    AnalysisJobStatus,
+    DocumentStatus,
+    ReviewDecisionType,
+    ReviewRequestStatus,
+)
+from app.services.semantic_citation import (
+    SemanticCitationReportResponse,
+    SemanticPipelineStatus,
+)
 
 
 class PresignRequest(BaseModel):
@@ -223,6 +232,7 @@ class EvidenceWorkspaceResponse(BaseModel):
     document_version_id: uuid.UUID
     findings: list[FindingResponse]
     citation: CitationReportResponse | None = None
+    semantic_citation: SemanticCitationReportResponse | None = None
 
 
 class QueueLockResponse(BaseModel):
@@ -267,6 +277,7 @@ class ReviewDecisionRequest(BaseModel):
         max_digits=5,
         decimal_places=2,
     )
+    edited_semantic_verdict: SemanticPipelineStatus | None = None
     reason: str | None = Field(default=None, max_length=2_000)
 
     @field_validator("edited_description", "reason")
@@ -278,20 +289,25 @@ class ReviewDecisionRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_shape(self) -> ReviewDecisionRequest:
+        edit_values = (
+            self.edited_description,
+            self.final_score,
+            self.edited_semantic_verdict,
+        )
         if self.decision is ReviewDecisionType.ACCEPT and any(
-            value is not None for value in (self.edited_description, self.final_score)
+            value is not None for value in edit_values
         ):
-            raise ValueError("ACCEPT cannot include edit or score")
-        if (
-            self.decision is ReviewDecisionType.EDIT
-            and self.edited_description is None
-            and self.final_score is None
+            raise ValueError("ACCEPT cannot include edit, score, or semantic verdict")
+        if self.decision is ReviewDecisionType.EDIT and all(
+            value is None for value in edit_values
         ):
-            raise ValueError("EDIT requires edited description or final score")
+            raise ValueError(
+                "EDIT requires edited description, final score, or semantic verdict"
+            )
         if self.decision is ReviewDecisionType.REJECT and any(
-            value is not None for value in (self.edited_description, self.final_score)
+            value is not None for value in edit_values
         ):
-            raise ValueError("REJECT cannot include edit or score")
+            raise ValueError("REJECT cannot include edit, score, or semantic verdict")
         return self
 
 
@@ -319,6 +335,7 @@ class ReviewDecisionResponse(BaseModel):
     decision: ReviewDecisionType
     edited_description: str | None
     final_score: Decimal | None
+    edited_semantic_verdict: SemanticPipelineStatus | None
     reason: str | None
 
 

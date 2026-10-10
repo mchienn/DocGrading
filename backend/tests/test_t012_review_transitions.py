@@ -160,6 +160,7 @@ async def _transition_scenario() -> None:
                 "evidence": [],
                 "decision": "REJECT",
                 "evidence_count": 1,
+                "semantic_verdict_override": None,
             }
         ]
         approve_audit = (

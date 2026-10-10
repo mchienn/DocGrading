@@ -44,8 +44,7 @@ def _document() -> dict[str, object]:
                 "section_id": "section-1",
                 "page_number": 2,
                 "text": (
-                    '[1] Nguyen, A. (2024). "First study". Journal. '
-                    "doi:10.1000/ABC.1"
+                    '[1] Nguyen, A. (2024). "First study". Journal. doi:10.1000/ABC.1'
                 ),
             },
             {
@@ -196,18 +195,20 @@ def test_crossref_search_results_are_not_shared_between_documents(monkeypatch) -
     monkeypatch.setattr(
         citation,
         "_crossref_request",
-        lambda url: calls.append(url)
-        or {
-            "message": {
-                "items": [
-                    {
-                        "DOI": "10.0000/study",
-                        "title": ["Study"],
-                        "published": {"date-parts": [[2024]]},
-                    }
-                ]
+        lambda url: (
+            calls.append(url)
+            or {
+                "message": {
+                    "items": [
+                        {
+                            "DOI": "10.0000/study",
+                            "title": ["Study"],
+                            "published": {"date-parts": [[2024]]},
+                        }
+                    ]
+                }
             }
-        },
+        ),
     )
     with citation._CACHE_LOCK:
         citation._CACHE.clear()
@@ -263,7 +264,7 @@ def test_arxiv_only_references_do_not_consume_crossref_budget(monkeypatch) -> No
             snippet="arXiv",
             arxiv_id=f"{index:04d}.12345",
         )
-        for index in range(citation._MAX_CROSSREF_RESOLUTIONS)
+        for index in range(citation._MAX_ARXIV_RESOLUTIONS + 2)
     ]
     doi_reference = citation.CitationReference(
         id="doi-reference",
@@ -277,6 +278,12 @@ def test_arxiv_only_references_do_not_consume_crossref_budget(monkeypatch) -> No
         doi="10.1000/test",
     )
     resolved: list[str] = []
+    selected: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        citation,
+        "_resolve_arxiv_batch",
+        lambda ids: selected.append(tuple(ids)) or {},
+    )
     monkeypatch.setattr(
         citation,
         "resolve_reference",
@@ -287,6 +294,8 @@ def test_arxiv_only_references_do_not_consume_crossref_budget(monkeypatch) -> No
 
     assert resolved == ["doi-reference"]
     assert records[-1] == {"id": "doi-reference"}
+    assert len(selected[0]) == citation._MAX_ARXIV_RESOLUTIONS
+    assert records[-3:-1] == [None, None]
 
 
 def test_crossref_payload_rejects_malformed_nested_fields_without_raising() -> None:
@@ -518,8 +527,7 @@ def test_missing_heading_rejects_numbered_document_structure() -> None:
                     "section_id": None,
                     "page_number": 3,
                     "text": (
-                        "3. Source code libraries: "
-                        "1. Numpy v1.16.5 2. Pandas v0.25.1"
+                        "3. Source code libraries: 1. Numpy v1.16.5 2. Pandas v0.25.1"
                     ),
                 },
             ],
@@ -556,6 +564,78 @@ def test_zero_based_numeric_intervals_are_not_citation_mentions() -> None:
 
     assert [mention.raw for mention in report.mentions] == ["[1, 2]"]
     assert report.mentions[0].status == citation.LINKED
+
+
+def test_bracketed_bibliography_ignores_page_ranges_and_page_footers() -> None:
+    report = citation.parse_citations(
+        {
+            "sections": [{"id": "references", "text": "References", "page_number": 31}],
+            "paragraphs": [
+                {
+                    "id": "body",
+                    "section_id": None,
+                    "page_number": 10,
+                    "text": "The workflow remains stable across runs [7].",
+                },
+                {
+                    "id": "references-body",
+                    "section_id": "references",
+                    "page_number": 31,
+                    "text": (
+                        "[5] Alpha, A. (2020). First source in Journal. "
+                        "[6] Beta, B. (2020). Second source in Journal. "
+                        "[7] Gamma,C.:ConferencePaper.arXiv:2504.11839(2025), "
+                        "pp. 600–611.ACM. "
+                        "[8] Delta, D. (2022). Fourth source in Journal."
+                    ),
+                },
+                {
+                    "id": "page-footer",
+                    "section_id": "references",
+                    "page_number": 31,
+                    "text": "31",
+                },
+            ],
+        }
+    )
+
+    assert [reference.id for reference in report.references] == [
+        "reference-5",
+        "reference-6",
+        "reference-7",
+        "reference-8",
+    ]
+    reference = report.references[2]
+    assert reference.page_number == 31
+    assert reference.anchor_element_ids == ("references-body",)
+    assert report.mentions[0].page_number == 10
+    assert report.mentions[0].status == citation.LINKED
+    assert report.mentions[0].reference_ids == ("reference-7",)
+
+
+def test_finding_copy_replaces_internal_ids_with_review_context() -> None:
+    _severity, mention_description, _suggestion = citation._finding_copy(
+        citation.AMBIGUOUS_MAPPING,
+        "mention-7ed8182a639d8e777edc",
+        "The workflow remains stable [7]",
+        10,
+    )
+    _severity, reference_description, _suggestion = citation._finding_copy(
+        citation.UNRESOLVED,
+        "reference-7",
+        "[7] Gamma, C. (2021). Conference paper.",
+        31,
+    )
+
+    assert mention_description == (
+        "Citation on PDF page 10 could not be mapped reliably. "
+        "Context: “The workflow remains stable [7]”."
+    )
+    assert reference_description.startswith(
+        "Bibliography entry [7] on PDF page 31 could not be resolved."
+    )
+    assert "mention-" not in mention_description
+    assert "reference-" not in reference_description
 
 
 def test_numeric_marker_bounds_reject_oversized_values_and_ranges() -> None:
@@ -609,8 +689,7 @@ def test_citation_entity_counts_are_bounded(monkeypatch) -> None:
                         "section_id": "references",
                         "page_number": 2,
                         "text": (
-                            f"[{number}] Author, A. (2024). "
-                            f"Study {number}. Journal."
+                            f"[{number}] Author, A. (2024). Study {number}. Journal."
                         ),
                     }
                     for number in range(1, 4)
@@ -958,8 +1037,7 @@ def test_grouped_and_narrative_author_year_mentions_link() -> None:
                 "section_id": None,
                 "page_number": 1,
                 "text": (
-                    "(Nguyen & Tran, 2024; Tran, 2023). "
-                    "Nguyen and Tran (2024) agree."
+                    "(Nguyen & Tran, 2024; Tran, 2023). Nguyen and Tran (2024) agree."
                 ),
             },
             {
@@ -1068,8 +1146,7 @@ def test_page_heading_recovers_bibliography_from_layout_table() -> None:
                 {
                     "number": 2,
                     "text": (
-                        "Tài liệu tham khảo\n"
-                        "[1] Sarmah, B. (2024). Hybrid retrieval."
+                        "Tài liệu tham khảo\n[1] Sarmah, B. (2024). Hybrid retrieval."
                     ),
                 },
             ],
@@ -1185,3 +1262,109 @@ def test_citation_benchmark_gold_cases_are_self_consistent() -> None:
         citation_benchmark._ambiguous_status(citation.AMBIGUOUS_MAPPING)
         == citation.AMBIGUOUS
     )
+
+
+def test_arxiv_atom_batch_resolution_and_metadata_cache(monkeypatch) -> None:
+    atom = b"""<?xml version="1.0"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <id>https://arxiv.org/abs/2401.12345v2</id>
+        <title> A deterministic title </title>
+        <published>2024-01-02T00:00:00Z</published>
+        <author><name>Ada Lovelace</name></author>
+        <link rel="license" href="https://creativecommons.org/licenses/by/4.0/"/>
+      </entry>
+    </feed>"""
+    refs = [
+        citation.CitationReference(
+            id=f"arxiv-{index}",
+            number=index,
+            raw="arXiv:2401.12345v2",
+            page_number=1,
+            element_id=f"p-{index}",
+            start=0,
+            end=1,
+            snippet="arXiv",
+            arxiv_id="2401.12345v2",
+            title="A deterministic title",
+            authors=("Ada Lovelace",),
+            year=2024,
+        )
+        for index in (1, 2)
+    ]
+    calls: list[tuple[str, ...]] = []
+    citation._ARXIV_CACHE.clear()
+    citation._ARXIV_MISS_CACHE.clear()
+    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda: None)
+    monkeypatch.setattr(
+        citation,
+        "_arxiv_request",
+        lambda ids: calls.append(tuple(ids)) or atom,
+    )
+    records = asyncio.run(citation._resolve_references(refs))
+    assert len(calls) == 1
+    assert calls[0] == ("2401.12345v2",)
+    assert records[0] == records[1]
+    assert records[0]["license_url"].endswith("4.0/")
+    assert citation._identity(refs[0], records[0]) == (citation.VERIFIED, ())
+    asyncio.run(citation._resolve_references(refs))
+    assert len(calls) == 1
+
+
+def test_arxiv_partial_batch_falls_back_for_missing_ids(monkeypatch) -> None:
+    def atom(arxiv_id: str) -> bytes:
+        return f"""<feed xmlns="http://www.w3.org/2005/Atom">
+        <entry><id>https://arxiv.org/abs/{arxiv_id}v1</id>
+        <title>Paper {arxiv_id}</title><published>2024-01-01T00:00:00Z</published>
+        <author><name>Ada Lovelace</name></author></entry></feed>""".encode()
+
+    calls: list[tuple[str, ...]] = []
+    citation._ARXIV_CACHE.clear()
+    citation._ARXIV_MISS_CACHE.clear()
+    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda: None)
+
+    def request(ids):
+        calls.append(tuple(ids))
+        return atom(ids[0])
+
+    monkeypatch.setattr(citation, "_arxiv_request", request)
+
+    records = citation._resolve_arxiv_batch(["2401.12345", "2401.12346"])
+
+    assert set(records) >= {"2401.12345", "2401.12346"}
+    assert calls == [
+        ("2401.12345", "2401.12346"),
+        ("2401.12346",),
+    ]
+    citation._ARXIV_CACHE.clear()
+    citation._ARXIV_MISS_CACHE.clear()
+    miss_calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        citation,
+        "_arxiv_request",
+        lambda ids: miss_calls.append(tuple(ids)),
+    )
+    assert citation._resolve_arxiv_batch(["2401.99999"]) == {}
+    assert citation._resolve_arxiv_batch(["2401.99999"]) == {}
+    assert miss_calls == [("2401.99999",)]
+    citation._ARXIV_MISS_CACHE.clear()
+
+
+def test_arxiv_metadata_redirect_is_denied(monkeypatch) -> None:
+    class RedirectingOpener:
+        def open(self, request, *, timeout):
+            raise citation.urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "redirect denied",
+                {},
+                None,
+            )
+
+    monkeypatch.setattr(
+        citation.urllib.request,
+        "build_opener",
+        lambda *_args: RedirectingOpener(),
+    )
+
+    assert citation._arxiv_request(["2401.12345"]) is None

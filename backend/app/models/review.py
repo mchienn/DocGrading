@@ -232,11 +232,14 @@ class ReviewDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         sa.CheckConstraint(
             "(decision = 'ACCEPT' "
-            "AND edited_description IS NULL AND final_score IS NULL) "
+            "AND edited_description IS NULL AND final_score IS NULL "
+            "AND edited_semantic_verdict IS NULL) "
             "OR (decision = 'EDIT' "
-            "AND (edited_description IS NOT NULL OR final_score IS NOT NULL)) "
+            "AND (edited_description IS NOT NULL OR final_score IS NOT NULL "
+            "OR edited_semantic_verdict IS NOT NULL)) "
             "OR (decision = 'REJECT' "
-            "AND edited_description IS NULL AND final_score IS NULL)",
+            "AND edited_description IS NULL AND final_score IS NULL "
+            "AND edited_semantic_verdict IS NULL)",
             name="ck_review_decisions_payload",
         ),
         _not_blank_optional(
@@ -247,6 +250,13 @@ class ReviewDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         sa.CheckConstraint(
             "final_score IS NULL OR (final_score >= 0 AND final_score <= 100)",
             name="ck_review_decisions_final_score_range",
+        ),
+        sa.CheckConstraint(
+            "edited_semantic_verdict IS NULL OR edited_semantic_verdict IN "
+            "('SUPPORTED', 'PARTIALLY_SUPPORTED', 'CONTRADICTED', 'IRRELEVANT', "
+            "'INSUFFICIENT_EVIDENCE', 'SOURCE_UNAVAILABLE', 'AMBIGUOUS_CLAIM', "
+            "'NEEDS_MANUAL_REVIEW')",
+            name="ck_review_decisions_semantic_verdict",
         ),
         sa.ForeignKeyConstraint(
             ["review_draft_id"],
@@ -271,6 +281,9 @@ class ReviewDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     edited_description: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     final_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(5, 2), nullable=True)
+    edited_semantic_verdict: Mapped[str | None] = mapped_column(
+        sa.String(32), nullable=True
+    )
     reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     draft: Mapped[ReviewDraft] = relationship(

@@ -35,12 +35,119 @@ GlobalWorkerOptions.workerSrc = workerUrl
 type Finding = components['schemas']['FindingResponse']
 type BBox = components['schemas']['BBox']
 
+export type MarkerPresentation = {
+  themeName: string
+  symbol: string
+  borderColor: string
+  borderSelectedColor: string
+  borderStyle: 'solid' | 'dashed' | 'double'
+  bgColor: string
+  bgSelectedColor: string
+  badgeBg: string
+  badgeText: string
+  ringColor: string
+  chipClass: string
+}
+
+export const MARKER_PALETTES: MarkerPresentation[] = [
+  {
+    themeName: 'indigo',
+    symbol: '■',
+    borderColor: '#4f46e5',
+    borderSelectedColor: '#3730a3',
+    borderStyle: 'solid',
+    bgColor: 'transparent',
+    bgSelectedColor: 'rgba(79, 70, 229, 0.10)',
+    badgeBg: '#312e81',
+    badgeText: '#ffffff',
+    ringColor: '#818cf8',
+    chipClass: 'border-indigo-300 bg-indigo-50 text-indigo-900',
+  },
+  {
+    themeName: 'emerald',
+    symbol: '▲',
+    borderColor: '#059669',
+    borderSelectedColor: '#065f46',
+    borderStyle: 'dashed',
+    bgColor: 'transparent',
+    bgSelectedColor: 'rgba(5, 150, 105, 0.10)',
+    badgeBg: '#064e3b',
+    badgeText: '#ffffff',
+    ringColor: '#34d399',
+    chipClass: 'border-emerald-300 bg-emerald-50 text-emerald-900',
+  },
+  {
+    themeName: 'amber',
+    symbol: '◆',
+    borderColor: '#d97706',
+    borderSelectedColor: '#92400e',
+    borderStyle: 'double',
+    bgColor: 'transparent',
+    bgSelectedColor: 'rgba(217, 119, 6, 0.10)',
+    badgeBg: '#78350f',
+    badgeText: '#ffffff',
+    ringColor: '#fbbf24',
+    chipClass: 'border-amber-300 bg-amber-50 text-amber-900',
+  },
+  {
+    themeName: 'purple',
+    symbol: '●',
+    borderColor: '#9333ea',
+    borderSelectedColor: '#6b21a8',
+    borderStyle: 'solid',
+    bgColor: 'transparent',
+    bgSelectedColor: 'rgba(147, 51, 234, 0.10)',
+    badgeBg: '#581c87',
+    badgeText: '#ffffff',
+    ringColor: '#c084fc',
+    chipClass: 'border-purple-300 bg-purple-50 text-purple-900',
+  },
+  {
+    themeName: 'teal',
+    symbol: '✦',
+    borderColor: '#0d9488',
+    borderSelectedColor: '#115e59',
+    borderStyle: 'dashed',
+    bgColor: 'transparent',
+    bgSelectedColor: 'rgba(13, 148, 136, 0.10)',
+    badgeBg: '#134e4a',
+    badgeText: '#ffffff',
+    ringColor: '#2dd4bf',
+    chipClass: 'border-teal-300 bg-teal-50 text-teal-900',
+  },
+  {
+    themeName: 'rose',
+    symbol: '★',
+    borderColor: '#e11d48',
+    borderSelectedColor: '#9f1239',
+    borderStyle: 'double',
+    bgColor: 'transparent',
+    bgSelectedColor: 'rgba(225, 29, 72, 0.10)',
+    badgeBg: '#881337',
+    badgeText: '#ffffff',
+    ringColor: '#fb7185',
+    chipClass: 'border-rose-300 bg-rose-50 text-rose-900',
+  },
+]
+
+export function getFindingPresentation(findingId: string): MarkerPresentation {
+  let hash = 0
+  for (let i = 0; i < findingId.length; i += 1) {
+    hash = (hash * 31 + findingId.charCodeAt(i)) >>> 0
+  }
+  return MARKER_PALETTES[hash % MARKER_PALETTES.length]
+}
+
 export type PdfMarker = {
   id: string
   label: string
   pageNumber: number
   bbox?: BBox
+  focusText?: string
   findingId?: string
+  presentation?: MarkerPresentation
+  findingTitle?: string
+  severity?: string
 }
 
 type SearchResult = {
@@ -49,6 +156,32 @@ type SearchResult = {
 }
 
 const EMPTY_MARKERS: PdfMarker[] = []
+
+type Rect = {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+type TextItem = {
+  str: string
+  dir: string
+  transform: number[]
+  width: number
+  height: number
+  fontName: string
+  hasEOL: boolean
+}
+
+type ResolvedGeometry = {
+  isExact: boolean
+  rects: Rect[]
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 type PageSurface = {
   width: number
@@ -59,8 +192,49 @@ type PageSurface = {
       top: number
       width: number
       height: number
+      isExact: boolean
+      rects: Rect[]
     }
   >
+}
+
+type SurfaceMarker = PageSurface['markers'][number]
+
+function markersOverlap(first: SurfaceMarker, second: SurfaceMarker): boolean {
+  return first.rects.some((firstRect) =>
+    second.rects.some((secondRect) => doBoxesIntersect(firstRect, secondRect)),
+  )
+}
+
+function buildOverlapClusters(markers: SurfaceMarker[]): Map<string, SurfaceMarker[]> {
+  const clusters = new Map<string, SurfaceMarker[]>()
+  const remaining = new Set(markers.map((marker) => marker.id))
+
+  for (const marker of markers) {
+    if (!remaining.delete(marker.id)) continue
+
+    const component: SurfaceMarker[] = []
+    const queue = [marker]
+    while (queue.length > 0) {
+      const current = queue.pop()
+      if (!current) continue
+      component.push(current)
+
+      for (const candidate of markers) {
+        if (remaining.has(candidate.id) && markersOverlap(current, candidate)) {
+          remaining.delete(candidate.id)
+          queue.push(candidate)
+        }
+      }
+    }
+
+    component.sort((first, second) => first.id.localeCompare(second.id))
+    for (const member of component) {
+      clusters.set(member.id, component)
+    }
+  }
+
+  return clusters
 }
 
 type PdfMarkerViewerProps = {
@@ -76,6 +250,7 @@ type PdfEvidenceViewerProps = {
   findings: Finding[]
   selectedFindingId?: string
   onSelectFinding: (findingId: string) => void
+  focusTexts?: Record<string, string>
 }
 function Button({
   variant = 'default',
@@ -225,6 +400,322 @@ function PdfThumbnail({
   )
 }
 
+function doBoxesIntersect(
+  a: { left: number; top: number; width: number; height: number },
+  b: { left: number; top: number; width: number; height: number },
+): boolean {
+  return (
+    a.left < b.left + b.width &&
+    a.left + a.width > b.left &&
+    a.top < b.top + b.height &&
+    a.top + a.height > b.top
+  )
+}
+
+let measureCtx: CanvasRenderingContext2D | null = null
+function getMeasureContext(): CanvasRenderingContext2D | null {
+  if (!measureCtx && typeof document !== 'undefined') {
+    const c = document.createElement('canvas')
+    measureCtx = c.getContext('2d')
+  }
+  return measureCtx
+}
+
+function resolveMarkerGeometry(
+  items: TextItem[],
+  focusText: string | undefined,
+  bbox: BBox | undefined,
+  pageView: number[],
+  viewport: ReturnType<PDFPageProxy['getViewport']>,
+): ResolvedGeometry {
+  const [xMin, , , yMax] = pageView
+  let fallbackRect: Rect | null = null
+
+  if (bbox) {
+    const first = viewport.convertToViewportPoint(xMin + bbox.x0, yMax - bbox.top)
+    const second = viewport.convertToViewportPoint(xMin + bbox.x1, yMax - bbox.bottom)
+    fallbackRect = {
+      left: Math.min(first[0], second[0]),
+      top: Math.min(first[1], second[1]),
+      width: Math.abs(second[0] - first[0]),
+      height: Math.abs(second[1] - first[1]),
+    }
+  }
+
+  const trimmedFocus = focusText?.trim()
+  if (!trimmedFocus || items.length === 0) {
+    return {
+      isExact: false,
+      rects: fallbackRect ? [fallbackRect] : [],
+    }
+  }
+
+  type StreamChar = {
+    itemIndex: number
+    charIndex: number
+    char: string
+  }
+
+  const stream: StreamChar[] = []
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]
+    for (let j = 0; j < item.str.length; j += 1) {
+      stream.push({
+        itemIndex: i,
+        charIndex: j,
+        char: item.str[j],
+      })
+    }
+    if (i < items.length - 1) {
+      const next = items[i + 1]
+      const endsWithSpace = /\s$/.test(item.str)
+      const startsWithSpace = /^\s/.test(next.str)
+      if (!endsWithSpace && !startsWithSpace) {
+        stream.push({
+          itemIndex: -1,
+          charIndex: -1,
+          char: ' ',
+        })
+      }
+    }
+  }
+
+  const fullText = stream.map((s) => s.char).join('')
+  let matchingStream = stream
+
+  type MatchCandidate = {
+    startIndex: number
+    endIndex: number
+  }
+  const matches: MatchCandidate[] = []
+
+  let searchPos = 0
+  while (searchPos < fullText.length) {
+    const foundIdx = fullText.indexOf(trimmedFocus, searchPos)
+    if (foundIdx === -1) break
+    matches.push({ startIndex: foundIdx, endIndex: foundIdx + trimmedFocus.length })
+    searchPos = foundIdx + Math.max(1, trimmedFocus.length)
+  }
+
+  if (matches.length === 0) {
+    try {
+      const escaped = escapeRegex(trimmedFocus).replace(/\s+/g, '\\s+')
+      const regex = new RegExp(escaped, 'g')
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(fullText)) !== null) {
+        matches.push({ startIndex: match.index, endIndex: match.index + match[0].length })
+        if (!regex.global) break
+      }
+    } catch {
+      // Ignore regex parsing error
+    }
+  }
+
+  if (matches.length === 0) {
+    try {
+      const escaped = escapeRegex(trimmedFocus).replace(/\s+/g, '\\s+')
+      const regex = new RegExp(escaped, 'gi')
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(fullText)) !== null) {
+        matches.push({ startIndex: match.index, endIndex: match.index + match[0].length })
+        if (!regex.global) break
+      }
+    } catch {
+      // Ignore regex parsing error
+    }
+  }
+
+  if (matches.length === 0) {
+    const compactStream = stream.filter(
+      (entry) => entry.itemIndex >= 0 && !/\s/.test(entry.char),
+    )
+    const compactText = compactStream.map((entry) => entry.char).join('').toLowerCase()
+    const compactFocus = trimmedFocus.replace(/\s+/g, '').toLowerCase()
+    let compactOffset = 0
+
+    while (compactFocus && compactOffset < compactText.length) {
+      const foundIndex = compactText.indexOf(compactFocus, compactOffset)
+      if (foundIndex === -1) break
+      matches.push({
+        startIndex: foundIndex,
+        endIndex: foundIndex + compactFocus.length,
+      })
+      compactOffset = foundIndex + Math.max(1, compactFocus.length)
+    }
+
+    if (matches.length > 0) {
+      matchingStream = compactStream
+    }
+  }
+
+  if (matches.length === 0) {
+    return {
+      isExact: false,
+      rects: fallbackRect ? [fallbackRect] : [],
+    }
+  }
+
+  type ResolvedCandidate = {
+    rects: Rect[]
+    bounding: Rect
+  }
+
+  const resolvedCandidates: ResolvedCandidate[] = []
+  const ctx = getMeasureContext()
+
+  for (const m of matches) {
+    const itemCharRanges = new Map<number, { start: number; end: number }>()
+    for (let k = m.startIndex; k < m.endIndex; k += 1) {
+      const entry = matchingStream[k]
+      if (entry && entry.itemIndex >= 0) {
+        const existing = itemCharRanges.get(entry.itemIndex)
+        if (existing) {
+          existing.end = Math.max(existing.end, entry.charIndex + 1)
+        } else {
+          itemCharRanges.set(entry.itemIndex, {
+            start: entry.charIndex,
+            end: entry.charIndex + 1,
+          })
+        }
+      }
+    }
+
+    const segmentRects: Rect[] = []
+
+    for (const [itemIndex, range] of itemCharRanges.entries()) {
+      const item = items[itemIndex]
+      const [a, b, c, d, e, f] = item.transform
+      const fontHeight = item.height > 0
+        ? item.height
+        : Math.hypot(c, d) || Math.abs(d) || Math.abs(a) || 10
+      const strLen = item.str.length
+
+      let startOffset = 0
+      let spanWidth = item.width
+
+      if (strLen > 0 && (range.start > 0 || range.end < strLen)) {
+        let prefixRatio = range.start / strLen
+        let spanRatio = (range.end - range.start) / strLen
+
+        if (ctx) {
+          ctx.font = `${Math.round(fontHeight)}px sans-serif`
+          const fullM = ctx.measureText(item.str).width
+          const preM = ctx.measureText(item.str.slice(0, range.start)).width
+          const spanM = ctx.measureText(item.str.slice(range.start, range.end)).width
+          if (fullM > 0) {
+            prefixRatio = preM / fullM
+            spanRatio = spanM / fullM
+          }
+        }
+        startOffset = item.width * prefixRatio
+        spanWidth = item.width * spanRatio
+      }
+
+      const norm = Math.hypot(a, b) || 1
+      const ux = a / norm
+      const uy = b / norm
+      const vx = -uy
+      const vy = ux
+
+      const p1x = e + ux * startOffset
+      const p1y = f + uy * startOffset
+
+      const p2x = p1x + ux * spanWidth
+      const p2y = p1y + uy * spanWidth
+
+      const p3x = p2x + vx * fontHeight
+      const p3y = p2y + vy * fontHeight
+
+      const p4x = p1x + vx * fontHeight
+      const p4y = p1y + vy * fontHeight
+
+      const v1 = viewport.convertToViewportPoint(p1x, p1y)
+      const v2 = viewport.convertToViewportPoint(p2x, p2y)
+      const v3 = viewport.convertToViewportPoint(p3x, p3y)
+      const v4 = viewport.convertToViewportPoint(p4x, p4y)
+
+      const rLeft = Math.min(v1[0], v2[0], v3[0], v4[0])
+      const rRight = Math.max(v1[0], v2[0], v3[0], v4[0])
+      const rTop = Math.min(v1[1], v2[1], v3[1], v4[1])
+      const rBottom = Math.max(v1[1], v2[1], v3[1], v4[1])
+
+      segmentRects.push({
+        left: rLeft,
+        top: rTop,
+        width: Math.max(rRight - rLeft, 2),
+        height: Math.max(rBottom - rTop, 2),
+      })
+    }
+
+    if (segmentRects.length === 0) continue
+
+    segmentRects.sort((s1, s2) => s1.top - s2.top || s1.left - s2.left)
+    const lineRects: Rect[] = []
+    let currentLine: Rect = { ...segmentRects[0] }
+
+    for (let s = 1; s < segmentRects.length; s += 1) {
+      const seg = segmentRects[s]
+      const lineMidY = currentLine.top + currentLine.height / 2
+      const segMidY = seg.top + seg.height / 2
+      const isSameLine = Math.abs(lineMidY - segMidY) < Math.max(currentLine.height, seg.height) * 0.6
+
+      if (isSameLine) {
+        const left = Math.min(currentLine.left, seg.left)
+        const top = Math.min(currentLine.top, seg.top)
+        const right = Math.max(currentLine.left + currentLine.width, seg.left + seg.width)
+        const bottom = Math.max(currentLine.top + currentLine.height, seg.top + seg.height)
+        currentLine = { left, top, width: right - left, height: bottom - top }
+      } else {
+        lineRects.push(currentLine)
+        currentLine = { ...seg }
+      }
+    }
+    lineRects.push(currentLine)
+
+    const bLeft = Math.min(...lineRects.map((r) => r.left))
+    const bTop = Math.min(...lineRects.map((r) => r.top))
+    const bRight = Math.max(...lineRects.map((r) => r.left + r.width))
+    const bBottom = Math.max(...lineRects.map((r) => r.top + r.height))
+
+    resolvedCandidates.push({
+      rects: lineRects,
+      bounding: { left: bLeft, top: bTop, width: bRight - bLeft, height: bBottom - bTop },
+    })
+  }
+
+  if (resolvedCandidates.length === 0) {
+    return {
+      isExact: false,
+      rects: fallbackRect ? [fallbackRect] : [],
+    }
+  }
+
+  let bestCandidate = resolvedCandidates[0]
+  if (fallbackRect && resolvedCandidates.length > 1) {
+    const fbCenterX = fallbackRect.left + fallbackRect.width / 2
+    const fbCenterY = fallbackRect.top + fallbackRect.height / 2
+
+    let minScore = Number.POSITIVE_INFINITY
+    for (const cand of resolvedCandidates) {
+      const candCenterX = cand.bounding.left + cand.bounding.width / 2
+      const candCenterY = cand.bounding.top + cand.bounding.height / 2
+      const dist = Math.hypot(candCenterX - fbCenterX, candCenterY - fbCenterY)
+
+      const intersects = doBoxesIntersect(cand.bounding, fallbackRect)
+      const score = intersects ? dist - 100_000 : dist
+      if (score < minScore) {
+        minScore = score
+        bestCandidate = cand
+      }
+    }
+  }
+
+  return {
+    isExact: true,
+    rects: bestCandidate.rects,
+  }
+}
+
 function PdfPageSurface({
   pdf,
   pageNumber,
@@ -269,29 +760,47 @@ function PdfPageSurface({
         const scale = fitWidth
           ? clampScale((availableWidth - 32) / baseViewport.width)
           : zoom
-        const { task, viewport } = startPageRender(page, canvasRef.current, scale)
-        renderTask = task
-        await renderTask.promise
+        const renderResult = startPageRender(page, canvasRef.current, scale)
+        renderTask = renderResult.task
+        const [, textContent] = await Promise.all([
+          renderTask.promise,
+          page.getTextContent(),
+        ])
         if (cancelled) return
 
-        const [xMin, , , yMax] = page.view
-        setSurface({
-          width: viewport.width,
-          height: viewport.height,
-          markers: markers.flatMap((marker) => {
-            const bbox = marker.bbox
-            if (!bbox) return []
-            const first = viewport.convertToViewportPoint(xMin + bbox.x0, yMax - bbox.top)
-            const second = viewport.convertToViewportPoint(xMin + bbox.x1, yMax - bbox.bottom)
+        const textItems = textContent.items.filter(
+          (item): item is TextItem => 'str' in item && typeof item.str === 'string',
+        )
 
-            return [{
-              ...marker,
-              left: Math.min(first[0], second[0]),
-              top: Math.min(first[1], second[1]),
-              width: Math.abs(second[0] - first[0]),
-              height: Math.abs(second[1] - first[1]),
-            }]
-          }),
+        const resolvedMarkers = markers.flatMap((marker) => {
+          const geom = resolveMarkerGeometry(
+            textItems,
+            marker.focusText,
+            marker.bbox,
+            page.view,
+            renderResult.viewport,
+          )
+          if (geom.rects.length === 0) return []
+          const bLeft = Math.min(...geom.rects.map((r) => r.left))
+          const bTop = Math.min(...geom.rects.map((r) => r.top))
+          const bRight = Math.max(...geom.rects.map((r) => r.left + r.width))
+          const bBottom = Math.max(...geom.rects.map((r) => r.top + r.height))
+
+          return [{
+            ...marker,
+            left: bLeft,
+            top: bTop,
+            width: bRight - bLeft,
+            height: bBottom - bTop,
+            isExact: geom.isExact,
+            rects: geom.rects,
+          }]
+        })
+
+        setSurface({
+          width: renderResult.viewport.width,
+          height: renderResult.viewport.height,
+          markers: resolvedMarkers,
         })
         onScaleResolved(scale)
         setRendering(false)
@@ -308,6 +817,11 @@ function PdfPageSurface({
       renderTask?.cancel()
     }
   }, [availableWidth, fitWidth, markers, onScaleResolved, pageNumber, pdf, zoom])
+
+  const overlapClusterByMarkerId = useMemo(
+    () => buildOverlapClusters(surface?.markers ?? []),
+    [surface],
+  )
 
   useEffect(() => {
     selectedMarkerRef.current?.scrollIntoView({
@@ -326,30 +840,72 @@ function PdfPageSurface({
 
       {surface?.markers.map((marker) => {
         const selected = marker.id === selectedMarkerId
+        const pres = marker.presentation
+        const borderStyle = pres?.borderStyle ?? 'solid'
+        const borderColor = selected
+          ? (pres?.borderSelectedColor ?? '#0284c7')
+          : (pres?.borderColor ?? '#d97706')
+        const bgColor = marker.isExact
+          ? (selected ? (pres?.bgSelectedColor ?? 'rgba(14, 165, 233, 0.10)') : 'transparent')
+          : 'transparent'
+
+        const overlapCluster = overlapClusterByMarkerId.get(marker.id) ?? [marker]
+        const hasOverlap = overlapCluster.length > 1
+
+        const handleClick = () => {
+          if (selected && hasOverlap) {
+            const currentIndex = overlapCluster.findIndex((item) => item.id === marker.id)
+            const nextIndex = (currentIndex + 1) % overlapCluster.length
+            onSelectMarker?.(overlapCluster[nextIndex].id)
+            return
+          }
+          onSelectMarker?.(marker.id)
+        }
+
         return (
-          <button
-            key={marker.id}
-            ref={selected ? selectedMarkerRef : undefined}
-            type="button"
-            aria-label={`Open evidence ${marker.label} at page ${pageNumber}`}
-            title={`Evidence ${marker.label}`}
-            onClick={() => onSelectMarker?.(marker.id)}
-            className={`absolute border-2 transition focus:outline-none focus:ring-4 focus:ring-sky-300 ${
-              selected
-                ? 'z-20 border-sky-600 bg-sky-300/35'
-                : 'z-10 border-amber-500 bg-amber-300/25 hover:bg-amber-300/45'
-            }`}
-            style={{
-              left: marker.left,
-              top: marker.top,
-              width: Math.max(marker.width, 8),
-              height: Math.max(marker.height, 8),
-            }}
-          >
-            <span className="absolute -left-2 -top-6 rounded-full bg-slate-950 px-1.5 py-0.5 text-[10px] font-bold text-white">
-              {marker.label}
-            </span>
-          </button>
+          <div key={marker.id} className="contents">
+            {marker.rects.map((rect, rectIndex) => (
+              <button
+                key={`${marker.id}-${rectIndex}`}
+                ref={selected && rectIndex === 0 ? selectedMarkerRef : undefined}
+                type="button"
+                aria-label={`Evidence ${marker.label} at page ${pageNumber}${hasOverlap ? ' (overlapping)' : ''}`}
+                title={`Evidence ${marker.label}${hasOverlap ? ' (click to cycle overlapping)' : ''}`}
+                onClick={handleClick}
+                className={`group absolute transition focus:outline-none ${
+                  selected ? 'z-30 ring-2 ring-sky-400 ring-offset-1' : 'z-10 hover:z-20'
+                }`}
+                style={{
+                  left: rect.left,
+                  top: rect.top,
+                  width: Math.max(rect.width, 8),
+                  height: Math.max(rect.height, 8),
+                  borderWidth: selected ? '2.5px' : '2px',
+                  borderStyle,
+                  borderColor,
+                  backgroundColor: bgColor,
+                }}
+              >
+                {rectIndex === 0 && (
+                  <span
+                    className={`pointer-events-none absolute -top-6 left-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold shadow transition-opacity ${
+                      selected ? 'opacity-100 z-40' : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100 z-30'
+                    }`}
+                    style={{
+                      backgroundColor: pres?.badgeBg ?? '#0f172a',
+                      color: pres?.badgeText ?? '#ffffff',
+                    }}
+                  >
+                    {pres?.symbol && <span aria-hidden="true">{pres.symbol}</span>}
+                    <span>{marker.label}</span>
+                    {selected && hasOverlap && (
+                      <span className="text-[9px] font-normal opacity-80">(cycle ⇄)</span>
+                    )}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         )
       })}
 
@@ -400,7 +956,9 @@ export function PdfMarkerViewer({
           params: { path: { version_id: documentVersionId } },
         }),
       ),
-    staleTime: 240_000,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     retry: false,
   })
@@ -708,6 +1266,41 @@ export function PdfMarkerViewer({
         </aside>
 
         <div ref={viewportRef} className="max-h-[72vh] overflow-auto bg-slate-200 p-4">
+          {(markersByPage.get(pageNumber) ?? EMPTY_MARKERS).length > 0 && (
+            <div
+              role="toolbar"
+              aria-label={`Evidence markers on page ${pageNumber}`}
+              className="sticky top-0 z-20 mx-auto mb-3 flex max-w-fit flex-wrap items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur"
+            >
+              <span className="text-[11px] font-semibold text-slate-500 mr-1">
+                Page {pageNumber} markers ({(markersByPage.get(pageNumber) ?? EMPTY_MARKERS).length}):
+              </span>
+              {(markersByPage.get(pageNumber) ?? EMPTY_MARKERS).map((marker) => {
+                const isSel = marker.id === selectedMarkerId
+                const pres = marker.presentation
+                return (
+                  <button
+                    key={marker.id}
+                    type="button"
+                    aria-pressed={isSel}
+                    onClick={() => onSelectMarker?.(marker.id)}
+                    className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-sky-400 ${
+                      isSel
+                        ? 'bg-slate-900 text-white shadow-sm ring-2 ring-sky-400'
+                        : pres?.chipClass ?? 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {pres?.symbol && <span aria-hidden="true">{pres.symbol}</span>}
+                    <span>Evidence {marker.label}</span>
+                    {marker.severity && (
+                      <span className="text-[10px] opacity-75 font-mono uppercase">({marker.severity})</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           <PdfPageSurface
             pdf={pdf}
             pageNumber={pageNumber}
@@ -730,19 +1323,26 @@ export function PdfEvidenceViewer({
   findings,
   selectedFindingId,
   onSelectFinding,
+  focusTexts,
 }: PdfEvidenceViewerProps) {
   const markers = useMemo(
     () =>
-      findings.flatMap((finding, findingIndex) =>
-        finding.evidence.map((evidence, evidenceIndex) => ({
+      findings.flatMap((finding, findingIndex) => {
+        const presentation = getFindingPresentation(finding.id)
+        const focusText = focusTexts?.[finding.id]
+        return finding.evidence.map((evidence, evidenceIndex) => ({
           id: `${finding.id}:${evidence.document_ir_id}:${evidence.element_id}:${evidence.page_number}`,
           label: `${findingIndex + 1}.${evidenceIndex + 1}`,
           pageNumber: evidence.page_number,
           bbox: evidence.bbox,
+          focusText,
           findingId: finding.id,
-        })),
-      ),
-    [findings],
+          presentation,
+          findingTitle: finding.criterion_title,
+          severity: finding.severity,
+        }))
+      }),
+    [findings, focusTexts],
   )
   const [selectedMarkerId, setSelectedMarkerId] = useState<string>()
 
