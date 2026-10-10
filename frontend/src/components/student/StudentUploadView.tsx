@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, FileText, UploadCloud } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, apiData, getErrorMessage } from '../../api/client';
@@ -42,6 +42,7 @@ function uploadObject(
 export const StudentUploadView: React.FC = () => {
   const { courseId = '', assignmentId = '' } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [file, setFile] = useState<File>();
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [progress, setProgress] = useState(0);
@@ -60,7 +61,13 @@ export const StudentUploadView: React.FC = () => {
   const deadline = assignmentQuery.data
     ? new Date(assignmentQuery.data.due_at).getTime()
     : Number.POSITIVE_INFINITY;
-  const acceptingSubmissions = assignmentQuery.data?.status === 'OPEN' && deadline > now;
+  const attemptsUsed = assignmentQuery.data?.student_attempts_used ?? 0;
+  const limitReached = Boolean(
+    assignmentQuery.data && attemptsUsed >= assignmentQuery.data.max_submissions,
+  );
+  const acceptingSubmissions = assignmentQuery.data?.status === 'OPEN'
+    && deadline > now
+    && !limitReached;
   useEffect(() => {
     if (!Number.isFinite(deadline) || deadline <= now) return;
     const timeout = window.setTimeout(
@@ -97,7 +104,7 @@ export const StudentUploadView: React.FC = () => {
     setUploading(true);
     setError(undefined);
     try {
-      setPhase('Computing SHA-256');
+      setPhase('Verifying document integrity');
       const sha256 = await sha256Hex(file);
       setPhase('Requesting upload URL');
       const presign = await apiData(api.POST('/api/v1/assignments/{assignment_id}/uploads/presign', {
@@ -114,6 +121,10 @@ export const StudentUploadView: React.FC = () => {
       }));
 
       if (presign.analysis_job_id) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['assignments', courseId] }),
+          queryClient.invalidateQueries({ queryKey: ['assignment', courseId, assignmentId] }),
+        ]);
         navigate(`/jobs/${presign.analysis_job_id}?submissionId=${presign.submission_id}&reused=${presign.reused}`);
         return;
       }
@@ -126,6 +137,10 @@ export const StudentUploadView: React.FC = () => {
       const completion = await apiData(api.POST('/api/v1/document-versions/{version_id}/complete', {
         params: { path: { version_id: presign.document_version_id } },
       }));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['assignments', courseId] }),
+        queryClient.invalidateQueries({ queryKey: ['assignment', courseId, assignmentId] }),
+      ]);
       navigate(`/jobs/${completion.analysis_job_id}?submissionId=${completion.submission_id}`);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -144,6 +159,11 @@ export const StudentUploadView: React.FC = () => {
         <h1 className="text-2xl font-bold text-slate-900">Upload submission</h1>
         <p className="text-sm text-slate-500 mt-1">{assignmentQuery.data?.title ?? 'Loading assignment...'}</p>
       </div>
+        {assignmentQuery.data && (
+          <p className={`text-sm mt-2 font-semibold ${limitReached ? 'text-amber-700' : 'text-slate-600'}`}>
+            Attempts used: {attemptsUsed}/{assignmentQuery.data.max_submissions}
+          </p>
+        )}
 
       {(error || assignmentQuery.error) && (
         <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
@@ -180,7 +200,9 @@ export const StudentUploadView: React.FC = () => {
 
         {assignmentQuery.data && !acceptingSubmissions && (
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            Assignment is no longer accepting submissions.
+            {limitReached
+              ? 'Submission attempt limit reached.'
+              : 'Assignment is no longer accepting submissions.'}
           </p>
         )}
 

@@ -6,7 +6,16 @@ from app.main import app
 
 OPENAPI = app.openapi()
 PAGED_FIELDS = {"items", "page", "page_size", "total"}
-USER_FIELDS = {"id", "email", "display_name", "roles", "status"}
+USER_FIELDS = {
+    "id",
+    "email",
+    "display_name",
+    "roles",
+    "status",
+    "revision",
+    "created_at",
+}
+COURSE_OWNER_FIELDS = {"id", "display_name", "email"}
 COURSE_FIELDS = {
     "id",
     "code",
@@ -14,6 +23,9 @@ COURSE_FIELDS = {
     "term",
     "status",
     "owner_teacher_id",
+    "owner",
+    "created_at",
+    "updated_at",
     "revision",
 }
 RUBRIC_FIELDS = {
@@ -61,6 +73,8 @@ ASSIGNMENT_FIELDS = {
     "published_at",
     "closed_at",
     "revision",
+    "student_submission_id",
+    "student_attempts_used",
 }
 PRESIGN_FIELDS = {
     "submission_id",
@@ -325,6 +339,13 @@ def test_step_1_teacher_setup_contracts() -> None:
     )
     for contract in contracts:
         _assert_contract(*contract)
+    _assert_nested_fields(
+        "/api/v1/courses",
+        "post",
+        201,
+        ("owner",),
+        COURSE_OWNER_FIELDS,
+    )
     _assert_nested_fields(
         "/api/v1/courses/{course_id}/submission-queue",
         "get",

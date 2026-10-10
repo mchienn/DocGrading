@@ -1,7 +1,26 @@
 import React, { useState } from 'react';
-import { ArrowLeft, CalendarClock, ClipboardCheck, Pencil, Plus, Send, Square, Users } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  Bell,
+  CalendarClock,
+  ChevronLeft,
+  ChevronDown,
+  ChevronRight,
+  ClipboardCheck,
+  Download,
+  ChevronUp,
+  FileText,
+  Pencil,
+  Plus,
+  Send,
+  Square,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react';
 import type { components } from '../../api/schema';
-import { getErrorMessage } from '../../api/client';
+import { api, apiData, getErrorMessage } from '../../api/client';
 import type { ApiAssignment, ApiCourse, ApiRubric } from '../../types/api';
 import { AssignmentWizardModal } from './AssignmentWizardModal';
 
@@ -48,10 +67,11 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
   };
 
   return (
-    <div className="p-6 sm:p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-6 sm:p-8 max-w-7xl mx-auto space-y-6">
       <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
         <ArrowLeft className="w-4 h-4" /> Back to courses
       </button>
+
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <span className="font-mono text-xs font-bold text-sky-700">{course.code}</span>
@@ -59,34 +79,37 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
           <p className="text-sm text-slate-500 mt-1">{course.term} · {course.status}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={onOpenRoster}
-            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50"
-          >
+          <button type="button" onClick={onOpenRoster} className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50">
             <Users className="w-4 h-4" /> Roster
           </button>
-          <button
-            type="button"
-            onClick={onOpenSubmissionQueue}
-            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50"
-          >
-            <ClipboardCheck className="w-4 h-4" /> Submission Queue
+          <button type="button" onClick={onOpenSubmissionQueue} className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50">
+            <ClipboardCheck className="w-4 h-4" /> All submissions
           </button>
-          {course.status === 'ACTIVE' && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(undefined);
-                setShowForm(true);
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold"
-            >
-              <Plus className="w-4 h-4" /> Create assignment
-            </button>
-          )}
         </div>
       </div>
+
+      <details className="bg-white border border-slate-200 rounded-xl">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">
+          Course details
+        </summary>
+        <dl className="grid gap-4 border-t border-slate-200 px-4 py-4 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Course owner</dt>
+            <dd className="mt-1 font-semibold text-slate-900">{course.owner.display_name}</dd>
+            <dd className="text-xs text-slate-500">
+              <a className="hover:underline" href={`mailto:${course.owner.email}`}>{course.owner.email}</a>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Created</dt>
+            <dd className="mt-1 text-slate-700">{new Date(course.created_at).toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Last updated</dt>
+            <dd className="mt-1 text-slate-700">{new Date(course.updated_at).toLocaleString()}</dd>
+          </div>
+        </dl>
+      </details>
 
       {(error || actionError) && (
         <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
@@ -147,19 +170,19 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
                       </button>
                     )}
                   </div>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
-      {showForm && (
+      {showAssignmentForm && (
         <AssignmentWizardModal
-          assignment={editing}
+          assignment={editingAssignment}
           rubrics={rubrics}
-          onClose={() => setShowForm(false)}
-          onSave={(input) => onSaveAssignment(input, editing?.id)}
+          onClose={() => setShowAssignmentForm(false)}
+          onSave={(input) => onSaveAssignment(input, editingAssignment?.id)}
         />
       )}
     </div>

@@ -667,9 +667,26 @@ async def _run_teacher_idor_matrix() -> None:
 
         async with _authenticated_client(connection, ids["student_2"]) as student:
             assert (await student.get("/api/v1/users")).status_code == 403
+            course_detail = await student.get(f"/api/v1/courses/{ids['course']}")
+            assert course_detail.status_code == 200
+            course_body = course_detail.json()
+            assert course_body["owner"] == {
+                "id": str(ids["teacher"]),
+                "display_name": "Teacher A",
+                "email": f"{ids['teacher']}@test.local",
+            }
+            assert course_body["created_at"]
+            assert course_body["updated_at"]
+        await connection.execute(
+            text("DELETE FROM public.memberships WHERE user_id = :user_id"),
+            {"user_id": ids["student_3"]},
+        )
+        async with _authenticated_client(
+            connection, ids["student_3"]
+        ) as nonmember_student:
             assert (
-                await student.get(f"/api/v1/courses/{ids['course']}")
-            ).status_code == 403
+                await nonmember_student.get(f"/api/v1/courses/{ids['course']}")
+            ).status_code == 404
         async with _authenticated_client(connection, ids["other_teacher"]) as teacher:
             assert (await teacher.get("/api/v1/users")).status_code == 403
     finally:

@@ -28,9 +28,11 @@ from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.main import app, create_app
 from app.models.analysis import AnalysisJob
+from app.models.course import Course
 from app.models.enums import AnalysisJobStatus, UserRole, UserStatus
 from app.models.identity import User
 from app.services import analysis_job as job_svc
+from app.services import course as course_svc
 from app.services import operations as operations_svc
 from app.services.auth import auth_cookie_names, csrf_token_for_session
 from tests.test_t011_review_workspace import _actor, _cleanup_graph, _ids, _seed_graph
@@ -390,6 +392,53 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
                         "client_secret=client-audit-secret"
                     ),
                 },
+            )
+
+            pristine_course = await course_svc.create_course(
+                session,
+                code=f"T018-PRISTINE-{uuid.uuid4()}",
+                name="Pristine Admin Course",
+                term="2026C",
+                owner_teacher_id=ids["other_teacher"],
+                actor_user_id=ids["admin"],
+            )
+            assert pristine_course.owner_teacher_id == ids["other_teacher"]
+            await course_svc.delete_course(
+                session,
+                pristine_course,
+                actor_user_id=ids["admin"],
+                expected_revision=1,
+            )
+            assert await session.get(Course, pristine_course.id) is None
+
+            extra_course = await session.get(Course, extra["course"])
+            assert extra_course is not None
+            with pytest.raises(HTTPException) as stale_course:
+                await course_svc.update_course(
+                    session,
+                    extra_course,
+                    actor_user_id=ids["admin"],
+                    expected_revision=99,
+                    name="Stale update",
+                )
+            assert stale_course.value.status_code == 412
+            with pytest.raises(HTTPException) as dependent_course:
+                await course_svc.delete_course(
+                    session,
+                    extra_course,
+                    actor_user_id=ids["admin"],
+                    expected_revision=1,
+                )
+            assert dependent_course.value.status_code == 409
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM public.memberships "
+                        "WHERE course_id = :course_id"
+                    ),
+                    {"course_id": extra["course"]},
+                )
+                == 1
             )
 
             admin = _actor(ids["admin"], "Admin", UserRole.ADMIN)

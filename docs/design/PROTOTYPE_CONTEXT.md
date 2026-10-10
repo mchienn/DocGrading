@@ -100,15 +100,19 @@ A06 — Audit log và retention
 - Cấu hình thời gian lưu dữ liệu.
 6. View Teacher
 T01 — Danh sách Course
-- Course code, tên Course, học kỳ và số Student.
-- Số Assignment, Assignment đang mở và bài cần review.
+- Course code, tên Course, học kỳ và trạng thái là thông tin chính.
+- Số Student, số Assignment, Assignment đang mở và bài cần review.
+- Không lặp owner trên card Teacher vì toàn bộ danh sách đã giới hạn theo Course Teacher sở hữu.
 - CTA tạo Course mới.
 - Mở Course workspace để quản lý Assignment.
 T02 — Course workspace
-- Thông tin Course và Course settings.
-- Danh sách Assignment theo trạng thái Draft, Open hoặc Closed.
-- Số bài Submitted, Reviewed và Published cho từng Assignment.
-- CTA tạo Assignment, chỉnh sửa Assignment hoặc mở Submission Queue.
+- Header ưu tiên Course code, tên, học kỳ, trạng thái, roster và Submission Queue.
+- Assignment và Announcement là nội dung chính; metadata ít dùng nằm trong disclosure `Course details`.
+- `Course details` hiển thị owner/instructor bằng display name và email, thời điểm tạo, thời điểm cập nhật; không hiển thị revision hoặc UUID.
+- Danh sách Assignment theo trạng thái Draft, Open hoặc Closed; Draft chưa có bài nộp được sửa/xóa.
+- Mỗi Assignment mở được danh sách bài nộp gồm Student, email, file, dung lượng, thời điểm, số lượt đã dùng, trạng thái và CTA review/PDF.
+- Tab Announcement cho phép Teacher tạo, sửa, xóa thông báo; Student trong Course đọc được ngay.
+- CTA tạo Assignment, quản lý Announcement hoặc mở toàn bộ Submission Queue.
 T03 — Wizard tạo/chỉnh sửa Assignment
 Thiết kế theo 4 bước:
 1. Details: tên, description, due date và số lần nộp.
@@ -188,6 +192,9 @@ S01 — Danh sách đợt đánh giá
 - Có kết quả.
 - Cần nộp lại.
 - Deadline và trạng thái rõ ràng.
+- Mỗi Assignment hiển thị đồng bộ `số lượt đã dùng / số lượt tối đa`; hết lượt thì ẩn CTA upload.
+- Hiển thị Announcement mới nhất của các Course đã tham gia.
+- Course code và tên gắn với từng Assignment; disclosure `Course information` riêng hiển thị học kỳ, trạng thái và instructor bằng display name/email. Student không thấy thời điểm tạo/cập nhật, revision hoặc UUID vì không phục vụ luồng nộp bài.
 S02 — Chi tiết đợt đánh giá
 - Mô tả yêu cầu.
 - Rubric công khai.
