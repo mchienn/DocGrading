@@ -1,6 +1,6 @@
 Context thiết kế prototype — DocGrading
 
-> **Trạng thái:** Tài liệu này là design reference. Product flow hiện chỉ bật session auth, Course, Assignment, Rubric, upload PDF và trạng thái job T-009; các màn hình kết quả, review, audit và quản trị người dùng chưa có API nên không xuất hiện và không chạy bằng mock.
+> **Trạng thái:** Tài liệu này là design reference cho product UI hiện hành. Frontend dùng API thật cho session, Course, roster, Assignment, Rubric, upload, review/publish, appeal, notification và các màn hình Admin; mock chỉ còn là dữ liệu tham khảo không được dùng làm bằng chứng nghiệm thu.
 
 1. Mô tả dự án
 DocGrading là hệ thống web hỗ trợ đánh giá chất lượng báo cáo học thuật được nộp dưới dạng PDF.
@@ -23,6 +23,9 @@ Phạm vi hiện tại:
 - Student phải sử dụng được trên desktop và mobile, tối thiểu 320px.
 - Mọi màn hình cần có các trạng thái: loading, empty, error, disabled và success.
 - Tối ưu số thao tác, đặc biệt trong luồng Teacher duyệt nhiều bài liên tiếp.
+- Nội dung chính phải dùng tên, email, mã Course/criterion, tiêu đề, tên file, số trang hoặc mô tả nghiệp vụ mà người dùng nhận ra; UUID, SHA-256 và định danh kỹ thuật không được làm nhãn chính.
+- Student không thấy UUID, SHA-256, bbox hoặc element ID. Admin chỉ thấy định danh kỹ thuật khi mở disclosure `Technical details` phục vụ hỗ trợ hoặc audit.
+- Phân cấp thông tin theo vai trò và tác vụ: nội dung quyết định hành động hiện tại nằm trong vùng chính; metadata nhỏ hoặc ít dùng nằm trong disclosure `Course details`/`Course information`; dữ liệu kỹ thuật chỉ nằm trong `Technical details` khi Admin cần điều tra.
 3. Vai trò người dùng
 Admin
 Quản lý người dùng, quyền, rubric/template mặc định, evaluator, queue, job lỗi, audit log và cấu hình vận hành.
