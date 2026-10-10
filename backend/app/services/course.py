@@ -229,6 +229,105 @@ async def archive_course(
     return course
 
 
+async def list_announcements(
+    db: AsyncSession, *, course_id: uuid.UUID
+) -> list[Announcement]:
+    rows = await db.execute(
+        select(Announcement)
+        .where(Announcement.course_id == course_id)
+        .order_by(Announcement.created_at.desc(), Announcement.id)
+    )
+    return list(rows.scalars())
+
+
+async def create_announcement(
+    db: AsyncSession,
+    *,
+    course_id: uuid.UUID,
+    created_by_user_id: uuid.UUID,
+    title: str,
+    body: str,
+) -> Announcement:
+    await _lock_active_course(db, course_id)
+    announcement = Announcement(
+        course_id=course_id,
+        created_by_user_id=created_by_user_id,
+        title=title,
+        body=body,
+    )
+    db.add(announcement)
+    await db.flush()
+    await record_audit(
+        db,
+        actor_user_id=created_by_user_id,
+        resource_type="Announcement",
+        resource_id=announcement.id,
+        action="CREATE",
+        after={"course_id": str(course_id), "title": title},
+        reason="Course announcement created",
+    )
+    return announcement
+
+
+async def get_announcement(
+    db: AsyncSession,
+    *,
+    course_id: uuid.UUID,
+    announcement_id: uuid.UUID,
+) -> Announcement:
+    announcement = await db.get(Announcement, announcement_id)
+    if announcement is None or announcement.course_id != course_id:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    return announcement
+
+
+async def update_announcement(
+    db: AsyncSession,
+    announcement: Announcement,
+    *,
+    actor_user_id: uuid.UUID,
+    title: str,
+    body: str,
+) -> Announcement:
+    await _lock_active_course(db, announcement.course_id)
+    before = {"title": announcement.title, "body": announcement.body}
+    announcement.title = title
+    announcement.body = body
+    await record_audit(
+        db,
+        actor_user_id=actor_user_id,
+        resource_type="Announcement",
+        resource_id=announcement.id,
+        action="UPDATE",
+        before=before,
+        after={"title": title, "body": body},
+        reason="Course announcement updated",
+    )
+    await db.flush()
+    await db.refresh(announcement)
+    return announcement
+
+
+async def delete_announcement(
+    db: AsyncSession,
+    announcement: Announcement,
+    *,
+    actor_user_id: uuid.UUID,
+) -> None:
+    await _lock_active_course(db, announcement.course_id)
+    await record_audit(
+        db,
+        actor_user_id=actor_user_id,
+        resource_type="Announcement",
+        resource_id=announcement.id,
+        action="DELETE",
+        before={"course_id": str(announcement.course_id), "title": announcement.title},
+        reason="Course announcement deleted",
+    )
+    await db.delete(announcement)
+    await db.flush()
+
+
 def _member_snapshot(
     membership: Membership,
 ) -> dict[str, str]:

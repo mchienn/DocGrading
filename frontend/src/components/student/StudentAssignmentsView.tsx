@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { CalendarClock, FileUp, KeyRound } from 'lucide-react';
+import { Bell, CalendarClock, FileUp, KeyRound } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, apiData, getErrorMessage } from '../../api/client';
 
@@ -19,8 +19,19 @@ export const StudentAssignmentsView: React.FC = () => {
       })),
     })),
   });
+  const announcementQueries = useQueries({
+    queries: courses.map((course) => ({
+      queryKey: ['announcements', course.id],
+      queryFn: () => apiData(api.GET('/api/v1/courses/{course_id}/announcements', {
+        params: { path: { course_id: course.id } },
+      })),
+    })),
+  });
   const rows = courses.flatMap((course, index) =>
     (assignmentQueries[index]?.data ?? []).map((assignment) => ({ course, assignment })),
+  );
+  const announcementRows = courses.flatMap((course, index) =>
+    (announcementQueries[index]?.data ?? []).map((announcement) => ({ course, announcement })),
   );
   const [now, setNow] = React.useState(Date.now());
   const nextDeadline = rows.reduce((nearest, { assignment }) => {
@@ -37,8 +48,12 @@ export const StudentAssignmentsView: React.FC = () => {
     );
     return () => window.clearTimeout(timeout);
   }, [nextDeadline, now]);
-  const error = coursesQuery.error ?? assignmentQueries.find((query) => query.error)?.error;
-  const loading = coursesQuery.isLoading || assignmentQueries.some((query) => query.isLoading);
+  const error = coursesQuery.error
+    ?? assignmentQueries.find((query) => query.error)?.error
+    ?? announcementQueries.find((query) => query.error)?.error;
+  const loading = coursesQuery.isLoading
+    || assignmentQueries.some((query) => query.isLoading)
+    || announcementQueries.some((query) => query.isLoading);
 
   return (
     <div className="p-6 sm:p-8 max-w-5xl mx-auto space-y-6">
@@ -60,6 +75,51 @@ export const StudentAssignmentsView: React.FC = () => {
         <div role="alert" className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
           {getErrorMessage(error)}
         </div>
+      )}
+
+      {!loading && courses.length > 0 && (
+        <details className="bg-white border border-slate-200 rounded-xl">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">
+            Course information ({courses.length})
+          </summary>
+          <div className="grid gap-3 border-t border-slate-200 p-4 sm:grid-cols-2">
+            {courses.map((course) => (
+              <article key={course.id} className="rounded-lg bg-slate-50 p-3">
+                <p className="font-semibold text-slate-900">
+                  <span className="font-mono text-xs text-sky-700">{course.code}</span>
+                  <span className="ml-2">{course.name}</span>
+                </p>
+                <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-slate-500">Instructor</dt>
+                  <dd className="text-slate-700">
+                    {course.owner.display_name}
+                    {' · '}
+                    <a className="hover:underline" href={`mailto:${course.owner.email}`}>{course.owner.email}</a>
+                  </dd>
+                  <dt className="text-slate-500">Term</dt>
+                  <dd className="text-slate-700">{course.term}</dd>
+                  <dt className="text-slate-500">Status</dt>
+                  <dd className="text-slate-700">{course.status}</dd>
+                </dl>
+              </article>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {!loading && announcementRows.length > 0 && (
+        <section aria-labelledby="student-announcements-title" className="space-y-3">
+          <h2 id="student-announcements-title" className="text-base font-bold text-slate-900">Course announcements</h2>
+          {announcementRows.map(({ course, announcement }) => (
+            <article key={announcement.id} className="bg-sky-50 border border-sky-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-xs font-bold text-sky-800">
+                <Bell className="w-4 h-4" /> {course.code} · {announcement.title}
+              </div>
+              <p className="text-sm text-slate-700 mt-2 whitespace-pre-wrap">{announcement.body}</p>
+              <p className="text-xs text-slate-500 mt-2">{new Date(announcement.updated_at).toLocaleString()}</p>
+            </article>
+          ))}
+        </section>
       )}
 
       {loading ? (

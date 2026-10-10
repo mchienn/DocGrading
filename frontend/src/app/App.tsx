@@ -39,6 +39,7 @@ import type { UserSession } from '../types/auth';
 import { strongestRole, type ApiCourse, type ApiUser, type WorkspaceRole } from '../types/api';
 
 type AssignmentInput = components['schemas']['AssignmentCreate'];
+type AnnouncementInput = components['schemas']['AnnouncementCreate'];
 
 function defaultPath(role: WorkspaceRole): string {
   if (role === 'admin') return '/admin/dashboard';
@@ -165,6 +166,13 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
     })),
     enabled: Boolean(courseId),
   });
+  const announcementsQuery = useQuery({
+    queryKey: ['announcements', courseId],
+    queryFn: () => apiData(api.GET('/api/v1/courses/{course_id}/announcements', {
+      params: { path: { course_id: courseId } },
+    })),
+    enabled: Boolean(courseId),
+  });
   const rubricsQuery = useQuery({
     queryKey: ['rubrics'],
     queryFn: () => apiData(api.GET('/api/v1/rubrics')),
@@ -241,9 +249,12 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
     <CourseWorkspaceView
       course={courseQuery.data}
       assignments={assignmentsQuery.data ?? []}
-      rubrics={(rubricsQuery.data ?? []).filter((rubric) => rubric.status === 'PUBLISHED')}
-      loading={assignmentsQuery.isLoading || rubricsQuery.isLoading}
-      error={assignmentsQuery.error || rubricsQuery.error ? getErrorMessage(assignmentsQuery.error ?? rubricsQuery.error) : undefined}
+      rubrics={rubricsQuery.data ?? []}
+      announcements={announcementsQuery.data ?? []}
+      loading={assignmentsQuery.isLoading || rubricsQuery.isLoading || announcementsQuery.isLoading}
+      error={assignmentsQuery.error || rubricsQuery.error || announcementsQuery.error
+        ? getErrorMessage(assignmentsQuery.error ?? rubricsQuery.error ?? announcementsQuery.error)
+        : undefined}
       onBack={() => navigate(`/${role}/courses`)}
       onOpenSubmissionQueue={() => navigate(`/${role}/courses/${courseId}/submissions`)}
       onOpenRoster={() => navigate(`/${role}/courses/${courseId}/roster`)}
@@ -251,6 +262,8 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
       onPublishAssignment={publishAssignment}
       onDeleteAssignment={deleteAssignment}
       onCloseAssignment={closeAssignment}
+      onSaveAnnouncement={saveAnnouncement}
+      onDeleteAnnouncement={deleteAnnouncement}
     />
   );
 };

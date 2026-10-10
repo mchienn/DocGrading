@@ -16,6 +16,9 @@ from app.api.deps import (
     require_roles,
 )
 from app.api.schemas_course import (
+    AnnouncementCreate,
+    AnnouncementResponse,
+    AnnouncementUpdate,
     CourseCreate,
     CourseInviteResponse,
     CourseJoinCodeCreateRequest,
@@ -202,6 +205,82 @@ async def list_courses(
     else:
         courses = await course_svc.list_courses(db, member_user_id=user.id)
     return [CourseResponse.model_validate(course) for course in courses]
+
+
+@router.get(
+    "/{course_id}/announcements",
+    response_model=list[AnnouncementResponse],
+)
+async def list_course_announcements(
+    course: Course = Depends(get_accessible_course),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[AnnouncementResponse]:
+    rows = await course_svc.list_announcements(db, course_id=course.id)
+    return [AnnouncementResponse.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/{course_id}/announcements",
+    response_model=AnnouncementResponse,
+    status_code=201,
+)
+async def create_course_announcement(
+    body: AnnouncementCreate,
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> AnnouncementResponse:
+    row = await course_svc.create_announcement(
+        db,
+        course_id=course.id,
+        created_by_user_id=user.id,
+        title=body.title,
+        body=body.body,
+    )
+    await db.commit()
+    return AnnouncementResponse.model_validate(row)
+
+
+@router.put(
+    "/{course_id}/announcements/{announcement_id}",
+    response_model=AnnouncementResponse,
+)
+async def update_course_announcement(
+    announcement_id: uuid.UUID,
+    body: AnnouncementUpdate,
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> AnnouncementResponse:
+    row = await course_svc.get_announcement(
+        db, course_id=course.id, announcement_id=announcement_id
+    )
+    row = await course_svc.update_announcement(
+        db,
+        row,
+        actor_user_id=user.id,
+        title=body.title,
+        body=body.body,
+    )
+    await db.commit()
+    return AnnouncementResponse.model_validate(row)
+
+
+@router.delete(
+    "/{course_id}/announcements/{announcement_id}",
+    status_code=204,
+)
+async def delete_course_announcement(
+    announcement_id: uuid.UUID,
+    course: Course = Depends(get_active_owned_course),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    row = await course_svc.get_announcement(
+        db, course_id=course.id, announcement_id=announcement_id
+    )
+    await course_svc.delete_announcement(db, row, actor_user_id=user.id)
+    await db.commit()
 
 
 @router.get("/{course_id}", response_model=CourseResponse)

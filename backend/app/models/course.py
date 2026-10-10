@@ -23,6 +23,48 @@ if TYPE_CHECKING:
     from app.models.identity import User
 
 
+class Announcement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "announcements"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "length(btrim(title)) > 0 AND title !~ '^[[:space:]]*$'",
+            name="ck_announcements_title_not_blank",
+        ),
+        sa.CheckConstraint(
+            "length(btrim(body)) > 0 AND body !~ '^[[:space:]]*$'",
+            name="ck_announcements_body_not_blank",
+        ),
+        sa.Index("ix_announcements_course_created_at", "course_id", "created_at"),
+    )
+
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "courses.id",
+            ondelete="CASCADE",
+            name="fk_announcements_course_id_courses",
+        ),
+        nullable=False,
+    )
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+            name="fk_announcements_created_by_user_id_users",
+        ),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    body: Mapped[str] = mapped_column(sa.Text, nullable=False)
+
+    course: Mapped[Course] = relationship(
+        "Course",
+        back_populates="announcements",
+        foreign_keys=[course_id],
+    )
+
+
 class Course(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
     __tablename__ = "courses"
     __table_args__ = (
@@ -81,6 +123,12 @@ class Course(UUIDPrimaryKeyMixin, TimestampMixin, RevisionMixin, Base):
         "Assignment",
         back_populates="course",
         foreign_keys="Assignment.course_id",
+    )
+    announcements: Mapped[list[Announcement]] = relationship(
+        "Announcement",
+        back_populates="course",
+        cascade="all, delete-orphan",
+        foreign_keys="Announcement.course_id",
     )
     join_codes: Mapped[list[CourseJoinCode]] = relationship(
         "CourseJoinCode",

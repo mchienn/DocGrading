@@ -52,6 +52,37 @@ class CourseResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AnnouncementCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    body: str = Field(min_length=1, max_length=10_000)
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("title", "body")
+    @classmethod
+    def trim_nonblank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("text must not be blank")
+        return value
+
+
+class AnnouncementUpdate(AnnouncementCreate):
+    pass
+
+
+class AnnouncementResponse(BaseModel):
+    id: uuid.UUID
+    course_id: uuid.UUID
+    created_by_user_id: uuid.UUID
+    title: str
+    body: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"extra": "forbid", "from_attributes": True}
+
+
 class CourseMemberResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID

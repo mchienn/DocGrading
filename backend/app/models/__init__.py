@@ -2,6 +2,7 @@ from app.models.analysis import AnalysisJob, AnalysisJobDispatch, DocumentIR
 from app.models.assignment import Assignment, AssignmentRequirement
 from app.models.audit import AuditEvent
 from app.models.course import (
+    Announcement,
     Course,
     CourseInvite,
     CourseJoinCode,
@@ -43,6 +44,7 @@ from app.models.session import Session
 from app.models.submission import DocumentVersion, Submission
 
 __all__ = [
+    "Announcement",
     "Notification",
     "NotificationType",
     "AnalysisJob",
