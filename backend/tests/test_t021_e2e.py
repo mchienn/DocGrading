@@ -185,7 +185,15 @@ async def _login(
         json={"email": email, "password": PASSWORD},
     )
     payload = response.json()
-    assert set(payload) == {"id", "email", "display_name", "roles", "status"}, step
+    assert set(payload) == {
+        "id",
+        "email",
+        "display_name",
+        "roles",
+        "status",
+        "created_at",
+        "revision",
+    }, step
     assert expected_role.value in payload["roles"], step
     session_cookie, csrf_cookie = auth_cookie_names(
         get_settings().session_cookie_secure

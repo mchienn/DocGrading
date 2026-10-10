@@ -35,6 +35,10 @@ import { StudentAssignmentsView } from '../components/student/StudentAssignments
 import { StudentJoinCourseView } from '../components/student/StudentJoinCourseView';
 import { StudentUploadView } from '../components/student/StudentUploadView';
 import { StudentStatusTimelineView } from '../components/student/StudentStatusTimelineView';
+import { AccountProfileView } from '../components/account/AccountProfileView';
+import { AccountNotificationsView } from '../components/account/AccountNotificationsView';
+import { AccountFilesView } from '../components/account/AccountFilesView';
+import { AccountSettingsView } from '../components/account/AccountSettingsView';
 import { LoginPage } from '../pages/LoginPage';
 import { authService } from '../services/authService';
 import type { UserSession } from '../types/auth';
@@ -367,7 +371,17 @@ export const App: React.FC = () => {
     '/admin/appeals': 'Appeals',
     '/admin/ai-providers': 'AI providers',
   };
-  const title = location.pathname.endsWith('/roster') ? 'Course roster' : (
+  const title = location.pathname.endsWith('/profile')
+    ? 'Profile'
+    : location.pathname.endsWith('/notifications')
+    ? 'Notifications'
+    : location.pathname.endsWith('/files')
+    ? 'Files'
+    : location.pathname.endsWith('/settings')
+    ? 'Settings'
+    : location.pathname.endsWith('/roster')
+    ? 'Course roster'
+    : (
     adminTitles[location.pathname] ?? (
       location.pathname.startsWith('/teacher/appeals') || location.pathname.startsWith('/admin/appeals')
         ? 'Appeals'
@@ -453,6 +467,10 @@ export const App: React.FC = () => {
             <Route path="/student/assignments/:courseId/:assignmentId/upload" element={activeRole === 'student' ? <StudentUploadView /> : <Navigate to={home} replace />} />
             <Route path="/student/submissions/:submissionId/result" element={activeRole === 'student' ? <StudentPublishedResultView /> : <Navigate to={home} replace />} />
             <Route path="/student/appeals/:requestId" element={activeRole === 'student' ? <StudentAppealDetailView /> : <Navigate to={home} replace />} />
+            <Route path="/student/profile" element={activeRole === 'student' ? <AccountProfileView activeRole="student" user={user} /> : <Navigate to={home} replace />} />
+            <Route path="/student/notifications" element={activeRole === 'student' ? <AccountNotificationsView activeRole="student" /> : <Navigate to={home} replace />} />
+            <Route path="/student/files" element={activeRole === 'student' ? <AccountFilesView activeRole="student" /> : <Navigate to={home} replace />} />
+            <Route path="/student/settings" element={activeRole === 'student' ? <AccountSettingsView activeRole="student" user={user} /> : <Navigate to={home} replace />} />
             <Route path="/jobs/:jobId" element={<StudentStatusTimelineView activeRole={activeRole} />} />
             <Route path="*" element={<Navigate to={home} replace />} />
           </Routes>

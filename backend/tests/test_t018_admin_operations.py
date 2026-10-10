@@ -34,6 +34,7 @@ from app.models.identity import User
 from app.services import analysis_job as job_svc
 from app.services import course as course_svc
 from app.services import operations as operations_svc
+from app.services import submission as submission_svc
 from app.services.auth import auth_cookie_names, csrf_token_for_session
 from tests.test_t011_review_workspace import _actor, _cleanup_graph, _ids, _seed_graph
 from tests.test_t016_workflow import _publish_seed
@@ -491,6 +492,47 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
             admin = _actor(ids["admin"], "Admin", UserRole.ADMIN)
             teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
             other_teacher = _actor(ids["other_teacher"], "Teacher B", UserRole.TEACHER)
+            student = _actor(ids["student_2"], "Student B", UserRole.STUDENT)
+            student_files = await submission_svc.list_document_versions(
+                session, user=student, page=1, page_size=100
+            )
+            teacher_files = await submission_svc.list_document_versions(
+                session, user=teacher, page=1, page_size=100
+            )
+            other_teacher_files = await submission_svc.list_document_versions(
+                session, user=other_teacher, page=1, page_size=100
+            )
+            admin_files = await submission_svc.list_document_versions(
+                session, user=admin, page=1, page_size=100
+            )
+            student_file_ids = {
+                item.document_version_id for item in student_files.items
+            }
+            teacher_file_ids = {
+                item.document_version_id for item in teacher_files.items
+            }
+            other_teacher_file_ids = {
+                item.document_version_id for item in other_teacher_files.items
+            }
+            admin_file_ids = {item.document_version_id for item in admin_files.items}
+            assert student_file_ids == {ids["document_2"]}
+            assert ids["document_1"] in teacher_file_ids
+            assert extra["document"] not in teacher_file_ids
+            assert extra["document"] in other_teacher_file_ids
+            assert ids["document_1"] not in other_teacher_file_ids
+            assert {ids["document_1"], extra["document"]} <= admin_file_ids
+            await connection.execute(
+                text(
+                    "UPDATE public.memberships "
+                    "SET status = 'REMOVED'::public.membership_status "
+                    "WHERE course_id = :course_id AND user_id = :user_id"
+                ),
+                {"course_id": ids["course"], "user_id": ids["student_2"]},
+            )
+            removed_student_files = await submission_svc.list_document_versions(
+                session, user=student, page=1, page_size=100
+            )
+            assert removed_student_files.total == 0
             cached_admin = await session.get(User, admin.id)
             assert cached_admin is not None
             assert UserRole.STUDENT not in cached_admin.roles
