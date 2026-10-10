@@ -314,7 +314,9 @@ export const App: React.FC = () => {
       clearUserData(queryClient);
       if (event.data === 'signed-in') {
         setAuthExpired(false);
-        void sessionQuery.refetch();
+        // Drop the previous user's session before refetching, so no shell renders
+        // with the old identity while the new cookie's session loads.
+        void queryClient.resetQueries({ queryKey: ['session'] });
         return;
       }
       setAuthExpired(true);
@@ -325,7 +327,7 @@ export const App: React.FC = () => {
       window.removeEventListener(AUTH_EXPIRED_EVENT, expire);
       authChannel.removeEventListener('message', onAuthChange);
     };
-  }, [queryClient, sessionQuery]);
+  }, [queryClient]);
 
   if (sessionQuery.isLoading && !authExpired) {
     return <div className="min-h-screen grid place-items-center text-sm text-slate-500">Loading session...</div>;
