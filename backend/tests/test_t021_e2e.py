@@ -46,6 +46,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 PASSWORD = "T021-Strong-Password!"
+SCORE_LEVELS = [{"level": level} for level in range(5)]
 
 
 class MemoryStorage:
@@ -612,7 +613,7 @@ async def _e2e_scenario(monkeypatch: pytest.MonkeyPatch) -> None:
         rubric = (
             await _expect(
                 teacher,
-                "1 create RubricVersion draft",
+                "1 create saved rubric",
                 "POST",
                 "/api/v1/rubrics",
                 201,
@@ -620,7 +621,7 @@ async def _e2e_scenario(monkeypatch: pytest.MonkeyPatch) -> None:
             )
         ).json()
         rubric_id = uuid.UUID(rubric["id"])
-        assert rubric["status"] == "DRAFT", "1 create RubricVersion draft"
+        assert rubric["name"] == "T-021 Rubric", "1 create saved rubric"
 
         assignment = (
             await _expect(
@@ -654,20 +655,13 @@ async def _e2e_scenario(monkeypatch: pytest.MonkeyPatch) -> None:
                     "weight": 100,
                     "position": 1,
                     "evaluation_method": "AI",
+                    "levels": SCORE_LEVELS,
                 },
             )
         ).json()
         criterion_version_id = uuid.UUID(criterion["id"])
         criterion_id = uuid.UUID(criterion["criterion_id"])
 
-        published_rubric = await _expect(
-            teacher,
-            "1 publish RubricVersion",
-            "POST",
-            f"/api/v1/rubrics/{rubric_id}/publish",
-            200,
-        )
-        assert published_rubric.json()["status"] == "PUBLISHED", "1 publish rubric"
         opened_assignment = await _expect(
             teacher,
             "1 publish Assignment",
@@ -1059,7 +1053,6 @@ async def _e2e_scenario(monkeypatch: pytest.MonkeyPatch) -> None:
                 ("RubricVersion", str(rubric_id), "CREATE"),
                 ("Assignment", str(assignment_id), "CREATE"),
                 ("CriterionVersion", criterion["id"], "CREATE"),
-                ("RubricVersion", str(rubric_id), "PUBLISH"),
                 ("Assignment", str(assignment_id), "PUBLISH"),
                 ("Session", student_a_session_id, "LOGIN"),
                 ("Session", student_b_session_id, "LOGIN"),
@@ -1113,9 +1106,7 @@ async def _e2e_scenario(monkeypatch: pytest.MonkeyPatch) -> None:
         assert actual_events == expected_events, "integrity complete audit event set"
 
         _assert_audit_sequence(events, "Course", str(course_id), ["CREATE"])
-        _assert_audit_sequence(
-            events, "RubricVersion", str(rubric_id), ["CREATE", "PUBLISH"]
-        )
+        _assert_audit_sequence(events, "RubricVersion", str(rubric_id), ["CREATE"])
         _assert_audit_sequence(events, "CriterionVersion", criterion["id"], ["CREATE"])
         _assert_audit_sequence(
             events, "Assignment", str(assignment_id), ["CREATE", "PUBLISH"]

@@ -54,7 +54,7 @@ Repository hiện có frontend React/Vite nối trực tiếp session auth, Cour
 1. Đăng nhập bằng tài khoản được Admin tạo; không có đăng ký công khai.
 2. RBAC cho Admin, Giảng viên và Sinh viên; tài khoản nhiều vai trò dùng workspace theo quyền mạnh nhất theo thứ tự `ADMIN`, `TEACHER`, `STUDENT` để khớp authorization backend và tránh rơi xuống nhánh quyền yếu hơn.
 3. Tạo Course, tạo Assignment trong Course, chọn rubric, cấu hình tiêu chí/trọng số, lưu nháp, mở và đóng nhận bài.
-4. Rubric mặc định gồm 12 tiêu chí SRS; hỗ trợ template có phiên bản, nhân bản rubric, dry-run trên một PDF mẫu và tạo phiên bản mới.
+4. Catalog mặc định gồm 12 tiêu chí SRS baseline và tiêu chí bổ sung `ACC-01`; Rubric Builder cho chọn tiêu chí, xem mô tả/nội dung chấm/công thức điểm, cấu hình trọng số và lưu trực tiếp.
 5. Sinh viên upload PDF, xem điều kiện file trước khi nộp, nhận lỗi theo trang và theo dõi trạng thái xử lý.
 6. Validation PDF, lưu file riêng tư, tạo checksum, tạo phiên bản bài nộp và job xử lý bất đồng bộ.
 7. Trích xuất text, heading, section, bảng, requirement ID, use case và tọa độ bằng chứng thành Document IR.
@@ -93,7 +93,7 @@ Evaluator tự động của MVP chỉ được nghiệm thu cho SRS tiếng Vi�
 - Môi trường triển khai là một máy chủ Linux 8 vCPU, 16 GB RAM, SSD; LLM nằm ngoài máy chủ.
 - Nếu chỉ có một developer trong một tháng, release bắt buộc giảm còn upload, ba tiêu chí rule-based, review, duyệt và công bố; không được hạ quality gate để giữ số lượng chức năng.
 
-## 4. Rubric mặc định
+## 4. Catalog tiêu chí mặc định và rubric SRS baseline
 
 Rubric dùng thang mức **0–4**. Điểm phần trăm của một tiêu chí bằng `mức / 4 × trọng số`. Điểm tổng là tổng điểm phần trăm; giao diện có thể hiển thị thêm thang 10 bằng cách chia cho 10. Hệ thống không tự kết luận đậu/rớt vì đây là chính sách môn học, không phải thuộc tính chất lượng SRS.
 
@@ -125,7 +125,7 @@ Hệ thống lưu điểm với tối thiểu bốn chữ số thập phân, ch�
 - `3 — Tốt`: đáp ứng phần lớn; chỉ còn lỗi cục bộ, không nghiêm trọng.
 - `4 — Đạt đầy đủ`: đáp ứng yêu cầu của tiêu chí và không có lỗi đáng kể trong phạm vi kiểm tra.
 
-Một rubric có thể thay đổi trọng số hoặc tắt tiêu chí trước khi mở Assignment. Tổng trọng số của các tiêu chí đang bật phải bằng 100%.
+Rubric có thể thay đổi metadata, trọng số, evaluator hoặc tiêu chí cho tới khi Assignment tham chiếu nhận bài đầu tiên. Khi mở Assignment, rubric phải có ít nhất một tiêu chí đang bật, mỗi tiêu chí đủ mức 0–4 và tổng trọng số chính xác 100%.
 
 ## 5. Mô hình nghiệp vụ và trạng thái
 
@@ -189,9 +189,9 @@ QUEUED → RUNNING → DONE
 |---|---|
 | BR-01 | Admin quản lý toàn hệ thống; Giảng viên chỉ quản lý Course, Assignment, Announcement, rubric và bài thuộc phạm vi được giao; Sinh viên chỉ đọc Course/Assignment/Announcement có membership `ACTIVE` và thao tác với bài của chính mình. Course ngoài phạm vi trả `404` để không lộ sự tồn tại. Mọi API phải kiểm tra quyền theo object, không chỉ ẩn nút trên UI. |
 | BR-02 | Không có đăng ký công khai. Admin tạo, khóa hoặc mở khóa tài khoản. Admin không được tự bỏ role `ADMIN` hoặc tự khóa tài khoản; cập nhật đồng thời phải luôn giữ ít nhất một Admin đang `ACTIVE`. Mật khẩu tối thiểu 12 ký tự và được băm bằng Argon2id. |
-| BR-03 | Rubric hệ thống không được sửa trực tiếp. Giảng viên phải nhân bản. Khi Assignment nhận bài đầu tiên, rubric và liên kết RubricVersion của Assignment bị đóng băng. Phiên bản rubric mới chỉ dùng cho Assignment khác; không để sinh viên trong cùng một Assignment bị chấm bằng hai rubric khác nhau. |
-| BR-04 | Tổng trọng số tiêu chí đang bật phải bằng 100%. Mỗi tiêu chí phải có đủ mức 0–4, mô tả, trọng số và phương pháp đánh giá trước khi mở Assignment. |
-| BR-05 | Mỗi job lưu snapshot của Course, Assignment, RubricVersion, CriterionVersion, rule version, model/provider và cấu hình xử lý. Chạy lại cùng snapshot phải có thể truy nguyên kết quả. |
+| BR-03 | Giảng viên tạo, lưu, sửa và xóa rubric trực tiếp; không có bước publish rubric hoặc tạo version trong luồng UI/API. Rubric đã được Assignment tham chiếu không thể xóa. Khi bất kỳ Assignment tham chiếu nhận bài đầu tiên, rubric và toàn bộ tiêu chí bị đóng băng bằng service guard và database trigger để mọi sinh viên trong Assignment dùng cùng cấu hình chấm. Các cột `RubricVersion`/`CriterionVersion`, status và version number hiện hữu chỉ còn là chi tiết tương thích dữ liệu lịch sử. |
+| BR-04 | Rubric Builder dùng catalog gồm 12 tiêu chí SRS baseline và `ACC-01` bổ sung. Khi chọn tiêu chí, UI phải hiển thị mô tả, các nội dung được chấm, evaluator, thang mức 0–4 và công thức `mức / 4 × trọng số`. Với `ACC-01`, UI phải tách rõ kiểm chứng citation thường đang tính điểm khỏi semantic chưa tính điểm; payload criterion chỉ dùng `CITATION`, không dùng `CITATION_SEMANTIC`. Trước khi mở Assignment, rubric phải có ít nhất một tiêu chí đang bật, đủ mức 0–4 và tổng trọng số chính xác 100%; API kiểm tra lại, không tin trạng thái UI. |
+| BR-05 | Mỗi job lưu snapshot của Course, Assignment, RubricVersion, CriterionVersion, rule version, model/provider và cấu hình xử lý. Khi job được tạo, route LLM `CITATION_SEMANTIC` đang `ACTIVE` được snapshot bằng route/config revision, provider, protocol, model, region, max token, call budget và credential revision; không lưu key, ciphertext hoặc credential fingerprint. Job đã queue không tự chuyển sang route/provider mới; credential bị disable, thiếu hoặc đổi revision làm model fail closed sang review thủ công. Semantic citation lưu thêm internal trace gồm evaluator/parser/Source-IR/retrieval/prompt version, config hash, model ID/region, call budget/count, token usage, latency, source hash/provenance và pair/evidence IDs; không nhân đôi raw prompt hoặc document text và không project trace này ra Teacher/Student API. Chạy lại cùng snapshot phải có thể truy nguyên kết quả. |
 | BR-06 | Chỉ nhận file có magic bytes và MIME là PDF, tối đa 100 MB raw và 100 trang, không mã hóa/mật khẩu. Budget decoded stream độc lập là 50 MB; tăng giới hạn raw không làm tăng ngân sách giải nén. JavaScript, Launch, EmbeddedFiles, XFA, form có field thật, `/GoToE` và remote action tự động qua `/OpenAction`, `/AA` hoặc chuỗi `/Next` vẫn bị từ chối. Link annotation do người dùng click với `/URI` được chấp nhận; `/GoToR` chỉ được chấp nhận khi là action `/A` trực tiếp của `/Link` nằm trực tiếp trong mảng `/Annots` của page, có `/F` là PDF string hoặc `/Filespec` thật không chứa active content. Backend không resolve hoặc fetch target. `/StructTreeRoot` dùng traversal riêng có giới hạn và chống chu kỳ để metadata accessibility không chiếm budget active-content chung; `/AF`, `/EF` và active descendant bên trong vẫn bị từ chối. Mỗi lần validation lưu report có mã lỗi an toàn, disposition, page, bbox khi có và repair action; lỗi parser/hạ tầng ngoài taxonomy PDF phải là `PROCESSING_FAILED`, không được gán `PDF_MALFORMED`. Strict parser failure được chạy lại một lần bằng lenient parser nhưng vẫn giữ nguyên mọi budget và security check; chỉ kết quả vượt toàn bộ pipeline mới được nhận với warning `PDF_STRUCTURE_RECOVERED`. |
 | BR-07 | Validator preflight page content, toàn bộ Form XObject stream và font resource stream (`/FontFile*`, `/ToUnicode`, stream-backed `/Encoding`) trước khi trích text; mỗi stream duy nhất chỉ bị tính một lần vào decoded budget trên toàn tài liệu. Trang có ít nhất 30 ký tự hữu ích bỏ qua raster geometry nhưng vẫn áp dụng raw, decoded, page, structure và active-content budgets. Chỉ trang ít text chạy scan geometry: ảnh raster phủ từ 80% diện tích trang làm trang nghi scan và bị từ chối; trang trắng thật không tính là scan. Budget 10.000 geometry operations áp dụng độc lập cho từng trang được phân tích, kể cả Form lồng. Clipping Bézier `c`/`v`/`y` với `W` dùng bounding box control point làm conservative upper bound; path lồi đơn giản với `W` hoặc `W*` được đo chính xác. Geometry không thể phân tích an toàn bị từ chối bằng `PDF_SCAN_ANALYSIS_UNSUPPORTED`, không bị báo sai là malformed. |
 | BR-08 | File gốc được lưu ngoài web root. Presigned POST chỉ ghi vào staging key. Completion phải kiểm tra metadata, rồi `CopyObject` có `CopySourceIfMatch` theo ETag sang sealed key ngẫu nhiên không xuất hiện trong credential upload; chỉ sealed key được lưu cho worker và download để presign còn hạn không thể ghi đè file đã nhận. Truy cập file dùng quyền theo object và URL ký có hạn 5 phút. Download phải `HEAD` sealed object trước khi ký; object bị mất trả `410` và yêu cầu nộp/khôi phục lại, không trả URL dẫn tới storage `404`. Development giữ thêm bản sealed copy nguyên tử trên volume dùng chung của API/worker và tự khôi phục object/bucket LocalStack bị mất sau restart; production tắt cơ chế local recovery và dùng backup của S3-compatible storage. Không lưu PDF blob trong PostgreSQL. |
@@ -273,8 +273,8 @@ AT-01 đến AT-28 và AT-30 là release blocker. AT-29 là SLO vận hành ph�
 | ID | Điều kiện nghiệm thu |
 |---|---|
 | AT-01 | Ba role đăng nhập được và 100% test truy cập chéo bị từ chối ở API; một sinh viên không thể suy đoán URL để đọc PDF/kết quả của sinh viên khác. |
-| AT-02 | Giảng viên tạo được Course và Assignment từ nháp tới mở nhận bài, dry-run rubric trên PDF mẫu; hệ thống chặn mở khi rubric sai tổng trọng số hoặc thiếu level; sau hạn hoặc hết số lượt, upload bị từ chối mà không trừ thêm lượt. |
-| AT-03 | Rubric đã dùng không sửa tại chỗ; thao tác sửa tạo version mới và bài cũ vẫn hiển thị đúng snapshot cũ. |
+| AT-02 | Giảng viên tạo được Course, CRUD Announcement và Assignment từ nháp tới mở nhận bài, xóa được Assignment Draft chưa có bài nộp, xem danh sách bài nộp theo từng Assignment và dry-run rubric trên PDF mẫu; hệ thống chặn mở khi rubric sai tổng trọng số hoặc thiếu level; sau hạn hoặc hết số lượt, upload bị từ chối mà không trừ thêm lượt. |
+| AT-03 | Giảng viên tạo, lưu, sửa metadata/tiêu chí và xóa rubric chưa được Assignment tham chiếu mà không publish hoặc tạo version. Rubric còn được sửa khi Assignment chưa nhận bài; sau bài đầu tiên, service và PostgreSQL đều chặn mọi mutation. |
 | AT-04 | PDF text-native trong giới hạn được nhận, có SHA-256 và tạo đúng một DocumentVersion cùng một AnalysisJob. |
 | AT-05 | File sai định dạng, quá 100 MB raw, vượt 50 MB decoded, quá 100 trang, có mật khẩu, active content, scan geometry không thể xác minh an toàn hoặc trang nghi scan bị từ chối với diagnostic code, disposition, repair action và page/bbox khi xác định được; không enqueue evaluator. |
 | AT-06 | Sau upload, sinh viên thấy đúng các trạng thái Validating, Queued, Processing, Awaiting review, Published hoặc lỗi; không có spinner vô hạn và phần trăm giả. Khi validator có diagnostic, sinh viên thấy nguyên nhân an toàn, cách sửa và mở đúng page/region trên PDF viewer dùng chung. |
@@ -306,7 +306,7 @@ AT-01 đến AT-28 và AT-30 là release blocker. AT-29 là SLO vận hành ph�
 | AT-27 | Backup hằng ngày được restore thử trên môi trường tách biệt; RPO không quá 24 giờ và RTO không quá 4 giờ. |
 | AT-28 | CI phải pass lint/type check, unit test, integration test và E2E critical path. Domain reviewer hoàn tất một vòng UAT từ tạo đợt đến sinh viên xem kết quả. |
 | AT-29 | Sau khi vận hành, Web/API đạt SLO 99,5% theo tháng, không tính maintenance đã thông báo; job bền vững qua restart. Tháng đầu không đạt SLO phải có incident review và kế hoạch sửa trước khi mở rộng người dùng. |
-| AT-30 | E2E hoàn tất luồng Teacher tạo/publish rubric → Student nộp PDF → worker xử lý → Teacher review/approve/publish → Student mở evidence và gửi review request. |
+| AT-30 | E2E hoàn tất luồng Teacher tạo/lưu rubric hợp lệ → mở Assignment → Student nộp PDF → worker xử lý → Teacher review/approve/publish kết quả → Student mở evidence và gửi review request. |
 
 ## 9. Quyết định kiến trúc
 

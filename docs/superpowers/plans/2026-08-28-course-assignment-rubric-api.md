@@ -1,5 +1,7 @@
 # T-008 Course, Assignment & Rubric API Completion Plan
 
+> **Superseded rubric lifecycle (2026-09-24):** This plan records the original T-008 implementation. Current rubric behavior follows BR-03/BR-04 in `docs/design/PROJECT_SCOPE_BUSINESS_RULES_TECH_STACK.md`: direct create/edit/delete, no rubric publish/new-version API, assignment-open validation, and immutability only after the first submission. Migration `20260924_0018` applies the cutover.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Complete the backend-only T-008 contract with archived-course handling, object-scoped Student assignment access, immutable/published rubric versions, and real-PostgreSQL migration validation.

@@ -318,7 +318,6 @@ def test_step_1_teacher_setup_contracts() -> None:
             201,
             CRITERION_FIELDS,
         ),
-        ("/api/v1/rubrics/{rubric_id}/publish", "post", 200, RUBRIC_FIELDS),
         (
             "/api/v1/courses/{course_id}/assignments",
             "post",
@@ -338,6 +337,12 @@ def test_step_1_teacher_setup_contracts() -> None:
             PAGED_FIELDS,
         ),
     )
+    rubric_path = "/api/v1/rubrics/{rubric_id}"
+    assert "delete" in OPENAPI["paths"][rubric_path]
+    assert set(OPENAPI["paths"][rubric_path]["delete"]["responses"]) == {"204", "422"}
+    assert "content" not in OPENAPI["paths"][rubric_path]["delete"]["responses"]["204"]
+    assert "/api/v1/rubrics/{rubric_id}/publish" not in OPENAPI["paths"]
+    assert "/api/v1/rubrics/{rubric_id}/new-version" not in OPENAPI["paths"]
     for contract in contracts:
         _assert_contract(*contract)
     _assert_nested_fields(

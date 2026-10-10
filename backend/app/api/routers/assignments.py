@@ -185,6 +185,17 @@ async def update_assignment(
     return AssignmentResponse.model_validate(assignment)
 
 
+@router.delete("/{assignment_id}", status_code=204)
+async def delete_assignment(
+    assignment: Assignment = Depends(_get_assignment_with_ownership),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    """Delete a DRAFT assignment without submissions."""
+    await assignment_svc.delete_assignment(db, assignment, actor_user_id=user.id)
+    await db.commit()
+
+
 @router.post(
     "/{assignment_id}/publish",
     response_model=AssignmentResponse,
