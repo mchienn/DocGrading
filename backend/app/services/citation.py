@@ -12,6 +12,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
@@ -43,7 +44,13 @@ FINDINGS_TRUNCATED = "FINDINGS_TRUNCATED"
 type CitationAnchor = tuple[str, int, int | None, int | None]
 type CitationIssueRow = tuple[str, str, tuple[CitationAnchor, ...], str]
 
-_CITATION_TYPES = {"CITATION", "CITATION_IDENTITY", "CITATION_LINKAGE"}
+_CITATION_TYPES = {
+    "CITATION",
+    "CITATION_IDENTITY",
+    "CITATION_LINKAGE",
+    "CITATION_SEMANTIC",
+}
+_SEMANTIC_CITATION_TYPE = "CITATION_SEMANTIC"
 _HEADING_WORDS = {
     "reference",
     "references",
@@ -99,9 +106,16 @@ _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 _CACHE_TTL_SECONDS = 300.0
 _CACHE_MAX = 256
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_ARXIV_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_ARXIV_MISS_CACHE: dict[str, float] = {}
 _CACHE_LOCK = threading.Lock()
 _CROSSREF_CONCURRENCY = 8
 _CROSSREF_MIN_INTERVAL_SECONDS = 0.1
+_ARXIV_MIN_INTERVAL_SECONDS = 3.0
+_MAX_ARXIV_SINGLE_FALLBACKS = 4
+_MAX_ARXIV_RESOLUTIONS = 16
+_ARXIV_METADATA_ENDPOINT = "https://export.arxiv.org/api/query"
+_ARXIV_METADATA_MAX_BYTES = 2_000_000
 _MAX_CROSSREF_RESOLUTIONS = 64
 _MAX_FINDINGS_PER_CRITERION = 128
 _MAX_EVIDENCE_ANCHORS_PER_FINDING = 8
@@ -112,31 +126,71 @@ _MAX_NUMERIC_MARKER_CHARS = 512
 _MAX_REFERENCE_ANCHORS = 64
 _RATE_LOCK = threading.Lock()
 _NEXT_REQUEST_AT = 0.0
+_ARXIV_RATE_LOCK = threading.Lock()
+_NEXT_ARXIV_REQUEST_AT = 0.0
+_ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
+
+
+def canonical_reference_identity(reference: CitationReference) -> str:
+    doi = canonicalize_doi(reference.doi)
+    if doi:
+        return f"doi:{doi}"
+    arxiv_id = extract_arxiv_id(reference.arxiv_id)
+    if arxiv_id:
+        return f"arxiv:{arxiv_id}"
+    return f"ref:{reference.id}"
 
 
 async def _resolve_references(
     references: Sequence[CitationReference],
 ) -> list[dict[str, Any] | None]:
+    results: list[dict[str, Any] | None] = [None] * len(references)
+    arxiv_selected: list[tuple[int, CitationReference]] = []
+    crossref_selected: list[tuple[int, CitationReference]] = []
+    canonical_map: dict[str, list[int]] = {}
+    for index, reference in enumerate(references):
+        if reference.parser_status != PARSED:
+            continue
+        canonical = canonical_reference_identity(reference)
+        if canonical in canonical_map:
+            canonical_map[canonical].append(index)
+            continue
+        canonical_map[canonical] = [index]
+        if reference.arxiv_id and not reference.doi:
+            if len(arxiv_selected) < _MAX_ARXIV_RESOLUTIONS:
+                arxiv_selected.append((index, reference))
+            continue
+        if len(crossref_selected) < _MAX_CROSSREF_RESOLUTIONS:
+            crossref_selected.append((index, reference))
+    arxiv_ids = [
+        reference.arxiv_id for _, reference in arxiv_selected if reference.arxiv_id
+    ]
+    if arxiv_ids:
+        arxiv_records = await asyncio.to_thread(_resolve_arxiv_batch, arxiv_ids)
+        for index, reference in arxiv_selected:
+            if reference.arxiv_id:
+                results[index] = arxiv_records.get(
+                    extract_arxiv_id(reference.arxiv_id) or reference.arxiv_id
+                )
+
     semaphore = asyncio.Semaphore(_CROSSREF_CONCURRENCY)
 
     async def resolve(reference: CitationReference) -> dict[str, Any] | None:
         async with semaphore:
             return await asyncio.to_thread(resolve_reference, reference)
 
-    selected: list[tuple[int, CitationReference]] = []
-    for index, reference in enumerate(references):
-        if (
-            reference.parser_status == PARSED
-            and not (reference.arxiv_id and not reference.doi)
-            and len(selected) < _MAX_CROSSREF_RESOLUTIONS
-        ):
-            selected.append((index, reference))
     resolved = await asyncio.gather(
-        *(resolve(reference) for _index, reference in selected)
+        *(resolve(reference) for _index, reference in crossref_selected)
     )
-    results: list[dict[str, Any] | None] = [None] * len(references)
-    for (index, _reference), record in zip(selected, resolved, strict=True):
+    for (index, _reference), record in zip(crossref_selected, resolved, strict=True):
         results[index] = record
+
+    for indices in canonical_map.values():
+        first_index = indices[0]
+        record = results[first_index]
+        for dup_index in indices[1:]:
+            results[dup_index] = dict(record) if isinstance(record, dict) else record
+
     return results
 
 
@@ -203,9 +257,13 @@ class CitationMention:
     parser_status: str = PARSED
     line_start: int | None = None
     line_end: int | None = None
+    marker_start: int | None = None
+    marker_end: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)
+        result.pop("marker_start", None)
+        result.pop("marker_end", None)
         result["numbers"] = list(self.numbers)
         result["reference_ids"] = list(self.reference_ids)
         return result
@@ -332,18 +390,21 @@ def canonicalize_doi(value: str | None) -> str | None:
     return doi.casefold()
 
 
-def extract_arxiv_id(value: str | None) -> str | None:
+def _canonicalize_arxiv_id(value: str | None) -> str | None:
     if not value:
         return None
-    candidate = re.sub(r"\s*\.\s*", ".", value)
-    match = re.search(
-        r"(?i)(?:arxiv\s*:\s*|arxiv\s*\.\s*org\s*/\s*(?:abs|pdf)\s*/\s*)"
-        r"(\d{4}\s*\.\s*\d{4,5}(?:\s*v\s*\d+)?)",
-        candidate,
-    )
+    candidate = re.sub(r"\s+", "", value).lower()
+    if re.fullmatch(r"\d{4}\.\d{4,5}(?:v\d+)?", candidate):
+        return candidate
+    match = _ARXIV.search(value)
     if not match:
         return None
-    return re.sub(r"\s+", "", match.group(1)).lower()
+    candidate = re.sub(r"\s+", "", match.group(1)).lower()
+    return candidate if re.fullmatch(r"\d{4}\.\d{4,5}(?:v\d+)?", candidate) else None
+
+
+def extract_arxiv_id(value: str | None) -> str | None:
+    return _canonicalize_arxiv_id(value)
 
 
 def _stable_id(prefix: str, *parts: object) -> str:
@@ -491,9 +552,20 @@ def _parse_reference_fields(raw: str) -> dict[str, Any]:
 
 def _reference_parser_status(raw: str, _number: int | None) -> str:
     text = " ".join(raw.split())
-    if len(text.split()) < 5 or text.endswith(("-", "‐", "‑", "...")):
+    if text.endswith(("-", "‐", "‑", "...")):
         return FRAGMENTED_REFERENCE
-    return PARSED
+    if len(text.split()) >= 5:
+        return PARSED
+    has_source_locator = bool(
+        canonicalize_doi(text)
+        or extract_arxiv_id(text)
+        or re.search(r"https?\s*:\s*/\s*/", text, re.IGNORECASE)
+    )
+    return (
+        PARSED
+        if len(text) >= 40 and _YEAR.search(text) and has_source_locator
+        else FRAGMENTED_REFERENCE
+    )
 
 
 def _reference_from_paragraph(
@@ -665,6 +737,7 @@ _UNNUMBERED_AUTHOR_PREFIX = re.compile(
     rf"(?:,?\s+(?:and|&)\s+{_UNNUMBERED_AUTHOR})?\s*"
 )
 _FOOTNOTE_BIBLIOGRAPHY = re.compile(r"^\s*[1-9]\d{0,3}\s+[A-ZÀ-Ỹ]")
+_PAGE_NUMBER_ONLY = re.compile(r"^\d{1,4}$")
 
 
 def _previous_nonspace(text: str, index: int) -> str | None:
@@ -724,7 +797,13 @@ def _reference_parts(
     markers: list[tuple[int, int, int | None]] = [
         (match.start(), match.end(), None) for match in unnumbered_matches
     ]
+    bracket_matches = []
+    bare_matches = []
     for match in _REFERENCE_START.finditer(text):
+        target = bracket_matches if match.group("bracket") else bare_matches
+        if len(target) < limit:
+            target.append(match)
+    for match in bracket_matches or bare_matches:
         if len(markers) >= limit:
             break
         if unnumbered_matches and match.group("bare"):
@@ -903,7 +982,7 @@ def _collect_reference_groups(
     active: dict[str, Any] | None = None
     for paragraph in paragraphs:
         text = " ".join(str(paragraph.get("text", "")).split())
-        if not text:
+        if not text or _PAGE_NUMBER_ONLY.fullmatch(text):
             continue
         paragraph_id = str(paragraph.get("id", ""))
         reference_paragraph_ids.add(paragraph_id)
@@ -1110,6 +1189,8 @@ def parse_citations(document_ir: DocumentIR | Mapping[str, Any]) -> CitationRepo
                     parser_status=PARSER_UNCERTAIN,
                     line_start=int(line_start) if line_start is not None else None,
                     line_end=int(line_end) if line_end is not None else None,
+                    marker_start=raw_start,
+                    marker_end=raw_end,
                 )
             ):
                 break
@@ -1138,6 +1219,8 @@ def parse_citations(document_ir: DocumentIR | Mapping[str, Any]) -> CitationRepo
                     parser_status=(PARSED if numbers is not None else PARSER_UNCERTAIN),
                     line_start=int(line_start) if line_start is not None else None,
                     line_end=int(line_end) if line_end is not None else None,
+                    marker_start=match.start(),
+                    marker_end=match.end(),
                 )
             ):
                 break
@@ -1186,6 +1269,8 @@ def parse_citations(document_ir: DocumentIR | Mapping[str, Any]) -> CitationRepo
                     numbers=(number,),
                     line_start=int(line_start) if line_start is not None else None,
                     line_end=int(line_end) if line_end is not None else None,
+                    marker_start=raw_start,
+                    marker_end=raw_end,
                 )
             ):
                 break
@@ -1215,6 +1300,8 @@ def parse_citations(document_ir: DocumentIR | Mapping[str, Any]) -> CitationRepo
                     year=year,
                     line_start=int(line_start) if line_start is not None else None,
                     line_end=int(line_end) if line_end is not None else None,
+                    marker_start=raw_start,
+                    marker_end=raw_end,
                 )
             ):
                 break
@@ -1423,6 +1510,18 @@ def _crossref_candidates(
     ]
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def _open_provider_request(request: urllib.request.Request, timeout: float) -> Any:
+    return urllib.request.build_opener(_NoRedirectHandler()).open(
+        request,
+        timeout=timeout,
+    )
+
+
 def _wait_for_crossref_rate_limit() -> None:
     global _NEXT_REQUEST_AT
     with _RATE_LOCK:
@@ -1439,7 +1538,7 @@ def _crossref_request(url: str) -> dict[str, Any] | None:
     )
     for attempt in range(2):
         try:
-            with urllib.request.urlopen(request, timeout=4.0) as response:
+            with _open_provider_request(request, timeout=4.0) as response:
                 raw = response.read(1_000_000)
             payload = json.loads(raw.decode("utf-8"))
             if isinstance(payload, Mapping):
@@ -1451,8 +1550,176 @@ def _crossref_request(url: str) -> dict[str, Any] | None:
     return None
 
 
+def _wait_for_arxiv_rate_limit() -> None:
+    global _NEXT_ARXIV_REQUEST_AT
+    with _ARXIV_RATE_LOCK:
+        now = time.monotonic()
+        delay = max(0.0, _NEXT_ARXIV_REQUEST_AT - now)
+        _NEXT_ARXIV_REQUEST_AT = max(now, _NEXT_ARXIV_REQUEST_AT) + (
+            _ARXIV_MIN_INTERVAL_SECONDS
+        )
+    if delay:
+        time.sleep(delay)
+
+
+def _arxiv_text(element: ET.Element | None) -> str | None:
+    if element is None or not element.text:
+        return None
+    value = " ".join(element.text.split())
+    return value or None
+
+
+def _arxiv_record(entry: ET.Element) -> dict[str, Any] | None:
+    identifier = _arxiv_text(entry.find("atom:id", _ATOM_NS))
+    arxiv_id = extract_arxiv_id(identifier)
+    if not arxiv_id:
+        return None
+    title = _arxiv_text(entry.find("atom:title", _ATOM_NS))
+    authors = [
+        author_name
+        for author in entry.findall("atom:author", _ATOM_NS)
+        if (author_name := _arxiv_text(author.find("atom:name", _ATOM_NS)))
+    ]
+    published = _arxiv_text(entry.find("atom:published", _ATOM_NS))
+    year_match = re.match(r"(?:19|20)\d{2}", published or "")
+    year = int(year_match.group(0)) if year_match else None
+    license_url = None
+    for link in entry.findall("atom:link", _ATOM_NS):
+        if link.get("rel") == "license" and link.get("href"):
+            license_url = link.get("href")[:512]
+            break
+    return {
+        "provider": "arxiv",
+        "arxiv_id": arxiv_id,
+        "external_id": arxiv_id,
+        "retrieved_at": datetime.now(UTC).isoformat(),
+        "license_url": license_url,
+        "comparison": {
+            "title": _normalize(title) if title else None,
+            "authors": [_normalize(author) for author in authors[:16]],
+            "year": year,
+            "venue": None,
+        },
+    }
+
+
+def _arxiv_request(arxiv_ids: Sequence[str]) -> bytes | None:
+    query = urllib.parse.urlencode(
+        {"id_list": ",".join(arxiv_ids), "max_results": len(arxiv_ids)}
+    )
+    request = urllib.request.Request(
+        f"{_ARXIV_METADATA_ENDPOINT}?{query}",
+        headers={"Accept": "application/atom+xml", "User-Agent": "DocGrading/1.0"},
+    )
+    try:
+        with _open_provider_request(request, timeout=5.0) as response:
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > _ARXIV_METADATA_MAX_BYTES:
+                return None
+            raw = response.read(_ARXIV_METADATA_MAX_BYTES + 1)
+        return raw if len(raw) <= _ARXIV_METADATA_MAX_BYTES else None
+    except (OSError, urllib.error.URLError, TimeoutError, ValueError):
+        return None
+
+
+def _arxiv_records(raw: bytes | None) -> dict[str, dict[str, Any]]:
+    if raw is None or b"<!DOCTYPE" in raw.upper():
+        return {}
+    try:
+        root = ET.fromstring(raw)
+    except (ET.ParseError, ValueError):
+        return {}
+    return {
+        record["arxiv_id"]: record
+        for entry in root.findall("atom:entry", _ATOM_NS)
+        if (record := _arxiv_record(entry)) is not None
+    }
+
+
+def _resolve_arxiv_batch(arxiv_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+    canonical_ids = list(
+        dict.fromkeys(
+            arxiv_id
+            for arxiv_id in (extract_arxiv_id(item) for item in arxiv_ids)
+            if arxiv_id
+        )
+    )
+    now = time.monotonic()
+    records: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    with _CACHE_LOCK:
+        for arxiv_id in canonical_ids:
+            cached = _ARXIV_CACHE.get(arxiv_id)
+            missed_at = _ARXIV_MISS_CACHE.get(arxiv_id)
+            if cached and now - cached[0] < _CACHE_TTL_SECONDS:
+                records[arxiv_id] = dict(cached[1])
+            elif missed_at is None or now - missed_at >= _CACHE_TTL_SECONDS:
+                missing.append(arxiv_id)
+    if not missing:
+        return records
+    _wait_for_arxiv_rate_limit()
+    parsed = _arxiv_records(_arxiv_request(missing))
+    unresolved = [
+        arxiv_id
+        for arxiv_id in missing
+        if arxiv_id not in parsed
+        and not any(record_id.startswith(f"{arxiv_id}v") for record_id in parsed)
+    ]
+    if unresolved and len(missing) > 1:
+        for arxiv_id in unresolved[:_MAX_ARXIV_SINGLE_FALLBACKS]:
+            _wait_for_arxiv_rate_limit()
+            parsed.update(_arxiv_records(_arxiv_request([arxiv_id])))
+    with _CACHE_LOCK:
+        for arxiv_id, record in parsed.items():
+            if len(_ARXIV_CACHE) >= _CACHE_MAX:
+                _ARXIV_CACHE.pop(next(iter(_ARXIV_CACHE)))
+            _ARXIV_CACHE[arxiv_id] = (now, record)
+            records[arxiv_id] = dict(record)
+            _ARXIV_MISS_CACHE.pop(arxiv_id, None)
+        for arxiv_id in missing:
+            if arxiv_id not in parsed and not any(
+                record_id.startswith(f"{arxiv_id}v") for record_id in parsed
+            ):
+                if len(_ARXIV_MISS_CACHE) >= _CACHE_MAX:
+                    _ARXIV_MISS_CACHE.pop(next(iter(_ARXIV_MISS_CACHE)))
+                _ARXIV_MISS_CACHE[arxiv_id] = now
+        for requested_id in missing:
+            if requested_id in records or "v" in requested_id:
+                continue
+            candidates = [
+                (record_id, record)
+                for record_id, record in parsed.items()
+                if record_id.startswith(f"{requested_id}v")
+            ]
+            if candidates:
+                record = max(
+                    candidates,
+                    key=lambda item: int(item[0].rsplit("v", 1)[1]),
+                )[1]
+                records[requested_id] = record
+                _ARXIV_CACHE[requested_id] = (now, record)
+    return records
+
+
+def resolve_arxiv_references(
+    references: Sequence[CitationReference],
+) -> dict[str, dict[str, Any]]:
+    """Resolve arXiv metadata in one bounded Atom request."""
+    return _resolve_arxiv_batch(
+        [
+            reference.arxiv_id
+            for reference in references[:_MAX_ARXIV_RESOLUTIONS]
+            if reference.arxiv_id
+        ]
+    )
+
+
 def resolve_reference(reference: CitationReference) -> dict[str, Any] | None:
-    """Resolve only against Crossref; arXiv intentionally has no adapter."""
+    """Resolve arXiv metadata first, otherwise use Crossref."""
+    if reference.arxiv_id and not reference.doi:
+        return _resolve_arxiv_batch([reference.arxiv_id]).get(
+            extract_arxiv_id(reference.arxiv_id) or reference.arxiv_id
+        )
     cache_key = f"doi:{reference.doi}" if reference.doi else None
     now = time.monotonic()
     if cache_key is not None:
@@ -1460,8 +1727,6 @@ def resolve_reference(reference: CitationReference) -> dict[str, Any] | None:
             cached = _CACHE.get(cache_key)
             if cached and now - cached[0] < _CACHE_TTL_SECONDS:
                 return dict(cached[1])
-    if reference.arxiv_id and not reference.doi:
-        return None
     if reference.doi:
         url = "https://api.crossref.org/works/" + urllib.parse.quote(
             reference.doi, safe=""
@@ -1716,54 +1981,71 @@ def _bounded_issue_rows(
     return bounded, truncated_anchors
 
 
-def _finding_copy(status: str, reference_or_mention: str) -> tuple[str, str, str]:
+def _finding_copy(
+    status: str,
+    reference_or_mention: str,
+    snippet: str,
+    page_number: int,
+) -> tuple[str, str, str]:
     if status == FINDINGS_TRUNCATED:
         return (
             "needs_review",
             "Additional citation findings were truncated by the safety limit.",
             "Review the complete bibliography and citation map manually.",
         )
+    subject = "Citation"
+    if reference_or_mention.startswith("reference-"):
+        reference_number = reference_or_mention.removeprefix("reference-")
+        subject = (
+            f"Bibliography entry [{reference_number}]"
+            if reference_number.isdecimal()
+            else "Bibliography entry"
+        )
+    if page_number > 0:
+        subject += f" on PDF page {page_number}"
+    excerpt = " ".join(snippet.split())
+    if len(excerpt) > 180:
+        excerpt = f"{excerpt[:177].rstrip()}..."
+    context = f" Context: “{excerpt}”." if excerpt else ""
     if status == METADATA_MISMATCH:
         return (
             "error",
-            f"Citation reference {reference_or_mention} metadata mismatches Crossref.",
+            f"{subject} does not match Crossref metadata.{context}",
             "Verify title, author, year, and venue against source.",
         )
     if status == UNRESOLVED:
         return (
             "needs_review",
-            f"Citation reference {reference_or_mention} could not be resolved.",
+            f"{subject} could not be resolved.{context}",
             "Verify DOI or bibliography metadata manually.",
         )
     if status == ORPHAN_MENTION:
         return (
             "error",
-            f"Citation mention {reference_or_mention} has no matching "
-            "bibliography reference.",
+            f"{subject} has no matching bibliography entry.{context}",
             "Add matching bibliography entry or correct citation marker.",
         )
     if status == UNCITED_REFERENCE:
         return (
             "needs_review",
-            f"Bibliography reference {reference_or_mention} is not cited "
-            "in document text.",
+            f"{subject} is not cited in document text.{context}",
             "Remove unused reference or add an in-text citation.",
         )
     if status == AMBIGUOUS:
         return (
             "needs_review",
-            f"Citation mention {reference_or_mention} matches multiple references.",
+            f"{subject} matches multiple bibliography entries.{context}",
             "Disambiguate author-year citation or use numeric citation.",
         )
     if status in {PARSER_UNCERTAIN, FRAGMENTED_REFERENCE, AMBIGUOUS_MAPPING}:
         return (
             "needs_review",
-            f"Citation item {reference_or_mention} could not be mapped reliably.",
+            f"{subject} could not be mapped reliably.{context}",
             "Review the anchored PDF text before judging citation correctness.",
         )
     return (
         "needs_review",
-        f"Bibliography reference {reference_or_mention} appears duplicated.",
+        f"{subject} appears duplicated.{context}",
         "Remove duplicate bibliography entry.",
     )
 
@@ -1788,16 +2070,35 @@ async def evaluate_citations(
     ]
     if not criteria:
         return 0
+    citation_criteria = [
+        criterion
+        for criterion in criteria
+        if str(getattr(criterion, "evaluation_method", "") or "").upper()
+        != _SEMANTIC_CITATION_TYPE
+        and str(
+            (getattr(criterion, "evaluator_config", {}) or {}).get("type", "")
+        ).upper()
+        != _SEMANTIC_CITATION_TYPE
+    ]
+    semantic_criteria = [
+        criterion for criterion in criteria if criterion not in citation_criteria
+    ]
     await _clear_existing(db, job, criteria)
     report = parse_citations(document_ir)
     records = await _resolve_references(report.references)
     enriched: list[CitationReference] = []
     for reference, record in zip(report.references, records, strict=True):
         status, mismatch = _identity(reference, record)
+        resolved_arxiv_id = (
+            str(record["arxiv_id"])
+            if record and record.get("provider") == "arxiv" and record.get("arxiv_id")
+            else reference.arxiv_id
+        )
         enriched.append(
             CitationReference(
                 **{
                     **asdict(reference),
+                    "arxiv_id": resolved_arxiv_id,
                     "identity_status": status,
                     "mismatch_fields": mismatch,
                     "provider_record": record,
@@ -1808,10 +2109,12 @@ async def evaluate_citations(
     issue_rows, truncated_anchors = _bounded_issue_rows(_issue_rows(report))
     created = 0
     pending: list[tuple[Finding, CitationIssueRow]] = []
-    for criterion in criteria:
+    for criterion in citation_criteria:
         for issue in issue_rows:
             key = (issue[0], issue[1])
-            severity, description, suggestion = _finding_copy(issue[1], issue[0])
+            severity, description, suggestion = _finding_copy(
+                issue[1], issue[0], issue[3], issue[2][0][1]
+            )
             if key in truncated_anchors:
                 suggestion += (
                     f" Only first {_MAX_EVIDENCE_ANCHORS_PER_FINDING} "
@@ -1862,6 +2165,8 @@ async def evaluate_citations(
                         "retrieved_at",
                         "external_id",
                         "doi",
+                        "arxiv_id",
+                        "license_url",
                     )
                     if reference.provider_record.get(key) is not None
                 }
@@ -1894,4 +2199,10 @@ async def evaluate_citations(
     job_snapshot = dict(getattr(job, "snapshot", None) or {})
     job_snapshot["citation"] = snapshot
     job.snapshot = job_snapshot
+    if semantic_criteria:
+        from app.services.semantic_citation import evaluate_semantic_citations
+
+        created += await evaluate_semantic_citations(
+            db, job, document_ir, report, semantic_criteria
+        )
     return created

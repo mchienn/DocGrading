@@ -250,6 +250,23 @@ def test_table_node_budget_remains_effective() -> None:
     assert exc_info.value.code == "PDF_STRUCTURE_LIMIT"
 
 
+def test_text_only_parse_skips_table_extraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_table_extraction(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("table extraction must be skipped")
+
+    monkeypatch.setattr(document_ir, "_extract_tables", fail_table_extraction)
+
+    parsed = parse_document_ir(
+        _make_operations_pdf(["BT /F1 12 Tf 72 700 Td (Body text.) Tj ET"]),
+        extract_tables=False,
+    )
+
+    assert parsed.content["tables"] == []
+    assert "Body text." in parsed.content["pages"][0]["text"]
+
+
 def test_dense_ruled_table_skips_table_discovery_and_marks_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

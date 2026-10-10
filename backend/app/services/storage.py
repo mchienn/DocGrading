@@ -261,3 +261,24 @@ class S3Storage:
         finally:
             body.close()
         return data
+
+    def put_private_pdf(
+        self,
+        key: str,
+        data: bytes,
+        *,
+        arxiv_id: str,
+        sha256: str,
+        provenance: str = "arxiv_oa_download",
+    ) -> None:
+        self._internal.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=data,
+            ContentType="application/pdf",
+            Metadata={
+                "arxiv-id": arxiv_id,
+                "sha256": sha256,
+                "provenance": provenance,
+            },
+        )

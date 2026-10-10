@@ -156,13 +156,21 @@ PDF viewer cần có:
 - Marker bằng chứng.
 - Chọn marker trong PDF phải mở đúng finding.
 - Chọn finding phải điều hướng tới đúng trang/vùng PDF.
+- Chỉ hiển thị marker của criterion/rule set đang được chọn.
+- Finding trong cùng criterion dùng màu, ký hiệu và kiểu viền ổn định để phân biệt; marker không được che chữ.
+- Khi tìm thấy focus text chính xác trong PDF, highlight chỉ cụm liên quan; nếu PDF scan hoặc không khớp text thì dùng bbox outline-only, không giả lập độ chính xác.
+- Marker chồng nhau phải chọn được đầy đủ qua toolbar hoặc thao tác cycle.
 Panel review cần có:
 - Tổng điểm đề xuất.
-- Danh sách criterion.
+- Danh sách criterion/rule set theo tab; hỗ trợ phím mũi tên và chỉ render finding của tab đang chọn.
+- Mỗi finding hiển thị criterion bằng `code` và `title`; UUID chỉ dùng nội bộ.
 - Trạng thái từng criterion.
 - Điểm hoặc mức đề xuất.
 - Độ tin cậy.
 - Finding và bằng chứng.
+- Finding citation ưu tiên một câu ngắn tiếng Việt nêu đúng citation/reference và loại vấn đề; page, snippet, gợi ý và điểm đề xuất nằm trong disclosure chi tiết, không hiển thị internal `mention-*`/`reference-*` hash.
+- Panel finding phải giới hạn chiều cao, scroll nội bộ và wrap chuỗi dài, không làm tràn layout.
+- Tổng hợp citation/semantic diagnostics đặt sau khu vực PDF/review chính trong disclosure thu gọn, không đẩy PDF xuống dưới fold.
 - Gợi ý sửa.
 - Accept, edit hoặc reject đề xuất.
 - Nhập lý do khi override ảnh hưởng kết quả.

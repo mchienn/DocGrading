@@ -31,6 +31,7 @@ from app.api.schemas_submission import (
     ReviewDraftRequest,
     ReviewDraftResponse,
     ReviewLockResponse,
+    SemanticCitationReportResponse,
     SubmissionQueueItem,
     SubmissionQueueResponse,
     SubmissionVersionListResponse,
@@ -391,17 +392,22 @@ async def get_evidence(
         .all()
     )
     citation = None
+    semantic_citation = None
     for snapshot in snapshots:
         if not isinstance(snapshot, Mapping):
             continue
         raw_citation = snapshot.get("citation")
-        if not isinstance(raw_citation, Mapping):
-            continue
-        try:
-            citation = CitationReportResponse.model_validate(raw_citation)
-        except ValidationError:
-            continue
-        break
+        if citation is None and isinstance(raw_citation, Mapping):
+            with contextlib.suppress(ValidationError):
+                citation = CitationReportResponse.model_validate(raw_citation)
+        raw_semantic = snapshot.get("semantic_citation")
+        if semantic_citation is None and isinstance(raw_semantic, Mapping):
+            with contextlib.suppress(ValidationError):
+                semantic_citation = SemanticCitationReportResponse.model_validate(
+                    raw_semantic
+                )
+        if citation is not None and semantic_citation is not None:
+            break
     return EvidenceWorkspaceResponse(
         submission_id=submission.id,
         document_version_id=document.id,
@@ -578,6 +584,7 @@ def _draft_response(
                 decision=decision.decision,
                 edited_description=decision.edited_description,
                 final_score=decision.final_score,
+                edited_semantic_verdict=decision.edited_semantic_verdict,
                 reason=decision.reason,
             )
             for decision in decisions
@@ -592,6 +599,7 @@ def _same_payload(draft: ReviewDraft, body: ReviewDraftRequest) -> bool:
             item.decision,
             item.edited_description,
             item.final_score,
+            item.edited_semantic_verdict,
             item.reason,
         )
         for item in body.decisions
@@ -602,6 +610,7 @@ def _same_payload(draft: ReviewDraft, body: ReviewDraftRequest) -> bool:
             item.decision,
             item.edited_description,
             item.final_score,
+            item.edited_semantic_verdict,
             item.reason,
         )
         for item in draft.decisions
@@ -663,6 +672,31 @@ async def _findings_for_draft(
     return findings
 
 
+def _is_semantic_finding(job: AnalysisJob, finding_id: uuid.UUID) -> bool:
+    snapshot = job.snapshot
+    if not isinstance(snapshot, Mapping):
+        return False
+    semantic = snapshot.get("semantic_citation")
+    if not isinstance(semantic, Mapping):
+        return False
+    results = semantic.get("results")
+    if not isinstance(results, list):
+        return False
+    target = str(finding_id)
+    for result in results:
+        if not isinstance(result, Mapping):
+            continue
+        links = result.get("finding_links")
+        if not isinstance(links, list):
+            continue
+        if any(
+            isinstance(link, Mapping) and str(link.get("finding_id")) == target
+            for link in links
+        ):
+            return True
+    return False
+
+
 def _effective_score(
     finding: Finding,
     decision: ReviewDecision | ReviewDecisionRequest | None,
@@ -683,12 +717,20 @@ def _audit_snapshot(
     score: Decimal | None,
     analysis_job_id: uuid.UUID,
 ) -> dict[str, str | None]:
+    semantic_verdict = (
+        getattr(decision, "edited_semantic_verdict", None) if decision else None
+    )
     return {
         "decision": decision.decision.value if decision else "PROPOSED",
         "score": (
             format(Decimal(0) if score == 0 else score, ".2f")
             if score is not None
             else None
+        ),
+        "semantic_verdict": (
+            semantic_verdict.value
+            if hasattr(semantic_verdict, "value")
+            else semantic_verdict
         ),
         "analysis_job_id": str(analysis_job_id),
     }
@@ -747,12 +789,25 @@ async def save_review_draft(
         after_decision = new_decisions.get(finding_id)
         before_score = _effective_score(finding, before_decision)
         after_score = _effective_score(finding, after_decision)
-        if before_score == after_score:
+        before_verdict = (
+            before_decision.edited_semantic_verdict if before_decision else None
+        )
+        after_verdict = (
+            after_decision.edited_semantic_verdict if after_decision else None
+        )
+        if after_verdict is not None and not _is_semantic_finding(job, finding_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Semantic verdict override requires a semantic finding",
+            )
+        score_changed = before_score != after_score
+        verdict_changed = before_verdict != after_verdict
+        if not score_changed and not verdict_changed:
             continue
         if after_decision is None:
             raise HTTPException(
                 status_code=422,
-                detail="Use ACCEPT with a reason to restore a scored proposal",
+                detail="Use ACCEPT with a reason to restore a proposal",
             )
         if after_decision.reason is None:
             raise HTTPException(status_code=422, detail="Override reason is required")
@@ -802,6 +857,11 @@ async def save_review_draft(
         decision.decision = request.decision
         decision.edited_description = request.edited_description
         decision.final_score = request.final_score
+        decision.edited_semantic_verdict = (
+            request.edited_semantic_verdict.value
+            if request.edited_semantic_verdict is not None
+            else None
+        )
         decision.reason = request.reason
 
     review_lock.expires_at = _now() + LOCK_TTL
@@ -1058,6 +1118,7 @@ async def _approval_snapshot(
                 "description": description,
                 "suggestion": finding.suggestion,
                 "evidence": evidence,
+                "semantic_verdict_override": decision.edited_semantic_verdict,
                 "decision": decision.decision.value,
                 "evidence_count": evidence_counts.get(finding.id, 0),
             }

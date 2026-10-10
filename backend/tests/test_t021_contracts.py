@@ -121,6 +121,7 @@ EVIDENCE_WORKSPACE_FIELDS = {
     "document_version_id",
     "findings",
     "citation",
+    "semantic_citation",
 }
 FINDING_FIELDS = {
     "id",

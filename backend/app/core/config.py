@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -117,6 +118,20 @@ class Settings(BaseSettings):
                 "Default join rate-limit hash secret is not allowed outside "
                 "development environment"
             )
+        prefix = self.semantic_source_cache_prefix.strip()
+        if prefix:
+            if (
+                prefix.startswith("/")
+                or ".." in prefix
+                or "//" in prefix
+                or not re.fullmatch(r"[a-zA-Z0-9_\-\./]+", prefix)
+            ):
+                raise ValueError(
+                    "semantic_source_cache_prefix must be a safe relative S3 prefix"
+                )
+            self.semantic_source_cache_prefix = prefix.strip("/")
+        else:
+            self.semantic_source_cache_prefix = ""
         return self
 
     @property
