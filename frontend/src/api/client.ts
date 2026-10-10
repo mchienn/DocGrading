@@ -91,7 +91,11 @@ function notifyAuthExpired(): void {
 export async function apiData<T>(request: Promise<ApiResult<T>>): Promise<T> {
   const { data, error, response } = await request;
   if (!response.ok || data === undefined) {
-    if (response.status === 401 && !response.url.endsWith('/auth/login')) {
+    if (
+      response.status === 401
+      && !response.url.endsWith('/auth/login')
+      && !response.url.endsWith('/auth/me')
+    ) {
       notifyAuthExpired();
     }
     throw new ApiError(errorMessage(error, response.status), response.status, error);

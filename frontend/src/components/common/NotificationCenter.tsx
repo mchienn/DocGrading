@@ -5,82 +5,22 @@ import {
   Bell,
   Check,
   CheckCheck,
-  CheckCircle2,
-  XCircle,
-  MessageSquare,
-  AlertTriangle,
   Loader2,
   RefreshCw,
 } from 'lucide-react';
 import { api, apiData, getErrorMessage } from '../../api/client';
-import type { components } from '../../api/schema';
 import type { WorkspaceRole } from '../../types/api';
-
-type NotificationItem = components['schemas']['NotificationResponse'];
+import {
+  getNotificationMeta,
+  markAllNotificationsRead,
+  markSingleNotificationRead,
+  navigateToNotificationTarget,
+  type NotificationItem,
+} from './notifications';
 
 interface NotificationCenterProps {
   activeRole: WorkspaceRole;
 }
-
-function getNotificationMeta(type: string): {
-  title: string;
-  description: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  iconColor: string;
-  badgeBg: string;
-} {
-  switch (type) {
-    case 'REVIEW_REQUEST_CREATED':
-      return {
-        title: 'Review request submitted',
-        description: 'A student requested a review for an evaluation criterion.',
-        Icon: MessageSquare,
-        iconColor: 'text-amber-600',
-        badgeBg: 'bg-amber-50 border-amber-200',
-      };
-    case 'RESULT_PUBLISHED':
-      return {
-        title: 'Result published',
-        description: 'An evaluation result has been published for your submission.',
-        Icon: CheckCircle2,
-        iconColor: 'text-emerald-600',
-        badgeBg: 'bg-emerald-50 border-emerald-200',
-      };
-    case 'REVIEW_REQUEST_RESOLVED':
-      return {
-        title: 'Review request resolved',
-        description: 'An instructor resolved your criterion review request.',
-        Icon: CheckCircle2,
-        iconColor: 'text-emerald-600',
-        badgeBg: 'bg-emerald-50 border-emerald-200',
-      };
-    case 'REVIEW_REQUEST_REJECTED':
-      return {
-        title: 'Review request rejected',
-        description: 'An instructor rejected your criterion review request.',
-        Icon: XCircle,
-        iconColor: 'text-rose-600',
-        badgeBg: 'bg-rose-50 border-rose-200',
-      };
-    case 'ANALYSIS_JOB_ERROR':
-      return {
-        title: 'Analysis job failed',
-        description: 'An error occurred while processing the document submission.',
-        Icon: AlertTriangle,
-        iconColor: 'text-rose-600',
-        badgeBg: 'bg-rose-50 border-rose-200',
-      };
-    default:
-      return {
-        title: 'Notification',
-        description: 'New activity on your account.',
-        Icon: Bell,
-        iconColor: 'text-slate-600',
-        badgeBg: 'bg-slate-50 border-slate-200',
-      };
-  }
-}
-
 export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRole }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [navigatingId, setNavigatingId] = useState<string | null>(null);
@@ -157,12 +97,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
     setMarkingReadId(notificationId);
     setActionError(null);
     try {
-      await apiData(
-        api.PATCH('/api/v1/notifications/{notification_id}/read', {
-          params: { path: { notification_id: notificationId } },
-        }),
-      );
-      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      await markSingleNotificationRead(notificationId, queryClient);
     } catch (err) {
       setActionError(getErrorMessage(err));
     } finally {
@@ -174,31 +109,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
     if (unreadCount === 0 || isMarkingAll) return;
     setIsMarkingAll(true);
     setActionError(null);
-
     try {
-      // Clear server unread pages in batches of <= 100 IDs until no unread remain
-      while (true) {
-        const res = await apiData(
-          api.GET('/api/v1/notifications', {
-            params: { query: { unread: true, page: 1, page_size: 100 } },
-          }),
-        );
-
-        const unreadIds = res.items.map((n) => n.id);
-        if (unreadIds.length === 0) {
-          break;
-        }
-
-        await apiData(
-          api.PATCH('/api/v1/notifications/read', {
-            body: { notification_ids: unreadIds },
-          }),
-        );
-
-        // Fetch page 1 again until the server has no unread rows.
-      }
-
-      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      await markAllNotificationsRead(queryClient);
     } catch (err) {
       setActionError(getErrorMessage(err));
     } finally {
@@ -211,51 +123,17 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
     navigationLockRef.current = true;
     setActionError(null);
     setNavigatingId(notification.id);
-
     try {
-      if (!notification.read_at) {
-        await apiData(
-          api.PATCH('/api/v1/notifications/{notification_id}/read', {
-            params: { path: { notification_id: notification.id } },
-          }),
-        );
-        void queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      }
-
-      const { type, payload } = notification;
-      if (type === 'REVIEW_REQUEST_CREATED') {
-        const requestId = payload?.review_request_id;
-        if (requestId && typeof requestId === 'string') {
-          void queryClient.invalidateQueries({ queryKey: ['review-requests'] });
+      await navigateToNotificationTarget(
+        notification,
+        activeRole,
+        (path) => {
           setIsOpen(false);
-          const basePath = activeRole === 'admin' ? '/admin/appeals' : '/teacher/appeals';
-          navigate(`${basePath}?requestId=${encodeURIComponent(requestId)}`);
-        }
-      } else if (type === 'RESULT_PUBLISHED') {
-        const submissionId = payload?.submission_id;
-        if (submissionId && typeof submissionId === 'string' && activeRole === 'student') {
-          setIsOpen(false);
-          navigate(`/student/submissions/${encodeURIComponent(submissionId)}/result`);
-        } else if (activeRole !== 'student') {
-          setActionError('Published results are available only in the Student workspace.');
-        }
-      } else if (type === 'REVIEW_REQUEST_RESOLVED' || type === 'REVIEW_REQUEST_REJECTED') {
-        const requestId = payload?.review_request_id;
-        if (requestId && typeof requestId === 'string') {
-          setIsOpen(false);
-          if (activeRole === 'student') {
-            navigate(`/student/appeals/${encodeURIComponent(requestId)}`);
-          } else {
-            navigate(`/${activeRole}/appeals?requestId=${encodeURIComponent(requestId)}`);
-          }
-        }
-      } else if (type === 'ANALYSIS_JOB_ERROR') {
-        const jobId = payload?.analysis_job_id;
-        if (jobId && typeof jobId === 'string') {
-          setIsOpen(false);
-          navigate(`/jobs/${encodeURIComponent(jobId)}`);
-        }
-      }
+          navigate(path);
+        },
+        (err) => setActionError(err),
+        queryClient,
+      );
     } catch (err) {
       setActionError(getErrorMessage(err));
     } finally {
@@ -463,6 +341,18 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ activeRo
                 </button>
               </div>
             )}
+            <div className="p-2.5 border-t border-slate-100 bg-slate-50 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  navigate(`/${activeRole}/notifications`);
+                }}
+                className="text-xs font-semibold text-[#1F4B7A] hover:underline inline-block"
+              >
+                View all notifications
+              </button>
+            </div>
           </div>
         </div>
       )}
