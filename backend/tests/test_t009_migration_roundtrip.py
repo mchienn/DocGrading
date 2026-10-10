@@ -469,7 +469,9 @@ async def _cleanup(engine: AsyncEngine, ids: dict[str, uuid.UUID]) -> None:
     os.environ.get("RUN_DATABASE_TESTS") != "1",
     reason="Database integration tests require RUN_DATABASE_TESTS=1",
 )
-def test_migration_0006_marker_collision_aborts_postgres() -> None:
+def test_migration_0006_marker_collision_aborts_postgres(
+    isolated_postgres_database: None,
+) -> None:
     """Prove that existing marker in snapshot causes upgrade 0006 to abort and protect data."""
     import alembic.command
     import alembic.config
@@ -570,7 +572,9 @@ def test_migration_0006_marker_collision_aborts_postgres() -> None:
     os.environ.get("RUN_DATABASE_TESTS") != "1",
     reason="Database integration tests require RUN_DATABASE_TESTS=1",
 )
-def test_migration_0006_cancelled_reversible_roundtrip_postgres() -> None:
+def test_migration_0006_cancelled_reversible_roundtrip_postgres(
+    isolated_postgres_database: None,
+) -> None:
     """Real PostgreSQL roundtrip verifying CANCELLED -> ERROR -> CANCELLED, retry sentinel removal, and heartbeat_at."""
     import alembic.command
     import alembic.config
@@ -642,7 +646,9 @@ def test_migration_0006_cancelled_reversible_roundtrip_postgres() -> None:
     os.environ.get("RUN_DATABASE_TESTS") != "1",
     reason="Database integration tests require RUN_DATABASE_TESTS=1",
 )
-def test_migration_0007_backfills_and_guards_pending_dispatches() -> None:
+def test_migration_0007_backfills_and_guards_pending_dispatches(
+    isolated_postgres_database: None,
+) -> None:
     import alembic.command
     import alembic.config
 
@@ -777,7 +783,7 @@ def test_migration_0007_backfills_and_guards_pending_dispatches() -> None:
             )
 
     try:
-        alembic.command.downgrade(alembic_cfg, "20260828_0005")
+        alembic.command.upgrade(alembic_cfg, "20260828_0005")
         asyncio.run(_seed_0005(engine, ids))
         alembic.command.upgrade(alembic_cfg, "20260828_0006")
         asyncio.run(insert_queued_job())

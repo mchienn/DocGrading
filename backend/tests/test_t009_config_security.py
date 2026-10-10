@@ -132,6 +132,20 @@ def test_settings_rejects_default_rate_limit_hash_secret_in_production(
         )
 
 
+def test_settings_rejects_default_postgres_password_outside_development() -> None:
+    with pytest.raises(ValidationError, match="PostgreSQL password") as exc_info:
+        Settings(
+            app_env="production",
+            postgres_db="docgrading",
+            postgres_user="docgrading",
+            postgres_password=" Change-Me-For-Local-Development ",
+            storage_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            storage_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            join_rate_limit_hash_secret="test-rate-limit-hash-secret-32-bytes",
+        )
+    assert "change-me" not in str(exc_info.value).lower()
+
+
 def test_settings_accepts_valid_custom_credentials_outside_development() -> None:
     settings = Settings(
         app_env="production",

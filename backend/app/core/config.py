@@ -18,6 +18,7 @@ KNOWN_STORAGE_PLACEHOLDERS = frozenset(
     }
 )
 JOIN_RATE_LIMIT_HASH_SECRET_PLACEHOLDER = "change-me-for-local-development-only"
+POSTGRES_PASSWORD_PLACEHOLDER = "change-me-for-local-development"
 
 
 class Settings(BaseSettings):
@@ -64,6 +65,7 @@ class Settings(BaseSettings):
         default="local-development-secret-key", min_length=1
     )
     storage_presign_expiry_seconds: int = Field(default=300, ge=1, le=300)
+    storage_recovery_dir: str = ""
     pdf_max_size_bytes: int = Field(default=100_000_000, gt=0)
     pdf_max_decoded_bytes: int = Field(default=50_000_000, gt=0)
     pdf_max_page_count: int = Field(default=100, gt=0)
@@ -79,6 +81,10 @@ class Settings(BaseSettings):
                 "analysis_job_heartbeat_seconds must be strictly shorter than "
                 "analysis_job_lease_seconds"
             )
+        recovery_dir = self.storage_recovery_dir.strip()
+        if self.app_env == "development" and not recovery_dir:
+            recovery_dir = "storage"
+        self.storage_recovery_dir = recovery_dir
         if self.app_env != "development" and (
             self.storage_access_key_id.strip().lower() in KNOWN_STORAGE_PLACEHOLDERS
             or self.storage_secret_access_key.strip().lower()
@@ -86,6 +92,14 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "Known placeholder storage credentials are not allowed outside "
+                "development environment"
+            )
+        if (
+            self.app_env != "development"
+            and self.postgres_password.strip().lower() == POSTGRES_PASSWORD_PLACEHOLDER
+        ):
+            raise ValueError(
+                "Default PostgreSQL password is not allowed outside "
                 "development environment"
             )
         rate_limit_secret = self.join_rate_limit_hash_secret.strip()

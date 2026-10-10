@@ -79,6 +79,7 @@ async def _append_only_guards(engine: AsyncEngine) -> None:
 
 
 async def _lossy_downgrade_guard(engine: AsyncEngine, config: Config) -> None:
+    await asyncio.to_thread(command.downgrade, config, "20260912_0011")
     ids = _ids()
     result_id = uuid.uuid4()
     async with engine.begin() as connection:
@@ -128,6 +129,7 @@ async def _lossy_downgrade_guard(engine: AsyncEngine, config: Config) -> None:
             await _cleanup_graph(connection, ids)
 
 
+@pytest.mark.usefixtures("isolated_postgres_database")
 def test_t016_migration_roundtrip_and_append_only_guards() -> None:
     config = _config()
     engine = create_async_engine(get_settings().database_url, poolclass=NullPool)

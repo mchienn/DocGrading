@@ -199,7 +199,7 @@ S03 — Upload PDF
 - Drag-and-drop và file picker.
 - Hiển thị tên, dung lượng và số trang.
 - Kiểm tra định dạng và text layer.
-- Progress upload.
+- Progress upload mô tả hành động dễ hiểu như kiểm tra tính toàn vẹn tài liệu, không phơi tên thuật toán SHA-256.
 - Validation hai bước: kiểm tra file và kiểm tra nội dung PDF.
 - Nếu PDF scan, nêu rõ lý do và hướng dẫn xuất lại PDF text-native.
 - Giữ dữ liệu form nếu upload lỗi.

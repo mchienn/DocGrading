@@ -97,7 +97,7 @@ def _make_ruled_table_page(
     ):
         for text, x in zip(row, x_lines[:-1], strict=True):
             operations.append(
-                f"BT /F1 11 Tf {x + 8} {(low + high) / 2 - 4} Td " f"({text}) Tj ET"
+                f"BT /F1 11 Tf {x + 8} {(low + high) / 2 - 4} Td ({text}) Tj ET"
             )
     return operations
 
@@ -2016,7 +2016,7 @@ def test_coordinates_are_finite_ordered_and_inside_page() -> None:
 def test_partially_visible_word_bbox_is_clipped_to_page() -> None:
     parsed = parse_document_ir(
         _make_operations_pdf(
-            ["BT /F1 12 Tf 500 700 Td " "(ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789) Tj ET"]
+            ["BT /F1 12 Tf 500 700 Td (ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789) Tj ET"]
         )
     )
 

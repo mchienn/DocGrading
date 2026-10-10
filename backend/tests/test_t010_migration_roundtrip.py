@@ -189,7 +189,9 @@ def test_static_contract_verifier_detects_violations(
     os.environ.get("RUN_DATABASE_TESTS") != "1",
     reason="Database integration tests require RUN_DATABASE_TESTS=1",
 )
-def test_migration_0008_roundtrip_postgres() -> None:
+def test_migration_0008_roundtrip_postgres(
+    isolated_postgres_database: None,
+) -> None:
     """Real PostgreSQL roundtrip verifying migration 0008 upgrade, metadata, audit truncate protection, and downgrade."""
     import alembic.command
     import alembic.config

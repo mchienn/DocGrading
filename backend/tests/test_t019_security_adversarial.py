@@ -7,9 +7,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi import HTTPException
 from httpx2 import ASGITransport, AsyncClient
 from pypdf import PdfReader, PdfWriter
@@ -538,14 +541,12 @@ async def _run_teacher_idor_matrix() -> None:
                 ),
                 (
                     "GET",
-                    f"/api/v1/courses/{ids['course']}/assignments/"
-                    f"{ids['assignment']}",
+                    f"/api/v1/courses/{ids['course']}/assignments/{ids['assignment']}",
                     None,
                 ),
                 (
                     "PUT",
-                    f"/api/v1/courses/{ids['course']}/assignments/"
-                    f"{ids['assignment']}",
+                    f"/api/v1/courses/{ids['course']}/assignments/{ids['assignment']}",
                     {"title": "IDOR"},
                 ),
                 (
@@ -579,8 +580,7 @@ async def _run_teacher_idor_matrix() -> None:
                 ),
                 (
                     "PUT",
-                    f"/api/v1/submissions/{ids['submission_1']}/"
-                    "review-lock/heartbeat",
+                    f"/api/v1/submissions/{ids['submission_1']}/review-lock/heartbeat",
                     None,
                 ),
                 (
@@ -834,7 +834,12 @@ async def _run_head_truncate_guards() -> None:
                 revision = await connection.scalar(
                     text("SELECT version_num FROM public.alembic_version")
                 )
-                assert revision == "20260918_0016"
+                backend_dir = Path(__file__).resolve().parents[1]
+                config = Config(str(backend_dir / "alembic.ini"))
+                config.set_main_option("script_location", str(backend_dir / "alembic"))
+                assert (
+                    revision == ScriptDirectory.from_config(config).get_current_head()
+                )
                 for table in ("audit_events", "published_result_versions"):
                     with pytest.raises(exc.DBAPIError, match="append-only"):
                         async with connection.begin_nested():

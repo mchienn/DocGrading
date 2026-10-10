@@ -14,6 +14,7 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 BASE_URL = "http://localhost:8000/api/v1"
 STORAGE_URL = "http://localhost:9000"
+SCORE_LEVELS = [{"level": level} for level in range(5)]
 
 
 def _text_pdf(text: str) -> bytes:
@@ -164,6 +165,7 @@ async def main() -> None:
                     "weight": 30,
                     "position": 1,
                     "evaluation_method": "AI",
+                    "levels": SCORE_LEVELS,
                 },
             )
             await client.post(
@@ -178,6 +180,7 @@ async def main() -> None:
                     "weight": 40,
                     "position": 2,
                     "evaluation_method": "AI",
+                    "levels": SCORE_LEVELS,
                 },
             )
             await client.post(
@@ -192,16 +195,10 @@ async def main() -> None:
                     "weight": 30,
                     "position": 3,
                     "evaluation_method": "AI",
+                    "levels": SCORE_LEVELS,
                 },
             )
-            pub_resp = await client.post(
-                f"{BASE_URL}/rubrics/{rubric_id}/publish", headers=_csrf(client)
-            )
-            assert (
-                pub_resp.status_code == 200
-            ), f"Failed publishing rubric: {pub_resp.text}"
-            rubric = (await client.get(f"{BASE_URL}/rubrics/{rubric_id}")).json()
-        print(f"Rubric ID: {rubric['id']} (Status: {rubric['status']})")
+        print(f"Rubric ID: {rubric['id']}")
 
         # 6. Assignments in CS101
         existing_assignments = (

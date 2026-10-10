@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from pypdf import PdfWriter
 
@@ -18,8 +19,14 @@ from app.models.enums import (
 )
 from app.services import analysis_job as job_service
 from app.services import pdf_validation
+from app.services import review as review_service
 from app.services.pdf_validation import PDFValidationError, validate_pdf
-from app.services.storage import ObjectHead, S3Storage, StorageObjectChanged
+from app.services.storage import (
+    ObjectHead,
+    S3Storage,
+    StorageObjectChanged,
+    StorageObjectNotFound,
+)
 from app.services.submission import _reused_response, complete_upload, initiate_upload
 
 
