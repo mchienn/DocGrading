@@ -78,6 +78,24 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** Update Me */
+        patch: operations["update_me_api_v1_auth_me_patch"];
+        trace?: never;
+    };
+    "/api/v1/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Password */
+        post: operations["change_password_api_v1_auth_change_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -140,6 +158,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/courses/{course_id}/announcements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Course Announcements */
+        get: operations["list_course_announcements_api_v1_courses__course_id__announcements_get"];
+        put?: never;
+        /** Create Course Announcement */
+        post: operations["create_course_announcement_api_v1_courses__course_id__announcements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/courses/{course_id}/announcements/{announcement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Course Announcement */
+        put: operations["update_course_announcement_api_v1_courses__course_id__announcements__announcement_id__put"];
+        post?: never;
+        /** Delete Course Announcement */
+        delete: operations["delete_course_announcement_api_v1_courses__course_id__announcements__announcement_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/courses/{course_id}": {
         parameters: {
             query?: never;
@@ -149,7 +203,7 @@ export interface paths {
         };
         /**
          * Get Course
-         * @description Get a single course (owner or Admin).
+         * @description Get a single course.
          */
         get: operations["get_course_api_v1_courses__course_id__get"];
         /**
@@ -160,7 +214,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Course
-         * @description Delete a course (owner or Admin).
+         * @description Delete a dependency-free course (owner or Admin).
          */
         delete: operations["delete_course_api_v1_courses__course_id__delete"];
         options?: never;
@@ -301,7 +355,11 @@ export interface paths {
          */
         put: operations["update_assignment_api_v1_courses__course_id__assignments__assignment_id__put"];
         post?: never;
-        delete?: never;
+        /**
+         * Delete Assignment
+         * @description Delete a DRAFT assignment without submissions.
+         */
+        delete: operations["delete_assignment_api_v1_courses__course_id__assignments__assignment_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -356,13 +414,13 @@ export interface paths {
         };
         /**
          * List Rubrics
-         * @description List rubric versions. Admin sees all; Teacher sees own.
+         * @description List rubrics. Admin sees all; Teacher sees own.
          */
         get: operations["list_rubrics_api_v1_rubrics_get"];
         put?: never;
         /**
          * Create Rubric
-         * @description Create a new rubric version (Teacher/Admin).
+         * @description Create a rubric (Teacher/Admin).
          */
         post: operations["create_rubric_api_v1_rubrics_post"];
         delete?: never;
@@ -380,56 +438,20 @@ export interface paths {
         };
         /**
          * Get Rubric
-         * @description Get a single rubric version (owner/Admin).
+         * @description Get one rubric (owner/Admin).
          */
         get: operations["get_rubric_api_v1_rubrics__rubric_id__get"];
         /**
          * Update Rubric
-         * @description Update a DRAFT rubric version (owner/Admin).
+         * @description Update a rubric (owner/Admin).
          */
         put: operations["update_rubric_api_v1_rubrics__rubric_id__put"];
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/rubrics/{rubric_id}/publish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
         /**
-         * Publish Rubric
-         * @description Publish a DRAFT rubric version.
+         * Delete Rubric
+         * @description Delete an unreferenced rubric (owner/Admin).
          */
-        post: operations["publish_rubric_api_v1_rubrics__rubric_id__publish_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/rubrics/{rubric_id}/new-version": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create New Version
-         * @description Create a new DRAFT version from a published rubric.
-         */
-        post: operations["create_new_version_api_v1_rubrics__rubric_id__new_version_post"];
-        delete?: never;
+        delete: operations["delete_rubric_api_v1_rubrics__rubric_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -444,13 +466,13 @@ export interface paths {
         };
         /**
          * List Criteria
-         * @description List criteria for a rubric version.
+         * @description List criteria for a rubric.
          */
         get: operations["list_criteria_api_v1_rubrics__rubric_id__criteria_get"];
         put?: never;
         /**
          * Add Criterion
-         * @description Add a criterion to a DRAFT rubric version.
+         * @description Add a criterion to a rubric.
          */
         post: operations["add_criterion_api_v1_rubrics__rubric_id__criteria_post"];
         delete?: never;
@@ -469,13 +491,13 @@ export interface paths {
         get?: never;
         /**
          * Update Criterion
-         * @description Update a criterion on a DRAFT rubric version.
+         * @description Update a criterion on a rubric.
          */
         put: operations["update_criterion_api_v1_rubrics__rubric_id__criteria__criterion_id__put"];
         post?: never;
         /**
          * Delete Criterion
-         * @description Delete a criterion from a DRAFT rubric version.
+         * @description Delete a criterion from a rubric.
          */
         delete: operations["delete_criterion_api_v1_rubrics__rubric_id__criteria__criterion_id__delete"];
         options?: never;
@@ -532,6 +554,126 @@ export interface paths {
         head?: never;
         /** Mark Notification Read */
         patch: operations["mark_notification_read_api_v1_notifications__notification_id__read_patch"];
+        trace?: never;
+    };
+    "/api/v1/operations/llm/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Providers */
+        get: operations["list_providers_api_v1_operations_llm_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/llm/providers/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Provider */
+        put: operations["update_provider_api_v1_operations_llm_providers__provider__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/llm/providers/{provider}/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Credential */
+        delete: operations["remove_credential_api_v1_operations_llm_providers__provider__credential_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/llm/providers/{provider}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Provider */
+        post: operations["test_provider_api_v1_operations_llm_providers__provider__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/llm/routes/CITATION_SEMANTIC": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Semantic Route */
+        get: operations["get_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_get"];
+        /** Update Semantic Route */
+        put: operations["update_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/llm/routes/CITATION_SEMANTIC/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Semantic Route */
+        post: operations["activate_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/llm/routes/CITATION_SEMANTIC/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate Semantic Route */
+        post: operations["deactivate_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/users": {
@@ -672,6 +814,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/document-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Document Versions */
+        get: operations["list_document_versions_api_v1_document_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assignments/{assignment_id}/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Assignment Submissions */
+        get: operations["list_assignment_submissions_api_v1_assignments__assignment_id__submissions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-versions/{version_id}/complete": {
         parameters: {
             query?: never;
@@ -766,6 +942,23 @@ export interface paths {
         };
         /** Submission Queue */
         get: operations["submission_queue_api_v1_courses__course_id__submission_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/document-versions/{version_id}/grading-result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Document Version Grading Result */
+        get: operations["document_version_grading_result_api_v1_document_versions__version_id__grading_result_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1036,6 +1229,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccessType
+         * @enum {string}
+         */
+        AccessType: "FULL_TEXT" | "ABSTRACT_ONLY" | "USER_PROVIDED";
         /** AdminAnalysisJobDetailResponse */
         AdminAnalysisJobDetailResponse: {
             /**
@@ -1057,11 +1255,19 @@ export interface components {
              * Format: uuid
              */
             assignment_id: string;
+            /** Assignment Title */
+            assignment_title: string;
             /**
              * Submission Id
              * Format: uuid
              */
             submission_id: string;
+            /** Filename */
+            filename: string;
+            /** Student Display Name */
+            student_display_name: string;
+            /** Student Email */
+            student_email: string;
             /**
              * Document Version Id
              * Format: uuid
@@ -1122,11 +1328,19 @@ export interface components {
              * Format: uuid
              */
             assignment_id: string;
+            /** Assignment Title */
+            assignment_title: string;
             /**
              * Submission Id
              * Format: uuid
              */
             submission_id: string;
+            /** Filename */
+            filename: string;
+            /** Student Display Name */
+            student_display_name: string;
+            /** Student Email */
+            student_email: string;
             /**
              * Document Version Id
              * Format: uuid
@@ -1205,6 +1419,10 @@ export interface components {
             actor_type: components["schemas"]["AuditActorType"];
             /** Actor User Id */
             actor_user_id: string | null;
+            /** Actor Display Name */
+            actor_display_name?: string | null;
+            /** Actor Email */
+            actor_email?: string | null;
             /** Before */
             before: {
                 [key: string]: unknown;
@@ -1231,6 +1449,30 @@ export interface components {
             submissions_by_course: components["schemas"]["CourseSubmissionCount"][];
             /** Open Review Requests */
             open_review_requests: number;
+            /** Total Users */
+            total_users: number;
+            /** Average Active Job Age Seconds */
+            average_active_job_age_seconds: number;
+            /** Jobs Last 7 Days */
+            jobs_last_7_days: components["schemas"]["AdminJobTrendPoint"][];
+            /** Review Requests By Status */
+            review_requests_by_status: {
+                [key: string]: number;
+            };
+        };
+        /** AdminJobTrendPoint */
+        AdminJobTrendPoint: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Total Jobs */
+            total_jobs: number;
+            /** Error Jobs */
+            error_jobs: number;
+            /** Average Processing Seconds */
+            average_processing_seconds: number;
         };
         /** AdminUserCreateRequest */
         AdminUserCreateRequest: {
@@ -1330,6 +1572,52 @@ export interface components {
          * @enum {string}
          */
         AnalysisJobStatus: "QUEUED" | "RUNNING" | "DONE" | "ERROR";
+        /** AnnouncementCreate */
+        AnnouncementCreate: {
+            /** Title */
+            title: string;
+            /** Body */
+            body: string;
+        };
+        /** AnnouncementResponse */
+        AnnouncementResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Course Id
+             * Format: uuid
+             */
+            course_id: string;
+            /**
+             * Created By User Id
+             * Format: uuid
+             */
+            created_by_user_id: string;
+            /** Title */
+            title: string;
+            /** Body */
+            body: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** AnnouncementUpdate */
+        AnnouncementUpdate: {
+            /** Title */
+            title: string;
+            /** Body */
+            body: string;
+        };
         /** ApprovalResponse */
         ApprovalResponse: {
             /**
@@ -1408,6 +1696,50 @@ export interface components {
             closed_at: string | null;
             /** Revision */
             revision: number;
+            /** Student Submission Id */
+            student_submission_id?: string | null;
+            /** Student Attempts Used */
+            student_attempts_used?: number | null;
+        };
+        /** AssignmentSubmissionItem */
+        AssignmentSubmissionItem: {
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Student Id
+             * Format: uuid
+             */
+            student_id: string;
+            /** Student Display Name */
+            student_display_name: string;
+            /** Student Email */
+            student_email: string;
+            /** Attempt Count */
+            attempt_count: number;
+            /** Document Version Id */
+            document_version_id: string | null;
+            /** Filename */
+            filename: string | null;
+            /** File Size Bytes */
+            file_size_bytes?: number | null;
+            /** Document Status */
+            document_status: string | null;
+            /** Submitted At */
+            submitted_at: string | null;
+        };
+        /** AssignmentSubmissionListResponse */
+        AssignmentSubmissionListResponse: {
+            /** Items */
+            items: components["schemas"]["AssignmentSubmissionItem"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
         };
         /** AssignmentUpdate */
         AssignmentUpdate: {
@@ -1449,6 +1781,13 @@ export interface components {
         BulkPublishResponse: {
             /** Results */
             results: components["schemas"]["PublishedResultResponse"][];
+        };
+        /** ChangePasswordRequest */
+        ChangePasswordRequest: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
         };
         /** CitationAnchorResponse */
         CitationAnchorResponse: {
@@ -1597,6 +1936,8 @@ export interface components {
             name: string;
             /** Term */
             term: string;
+            /** Owner Teacher Id */
+            owner_teacher_id?: string | null;
         };
         /** CourseInviteResponse */
         CourseInviteResponse: {
@@ -1746,6 +2087,18 @@ export interface components {
             joined_at: string;
             joined_via: components["schemas"]["MembershipJoinedVia"];
         };
+        /** CourseOwnerSummary */
+        CourseOwnerSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Display Name */
+            display_name: string;
+            /** Email */
+            email: string;
+        };
         /** CourseResponse */
         CourseResponse: {
             /**
@@ -1765,6 +2118,17 @@ export interface components {
              * Format: uuid
              */
             owner_teacher_id: string;
+            owner: components["schemas"]["CourseOwnerSummary"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
             /** Revision */
             revision: number;
         };
@@ -1915,6 +2279,125 @@ export interface components {
             /** Expires In */
             expires_in: number;
         };
+        /** DocumentGradingResultResponse */
+        DocumentGradingResultResponse: {
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Version Number */
+            version_number: number;
+            /** Filename */
+            filename: string;
+            /** File Size Bytes */
+            file_size_bytes: number;
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            /** Current Status */
+            current_status: string;
+            /** Failure Code */
+            failure_code: string | null;
+            /** Assignment Title */
+            assignment_title: string;
+            /**
+             * Student Id
+             * Format: uuid
+             */
+            student_id: string;
+            /** Student Display Name */
+            student_display_name: string;
+            /** Student Email */
+            student_email: string;
+            /** Analysis Jobs */
+            analysis_jobs: components["schemas"]["GradingAnalysisJobResponse"][];
+            /** Findings */
+            findings: components["schemas"]["FindingResponse"][];
+            citation?: components["schemas"]["CitationReportResponse"] | null;
+            semantic_citation?: components["schemas"]["SemanticCitationReportResponse"] | null;
+            /** Reviews */
+            reviews: components["schemas"]["GradingReviewResponse"][];
+            /** Published Results */
+            published_results: components["schemas"]["PublishedResultResponse"][];
+            /** Status History */
+            status_history: components["schemas"]["GradingStatusEventResponse"][];
+            /** Actions */
+            actions: components["schemas"]["GradingActionResponse"][];
+        };
+        /**
+         * DocumentStatus
+         * @enum {string}
+         */
+        DocumentStatus: "UPLOADING" | "VALIDATING" | "INVALID" | "QUEUED" | "PROCESSING" | "AWAITING_REVIEW" | "APPROVED" | "PUBLISHED" | "PROCESSING_FAILED";
+        /** DocumentVersionListItem */
+        DocumentVersionListItem: {
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /** Version Number */
+            version_number: number;
+            /** Filename */
+            filename: string;
+            /** File Size Bytes */
+            file_size_bytes: number;
+            /** Sha256 */
+            sha256: string;
+            document_status: components["schemas"]["DocumentStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Course Id
+             * Format: uuid
+             */
+            course_id: string;
+            /** Course Code */
+            course_code: string;
+            /** Course Name */
+            course_name: string;
+            /**
+             * Assignment Id
+             * Format: uuid
+             */
+            assignment_id: string;
+            /** Assignment Title */
+            assignment_title: string;
+            /**
+             * Student Id
+             * Format: uuid
+             */
+            student_id: string;
+            /** Student Display Name */
+            student_display_name: string;
+        };
+        /** DocumentVersionListResponse */
+        DocumentVersionListResponse: {
+            /** Items */
+            items: components["schemas"]["DocumentVersionListItem"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+        };
         /** EvidenceResponse */
         EvidenceResponse: {
             /**
@@ -1943,7 +2426,13 @@ export interface components {
             /** Findings */
             findings: components["schemas"]["FindingResponse"][];
             citation?: components["schemas"]["CitationReportResponse"] | null;
+            semantic_citation?: components["schemas"]["SemanticCitationReportResponse"] | null;
         };
+        /**
+         * ExtractionMethod
+         * @enum {string}
+         */
+        ExtractionMethod: "SENTENCE" | "CLAUSE" | "MODEL";
         /** FindingResponse */
         FindingResponse: {
             /**
@@ -1956,6 +2445,10 @@ export interface components {
              * Format: uuid
              */
             criterion_version_id: string;
+            /** Criterion Code */
+            criterion_code: string;
+            /** Criterion Title */
+            criterion_title: string;
             /** Severity */
             severity: string;
             /** Description */
@@ -1966,6 +2459,138 @@ export interface components {
             proposed_score: string | null;
             /** Evidence */
             evidence: components["schemas"]["EvidenceResponse"][];
+        };
+        /** GradingActionResponse */
+        GradingActionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Resource Type
+             * @enum {string}
+             */
+            resource_type: "DocumentVersion" | "Finding";
+            /**
+             * Resource Id
+             * Format: uuid
+             */
+            resource_id: string;
+            /** Action */
+            action: string;
+            /** Actor Display Name */
+            actor_display_name: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Before */
+            before: {
+                [key: string]: string | null;
+            };
+            /** After */
+            after: {
+                [key: string]: string | null;
+            };
+        };
+        /** GradingAnalysisJobResponse */
+        GradingAnalysisJobResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            status: components["schemas"]["AnalysisJobStatus"];
+            /** Attempt Count */
+            attempt_count: number;
+            /** Max Attempts */
+            max_attempts: number;
+            /**
+             * Queued At
+             * Format: date-time
+             */
+            queued_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Error Code */
+            error_code: string | null;
+        };
+        /** GradingReviewDecisionResponse */
+        GradingReviewDecisionResponse: {
+            /**
+             * Finding Id
+             * Format: uuid
+             */
+            finding_id: string;
+            decision: components["schemas"]["ReviewDecisionType"];
+            /** Edited Description */
+            edited_description: string | null;
+            /** Final Score */
+            final_score: string | null;
+            edited_semantic_verdict: components["schemas"]["SemanticPipelineStatus"] | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** GradingReviewResponse */
+        GradingReviewResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Reviewer User Id
+             * Format: uuid
+             */
+            reviewer_user_id: string;
+            /** Reviewer Display Name */
+            reviewer_display_name: string;
+            /** Revision */
+            revision: number;
+            /** Comment */
+            comment: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Decisions */
+            decisions: components["schemas"]["GradingReviewDecisionResponse"][];
+        };
+        /** GradingStatusEventResponse */
+        GradingStatusEventResponse: {
+            /** From Status */
+            from_status: string | null;
+            /** To Status */
+            to_status: string;
+            /**
+             * Changed At
+             * Format: date-time
+             */
+            changed_at: string;
+            /** Recorded */
+            recorded: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1981,6 +2606,181 @@ export interface components {
              */
             status: "ok";
         };
+        /**
+         * LLMCatalogStatus
+         * @enum {string}
+         */
+        LLMCatalogStatus: "UNTESTED" | "CATALOG_VERIFIED" | "INVALID_CREDENTIAL" | "RATE_LIMITED" | "UNAVAILABLE" | "TIMEOUT" | "INVALID_RESPONSE";
+        /** LLMCatalogTestResponse */
+        LLMCatalogTestResponse: {
+            provider: components["schemas"]["LLMProvider"];
+            status: components["schemas"]["LLMCatalogStatus"];
+            /** Model Ids */
+            model_ids?: string[];
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Credential Revision */
+            credential_revision: number;
+            /**
+             * Catalog Checked At
+             * Format: date-time
+             */
+            catalog_checked_at: string;
+        };
+        /**
+         * LLMCredentialSource
+         * @enum {string}
+         */
+        LLMCredentialSource: "NONE" | "ENVIRONMENT" | "STORED";
+        /**
+         * LLMProtocol
+         * @enum {string}
+         */
+        LLMProtocol: "OPENAI_CHAT" | "OPENAI_RESPONSES" | "ANTHROPIC_MESSAGES" | "GEMINI_GENERATE_CONTENT" | "BEDROCK_CONVERSE";
+        /**
+         * LLMProvider
+         * @enum {string}
+         */
+        LLMProvider: "OPENAI" | "ANTHROPIC" | "GEMINI" | "DEEPSEEK" | "OPENCODE_ZEN" | "BEDROCK";
+        /** LLMProviderListResponse */
+        LLMProviderListResponse: {
+            /** Items */
+            items: components["schemas"]["LLMProviderResponse"][];
+        };
+        /** LLMProviderResponse */
+        LLMProviderResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            provider: components["schemas"]["LLMProvider"];
+            /** Display Name */
+            display_name: string;
+            /** Docs Url */
+            docs_url: string;
+            /** Supported Environment Keys */
+            supported_environment_keys: string[];
+            /** Supported Protocols */
+            supported_protocols: components["schemas"]["LLMProtocol"][];
+            /** Enabled */
+            enabled: boolean;
+            /** Data Policy Approved */
+            data_policy_approved: boolean;
+            credential_source: components["schemas"]["LLMCredentialSource"];
+            /** Environment Key Name */
+            environment_key_name: string | null;
+            /** Masked Hint */
+            masked_hint: string | null;
+            /** Configured */
+            configured: boolean;
+            /** Stored Credentials Available */
+            stored_credentials_available: boolean;
+            /** Credential Revision */
+            credential_revision: number;
+            /** Revision */
+            revision: number;
+            catalog_status: components["schemas"]["LLMCatalogStatus"];
+            /** Catalog Checked At */
+            catalog_checked_at: string | null;
+            /** Catalog Latency Ms */
+            catalog_latency_ms: number | null;
+            /** Catalog Error Code */
+            catalog_error_code: string | null;
+        };
+        /** LLMProviderUpdateRequest */
+        LLMProviderUpdateRequest: {
+            /** Enabled */
+            enabled: boolean;
+            /** @default NONE */
+            credential_source: components["schemas"]["LLMCredentialSource"];
+            /** Environment Key Name */
+            environment_key_name?: string | null;
+            /** Credential Key */
+            credential_key?: string | null;
+            /**
+             * Data Policy Approved
+             * @default false
+             */
+            data_policy_approved: boolean;
+        };
+        /** LLMRouteActivationRequest */
+        LLMRouteActivationRequest: {
+            /** Acknowledge Provider Fees */
+            acknowledge_provider_fees: boolean;
+        };
+        /** LLMRouteResponse */
+        LLMRouteResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            task: components["schemas"]["LLMTask"];
+            state: components["schemas"]["LLMRouteState"];
+            /** Active */
+            active: boolean;
+            provider: components["schemas"]["LLMProvider"];
+            protocol: components["schemas"]["LLMProtocol"];
+            /** Model Id */
+            model_id: string | null;
+            /** Region */
+            region: string | null;
+            /** Geographic Profile */
+            geographic_profile: string | null;
+            /** Max Tokens */
+            max_tokens: number;
+            /** Call Budget */
+            call_budget: number;
+            /** Quality Approved */
+            quality_approved: boolean;
+            /** Quality Not Approved */
+            quality_not_approved: boolean;
+            /** Provider Credential Revision */
+            provider_credential_revision: number;
+            /** Revision */
+            revision: number;
+            /** Ready */
+            ready: boolean;
+            /** Blockers */
+            blockers: string[];
+        };
+        /**
+         * LLMRouteState
+         * @enum {string}
+         */
+        LLMRouteState: "DRAFT" | "ACTIVE" | "DISABLED";
+        /** LLMRouteUpdateRequest */
+        LLMRouteUpdateRequest: {
+            provider: components["schemas"]["LLMProvider"];
+            /** Model Id */
+            model_id?: string | null;
+            protocol: components["schemas"]["LLMProtocol"];
+            /** Region */
+            region?: string | null;
+            /** Geographic Profile */
+            geographic_profile?: string | null;
+            /**
+             * Max Tokens
+             * @default 512
+             */
+            max_tokens: number;
+            /**
+             * Call Budget
+             * @default 32
+             */
+            call_budget: number;
+            /**
+             * Quality Approved
+             * @default false
+             */
+            quality_approved: boolean;
+        };
+        /**
+         * LLMTask
+         * @enum {string}
+         */
+        LLMTask: "CITATION_SEMANTIC";
         /** LoginRequest */
         LoginRequest: {
             /** Email */
@@ -2049,6 +2849,11 @@ export interface components {
          * @enum {string}
          */
         NotificationType: "ANALYSIS_JOB_ERROR" | "RESULT_PUBLISHED" | "REVIEW_REQUEST_CREATED" | "REVIEW_REQUEST_RESOLVED" | "REVIEW_REQUEST_REJECTED";
+        /**
+         * PassageKind
+         * @enum {string}
+         */
+        PassageKind: "TEXT" | "TABLE";
         /** PresignRequest */
         PresignRequest: {
             /** Filename */
@@ -2092,6 +2897,11 @@ export interface components {
             /** Analysis Job Id */
             analysis_job_id?: string | null;
         };
+        /** ProfileUpdateRequest */
+        ProfileUpdateRequest: {
+            /** Display Name */
+            display_name: string;
+        };
         /** PublishRequest */
         PublishRequest: {
             /** Reason */
@@ -2104,6 +2914,10 @@ export interface components {
              * Format: uuid
              */
             criterion_version_id: string;
+            /** Criterion Code */
+            criterion_code: string;
+            /** Criterion Title */
+            criterion_title: string;
             /**
              * Finding Id
              * Format: uuid
@@ -2184,6 +2998,7 @@ export interface components {
             edited_description?: string | null;
             /** Final Score */
             final_score?: number | string | null;
+            edited_semantic_verdict?: components["schemas"]["SemanticPipelineStatus"] | null;
             /** Reason */
             reason?: string | null;
         };
@@ -2199,6 +3014,7 @@ export interface components {
             edited_description: string | null;
             /** Final Score */
             final_score: string | null;
+            edited_semantic_verdict: components["schemas"]["SemanticPipelineStatus"] | null;
             /** Reason */
             reason: string | null;
         };
@@ -2310,10 +3126,20 @@ export interface components {
              * Format: uuid
              */
             student_id: string;
+            /** Student Display Name */
+            student_display_name: string;
+            /** Student Email */
+            student_email: string;
             /** Criterion Id */
             criterion_id?: string | null;
+            /** Criterion Code */
+            criterion_code: string;
+            /** Criterion Title */
+            criterion_title: string;
             /** Finding Id */
             finding_id?: string | null;
+            /** Finding Description */
+            finding_description?: string | null;
             status: components["schemas"]["ReviewRequestStatus"];
             /** Reason */
             reason: string;
@@ -2321,8 +3147,16 @@ export interface components {
             response?: string | null;
             /** Responded By User Id */
             responded_by_user_id?: string | null;
+            /** Responded By Display Name */
+            responded_by_display_name?: string | null;
             /** Responded At */
             responded_at?: string | null;
+            /** Assignment Title */
+            assignment_title: string;
+            /** Course Code */
+            course_code: string;
+            /** Course Name */
+            course_name: string;
             /**
              * Created At
              * Format: date-time
@@ -2411,6 +3245,213 @@ export interface components {
             /** Calculation Method */
             calculation_method?: string | null;
         };
+        /** SemanticCitationReportResponse */
+        SemanticCitationReportResponse: {
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Eligible Linked Claim Count
+             * @default 0
+             */
+            eligible_linked_claim_count: number;
+            /**
+             * Evaluable Claim Count
+             * @default 0
+             */
+            evaluable_claim_count: number;
+            /** Semantic Support Score */
+            semantic_support_score?: number | null;
+            /**
+             * Semantic Coverage
+             * @default 0
+             */
+            semantic_coverage: number;
+            /** Proposed Score */
+            proposed_score?: number | null;
+            quality_gate: components["schemas"]["SemanticQualityGateResponse"];
+            /** Results */
+            results: components["schemas"]["SemanticCitationResultResponse"][];
+            /** Sources */
+            sources?: components["schemas"]["SemanticSource"][];
+        };
+        /** SemanticCitationResultResponse */
+        SemanticCitationResultResponse: {
+            /** Pair Id */
+            pair_id: string;
+            /** Claim Id */
+            claim_id: string;
+            /** Mention Id */
+            mention_id: string;
+            /** Reference Id */
+            reference_id: string;
+            /** Claim */
+            claim: string;
+            /**
+             * Context
+             * @default
+             */
+            context: string;
+            claim_anchor: components["schemas"]["SemanticClaimAnchor"];
+            extraction_method: components["schemas"]["ExtractionMethod"];
+            status: components["schemas"]["SemanticPipelineStatus"];
+            /** Reason Code */
+            reason_code: string;
+            /** Supported Parts */
+            supported_parts?: string[];
+            /** Unsupported Parts */
+            unsupported_parts?: string[];
+            /** Source Id */
+            source_id?: string | null;
+            source_access_type?: components["schemas"]["AccessType"] | null;
+            /** Source Passages */
+            source_passages?: components["schemas"]["SemanticSourcePassage"][];
+            /** Evidence Passage Ids */
+            evidence_passage_ids?: string[];
+            /** Finding Links */
+            finding_links?: components["schemas"]["SemanticFindingLink"][];
+            /**
+             * Manual Review Required
+             * @default false
+             */
+            manual_review_required: boolean;
+        };
+        /** SemanticClaimAnchor */
+        SemanticClaimAnchor: {
+            /** Page Number */
+            page_number: number;
+            /** Element Id */
+            element_id: string;
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+            /** Line Start */
+            line_start?: number | null;
+            /** Line End */
+            line_end?: number | null;
+            /** Bbox */
+            bbox?: {
+                [key: string]: number;
+            } | null;
+        };
+        /** SemanticFindingLink */
+        SemanticFindingLink: {
+            /** Criterion Version Id */
+            criterion_version_id: string;
+            /** Finding Id */
+            finding_id: string;
+        };
+        /**
+         * SemanticPipelineStatus
+         * @enum {string}
+         */
+        SemanticPipelineStatus: "SUPPORTED" | "PARTIALLY_SUPPORTED" | "CONTRADICTED" | "IRRELEVANT" | "INSUFFICIENT_EVIDENCE" | "SOURCE_UNAVAILABLE" | "AMBIGUOUS_CLAIM" | "NEEDS_MANUAL_REVIEW";
+        /** SemanticQualityGateResponse */
+        SemanticQualityGateResponse: {
+            /**
+             * Passed
+             * @default false
+             */
+            passed: boolean;
+            /** Reason */
+            reason: string;
+            /**
+             * Human Gold Pairs
+             * @default 0
+             */
+            human_gold_pairs: number;
+            /**
+             * Double Annotated Fraction
+             * @default 0
+             */
+            double_annotated_fraction: number;
+            /**
+             * Anchor Completeness
+             * @default 0
+             */
+            anchor_completeness: number;
+            /**
+             * Structured Success Rate
+             * @default 0
+             */
+            structured_success_rate: number;
+            /**
+             * Macro F1
+             * @default 0
+             */
+            macro_f1: number;
+            /**
+             * False Accusation Rate
+             * @default 0
+             */
+            false_accusation_rate: number;
+            /**
+             * Hit At 3
+             * @default 0
+             */
+            hit_at_3: number;
+            /**
+             * Domain Approved
+             * @default false
+             */
+            domain_approved: boolean;
+        };
+        /** SemanticSource */
+        SemanticSource: {
+            /** Source Id */
+            source_id: string;
+            /** Identifier */
+            identifier?: string | null;
+            /** Doi */
+            doi?: string | null;
+            /** Arxiv Id */
+            arxiv_id?: string | null;
+            /** Version */
+            version?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Authors */
+            authors?: string[];
+            /** Source Hash */
+            source_hash: string;
+            /** Retrieved At */
+            retrieved_at: string;
+            /** Retrieval Provenance */
+            retrieval_provenance: string;
+            access_type: components["schemas"]["AccessType"];
+            /** Passages */
+            passages: components["schemas"]["SemanticSourcePassage"][];
+        };
+        /** SemanticSourcePassage */
+        SemanticSourcePassage: {
+            /** Passage Id */
+            passage_id: string;
+            /** Source Id */
+            source_id: string;
+            /** Source Hash */
+            source_hash: string;
+            /** Text */
+            text: string;
+            /** Page Number */
+            page_number?: number | null;
+            /** Section */
+            section?: string | null;
+            /** Element Id */
+            element_id?: string | null;
+            /** Bbox */
+            bbox?: {
+                [key: string]: number;
+            } | null;
+            /** @default TEXT */
+            kind: components["schemas"]["PassageKind"];
+            /** Retrieval Provenance */
+            retrieval_provenance: string;
+            access_type: components["schemas"]["AccessType"];
+            /** Retrieval Score */
+            retrieval_score?: number | null;
+            /** Retrieval Rank */
+            retrieval_rank?: number | null;
+        };
         /** SubmissionQueueItem */
         SubmissionQueueItem: {
             /**
@@ -2425,6 +3466,10 @@ export interface components {
              * Format: uuid
              */
             student_id: string;
+            /** Student Display Name */
+            student_display_name: string;
+            /** Student Email */
+            student_email: string;
             /** Document Status */
             document_status: string | null;
             queue_status: components["schemas"]["QueueStatus"];
@@ -2471,6 +3516,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Filename */
+            filename: string;
+            /** File Size Bytes */
+            file_size_bytes: number;
             processing_status: components["schemas"]["VersionProcessingStatus"];
             publication_status?: components["schemas"]["VersionPublicationStatus"] | null;
             /** Published Result Id */
@@ -2498,6 +3547,13 @@ export interface components {
             roles: string[];
             /** Status */
             status: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revision */
+            revision: number;
         };
         /**
          * UserRole
@@ -2719,6 +3775,74 @@ export interface operations {
             };
         };
     };
+    update_me_api_v1_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_password_api_v1_auth_change_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_course_members_api_v1_courses__course_id__members_get: {
         parameters: {
             query?: {
@@ -2876,6 +4000,138 @@ export interface operations {
             };
         };
     };
+    list_course_announcements_api_v1_courses__course_id__announcements_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnouncementResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_course_announcement_api_v1_courses__course_id__announcements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnouncementCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnouncementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_course_announcement_api_v1_courses__course_id__announcements__announcement_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                announcement_id: string;
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnouncementUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnouncementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_course_announcement_api_v1_courses__course_id__announcements__announcement_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                announcement_id: string;
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_course_api_v1_courses__course_id__get: {
         parameters: {
             query?: never;
@@ -2910,7 +4166,9 @@ export interface operations {
     update_course_api_v1_courses__course_id__put: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+            };
             path: {
                 course_id: string;
             };
@@ -2945,7 +4203,9 @@ export interface operations {
     delete_course_api_v1_courses__course_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+            };
             path: {
                 course_id: string;
             };
@@ -2974,7 +4234,9 @@ export interface operations {
     archive_course_api_v1_courses__course_id__archive_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+            };
             path: {
                 course_id: string;
             };
@@ -3367,6 +4629,36 @@ export interface operations {
             };
         };
     };
+    delete_assignment_api_v1_courses__course_id__assignments__assignment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+                assignment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     publish_assignment_api_v1_courses__course_id__assignments__assignment_id__publish_post: {
         parameters: {
             query?: never;
@@ -3550,7 +4842,7 @@ export interface operations {
             };
         };
     };
-    publish_rubric_api_v1_rubrics__rubric_id__publish_post: {
+    delete_rubric_api_v1_rubrics__rubric_id__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -3562,44 +4854,11 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["RubricVersionResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_new_version_api_v1_rubrics__rubric_id__new_version_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rubric_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RubricVersionResponse"];
-                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -3828,6 +5087,250 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_providers_api_v1_operations_llm_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMProviderListResponse"];
+                };
+            };
+        };
+    };
+    update_provider_api_v1_operations_llm_providers__provider__put: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                provider: components["schemas"]["LLMProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMProviderUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMProviderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_credential_api_v1_operations_llm_providers__provider__credential_delete: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                provider: components["schemas"]["LLMProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMProviderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_provider_api_v1_operations_llm_providers__provider__test_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                provider: components["schemas"]["LLMProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMCatalogTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMRouteResponse"];
+                };
+            };
+        };
+    };
+    update_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_put: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMRouteUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMRouteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_activate_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMRouteActivationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMRouteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deactivate_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_deactivate_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMRouteResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4168,6 +5671,74 @@ export interface operations {
             };
         };
     };
+    list_document_versions_api_v1_document_versions_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["DocumentStatus"] | null;
+                search?: string | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentVersionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_assignment_submissions_api_v1_assignments__assignment_id__submissions_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                assignment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignmentSubmissionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     complete_upload_api_v1_document_versions__version_id__complete_post: {
         parameters: {
             query?: never;
@@ -4346,6 +5917,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubmissionQueueResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    document_version_grading_result_api_v1_document_versions__version_id__grading_result_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentGradingResultResponse"];
                 };
             };
             /** @description Validation Error */
