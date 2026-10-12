@@ -896,10 +896,12 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
             >
               <div className="border-b border-slate-200 pb-3 flex flex-wrap items-center justify-between gap-2 min-w-0">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-slate-900">{activeCriterion?.code}</span>
-                    <span className="text-xs text-slate-500 truncate">· {activeCriterion?.title}</span>
-                  </div>
+                  {activeCriterion && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-slate-900">{activeCriterion.code}</span>
+                      <span className="text-xs text-slate-500 truncate">· {activeCriterion.title}</span>
+                    </div>
+                  )}
                   <p className="text-xs text-slate-500 mt-0.5">
                     {activeFindings.length} finding{activeFindings.length === 1 ? '' : 's'} ({activeCriterion?.decidedFindings ?? 0} decided)
                   </p>
