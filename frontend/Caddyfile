@@ -11,6 +11,10 @@
 
 	handle {
 		root * /srv
+		# Hashed /assets/* may cache; everything else, including the SPA index.html
+		# served for client routes, must revalidate so a deploy loads new bundles.
+		@not_assets not path /assets/*
+		header @not_assets Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}
