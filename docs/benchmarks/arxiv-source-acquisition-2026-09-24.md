@@ -23,6 +23,8 @@ Live arXiv Atom probe resolved versioned records `1810.04805v2` and `1412.6980v9
 
 Production semantic parsing skips table discovery after security validation. BERT and Adam previously hit table `PDF_STRUCTURE_LIMIT`; text-only retrieval needs prose, not structured table reconstruction. Table glyph text remains in bounded page/paragraph extraction.
 
+Follow-up 2026-10-12: with pdfplumber's fixed 3 pt word gap, justified LaTeX papers produced glued passages (`1503.02531v1`: `Manyinsectshavealarvalform...`; 114–167 tokens over 18 characters in the first four pages of each of four arXiv papers). Source parsing now uses a word gap of 15% of glyph size, leaving 1–6 such tokens per paper. Student Document IR is unchanged; see #47.
+
 ## Security boundary
 
 - Metadata: fixed `https://export.arxiv.org/api/query` endpoint; canonical IDs only; redirects denied; 2 MB response bound; XML parser; bounded request fan-out, negative/process cache.
