@@ -1046,13 +1046,8 @@ def _feedback(
     claim: str = "",
     passages: Sequence[SemanticSourcePassage] = (),
 ) -> tuple[str, str]:
-    page = next(
-        (f" page {item.page_number}" for item in passages if item.page_number), ""
-    )
-    section = next(
-        (f" section {item.section}" for item in passages if item.section), ""
-    )
-    excerpt = claim[:160]
+    page = next((item.page_number for item in passages if item.page_number), None)
+    excerpt = claim[:160].rstrip().rstrip(".")
     descriptions = {
         SemanticPipelineStatus.SUPPORTED: "Citation supports claim.",
         SemanticPipelineStatus.PARTIALLY_SUPPORTED: (
@@ -1094,7 +1089,8 @@ def _feedback(
         ),
     }
     return (
-        f"{descriptions[status]} Claim: {excerpt}.{page}{section}",
+        f"{descriptions[status]} Claim: {excerpt}."
+        + (f" Evidence on source page {page}." if page else ""),
         suggestions[status],
     )
 
@@ -1604,10 +1600,6 @@ class BedrockSemanticModel:
 
 def semantic_snapshot(report: SemanticCitationReportResponse) -> dict[str, Any]:
     return report.model_dump(mode="json")
-
-
-def feedback_for_result(result: SemanticCitationResultResponse) -> tuple[str, str]:
-    return _feedback(result.status, result.claim, result.source_passages)
 
 
 def _server_settings() -> Any | None:
@@ -2265,7 +2257,13 @@ async def evaluate_semantic_citations(
     for criterion in semantic_criteria:
         for result in report_response.results:
             description, suggestion = _feedback(
-                result.status, result.claim, result.source_passages
+                result.status,
+                result.claim,
+                [
+                    item
+                    for item in result.source_passages
+                    if item.passage_id in result.evidence_passage_ids
+                ],
             )
             severity = (
                 "error"
