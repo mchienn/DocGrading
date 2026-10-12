@@ -633,8 +633,12 @@ def _extract_lines(
     page_height: float,
     budget: _NodeBudget,
     excluded_bboxes: Sequence[_BBox] = (),
+    word_x_tolerance_ratio: float | None = None,
 ) -> tuple[list[_Line], list[_Line], list[_Word]]:
-    extracted = page.extract_words(extra_attrs=["fontname", "size"])
+    extracted = page.extract_words(
+        extra_attrs=["fontname", "size"],
+        x_tolerance_ratio=word_x_tolerance_ratio,
+    )
     budget.consume(len(extracted))
     words = [
         _word_from_pdf(
@@ -1283,6 +1287,7 @@ def _parse_pages(
     pdf_links: Sequence[PDFLink] = (),
     links: list[dict[str, Any]] | None = None,
     extract_tables: bool = True,
+    word_x_tolerance_ratio: float | None = None,
 ) -> list[dict[str, Any]]:
     """Extract bounded page geometry and structural containers."""
     all_sections = sections if sections is not None else []
@@ -1403,6 +1408,7 @@ def _parse_pages(
             page_height=page_height,
             budget=budget,
             excluded_bboxes=table_bboxes,
+            word_x_tolerance_ratio=word_x_tolerance_ratio,
         )
         page_link_ids: list[str] = []
         page_links = [
@@ -1738,6 +1744,7 @@ def parse_document_ir(
     max_page_count: int = 100,
     max_nodes: int = 100_000,
     extract_tables: bool = True,
+    word_x_tolerance_ratio: float | None = None,
 ) -> ParsedDocumentIR:
     """Validate untrusted PDF bytes and extract bounded Document IR."""
     validation = validate_pdf(
@@ -1767,6 +1774,7 @@ def parse_document_ir(
                 pdf_links=validation.links,
                 links=links,
                 extract_tables=extract_tables,
+                word_x_tolerance_ratio=word_x_tolerance_ratio,
             )
     except PDFValidationError:
         raise
