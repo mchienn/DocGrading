@@ -63,7 +63,7 @@ _CATALOG_ENDPOINTS: dict[LLMProvider, str] = {
     LLMProvider.ANTHROPIC: "https://api.anthropic.com/v1/models",
     LLMProvider.GEMINI: "https://generativelanguage.googleapis.com/v1beta/models",
     LLMProvider.DEEPSEEK: "https://api.deepseek.com/models",
-    LLMProvider.OPENCODE_ZEN: "https://opencode.ai/zen/v1/models",
+    LLMProvider.OPENCODE_ZEN: "https://opencode.ai/inference/v1/models",
 }
 
 
@@ -85,7 +85,13 @@ def _transport(provider: LLMProvider, credential: str | None) -> tuple[int, byte
     if provider is LLMProvider.BEDROCK:
         raise RuntimeError("bedrock catalog handled by SDK")
     endpoint = _CATALOG_ENDPOINTS[provider]
-    headers = {"Accept": "application/json", "Accept-Encoding": "identity"}
+    headers = {
+        "Accept": "application/json",
+        "Accept-Encoding": "identity",
+        # Cloudflare-fronted providers (OpenCode Zen) answer urllib's default
+        # "Python-urllib" agent with 403 error 1010, misread as a bad credential.
+        "User-Agent": "DocGrading/1.0",
+    }
     if credential:
         if provider is LLMProvider.ANTHROPIC:
             headers.update({"x-api-key": credential, "anthropic-version": "2023-06-01"})
