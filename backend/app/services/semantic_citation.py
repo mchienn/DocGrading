@@ -1137,6 +1137,20 @@ def _abstract_is_detailed(_claim: str) -> bool:
     return True
 
 
+_MODEL_JSON_FENCE = re.compile(r"^```(?:json)?\s*\n(?P<body>.*)\n\s*```$", re.DOTALL)
+
+
+def parse_model_json(text: str) -> Any:
+    """Parse model output, accepting one enclosing Markdown ```json fence.
+
+    Hosted chat models often fence JSON even when told to return raw JSON; the
+    result still goes through SemanticVerdict validation.
+    """
+    stripped = text.strip()
+    fenced = _MODEL_JSON_FENCE.match(stripped)
+    return json.loads(fenced.group("body") if fenced else stripped)
+
+
 def _validate_verdict(
     value: Any, claim: str, passages: Sequence[SemanticSourcePassage]
 ) -> SemanticVerdict:
@@ -1570,7 +1584,7 @@ class BedrockSemanticModel:
             )
             if not isinstance(text, str) or not text:
                 raise ValueError("empty provider response")
-            return json.loads(text)
+            return parse_model_json(text)
         except (json.JSONDecodeError, ValueError):
             raise
         except Exception as exc:
