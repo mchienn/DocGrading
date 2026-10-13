@@ -21,6 +21,7 @@ from app.services.semantic_citation import (
     SemanticSourcePassage,
     SemanticVerdict,
     _prompt_fingerprint,
+    parse_model_json,
     provider_semantic_payload,
 )
 
@@ -266,7 +267,7 @@ class HostedSemanticModel:
                 self._input_tokens += usage[0]
                 self._output_tokens += usage[1]
                 self._total_tokens += usage[2]
-            return json.loads(text)
+            return parse_model_json(text)
         except SemanticProviderError:
             raise
         except (ValueError, TypeError, json.JSONDecodeError):

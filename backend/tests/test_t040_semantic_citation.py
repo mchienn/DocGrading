@@ -1919,3 +1919,58 @@ def test_gemini_request_body_system_instruction_and_user_part() -> None:
     assert semantic._SEMANTIC_SYSTEM_PROMPT not in user_part_text
     assert "<citation-data>" in user_part_text
     assert "[REDACTED] made claim." in user_part_text
+
+
+def test_hosted_model_accepts_markdown_fenced_json_verdict() -> None:
+    # Observed live with gemini-3.5-flash-lite: a correct verdict wrapped in a
+    # ```json fence was parsed as invalid output twice and sent to manual review.
+    from app.models.enums import LLMProtocol, LLMProvider
+    from app.services.semantic_adapters import HostedSemanticModel
+
+    verdict = {
+        "verdict": "SUPPORTED",
+        "evidence_passage_ids": ["p-1"],
+        "supported_parts": ["Evidence text"],
+        "unsupported_parts": [],
+        "reason_code": "DIRECT_SUPPORT",
+        "manual_review_required": False,
+    }
+    fenced = "```json\n" + json.dumps(verdict, indent=2) + "\n```"
+    calls = 0
+
+    def fenced_transport(*_args: Any) -> bytes:
+        nonlocal calls
+        calls += 1
+        return json.dumps(
+            {"candidates": [{"content": {"parts": [{"text": fenced}]}}]}
+        ).encode()
+
+    model = HostedSemanticModel(
+        {
+            "provider": LLMProvider.GEMINI,
+            "protocol": LLMProtocol.GEMINI_GENERATE_CONTENT,
+            "model_id": "gemini-3.5-flash-lite",
+            "credential": "test-key",
+        },
+        transport=fenced_transport,
+    )
+    passage = _passage(passage_id="p-1", text="Evidence text says so.")
+    claim = "Evidence text is cited [1]."
+    pair = semantic.ClaimCitationPair(
+        pair_id="pair-fenced",
+        claim_id="claim-fenced",
+        mention_id="m-1",
+        reference_id="ref-1",
+        claim=claim,
+        context="",
+        claim_anchor=semantic.SemanticClaimAnchor(
+            page_number=1, element_id="p-1", start=0, end=len(claim)
+        ),
+        extraction_method=semantic.ExtractionMethod.SENTENCE,
+    )
+    result = semantic.evaluate_claim(
+        pair, _reference("ref-1"), _source(passages=[passage]), model
+    )
+    assert result.status is semantic.SemanticPipelineStatus.SUPPORTED
+    assert result.evidence_passage_ids == ["p-1"]
+    assert calls == 1
