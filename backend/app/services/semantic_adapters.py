@@ -65,16 +65,15 @@ def _payload(
 
 
 def _endpoint(provider: LLMProvider, protocol: LLMProtocol, model: str) -> str:
-    base = (
-        "https://opencode.ai/zen/v1"
-        if provider is LLMProvider.OPENCODE_ZEN
-        else {
-            LLMProvider.OPENAI: "https://api.openai.com/v1",
-            LLMProvider.DEEPSEEK: "https://api.deepseek.com",
-            LLMProvider.ANTHROPIC: "https://api.anthropic.com/v1",
-            LLMProvider.GEMINI: "https://generativelanguage.googleapis.com/v1beta",
-        }.get(provider)
-    )
+    base = {
+        LLMProvider.OPENAI: "https://api.openai.com/v1",
+        LLMProvider.DEEPSEEK: "https://api.deepseek.com",
+        LLMProvider.ANTHROPIC: "https://api.anthropic.com/v1",
+        LLMProvider.GEMINI: "https://generativelanguage.googleapis.com/v1beta",
+        # OpenCode Console keys (oc_sk_*) are rejected by the legacy /zen/v1 Messages
+        # and Gemini paths; /inference/v1 serves every protocol family.
+        LLMProvider.OPENCODE_ZEN: "https://opencode.ai/inference/v1",
+    }.get(provider)
     if base is None:
         raise SemanticProviderError("semantic provider unavailable")
     if protocol is LLMProtocol.OPENAI_CHAT:
@@ -84,10 +83,7 @@ def _endpoint(provider: LLMProvider, protocol: LLMProtocol, model: str) -> str:
     if protocol is LLMProtocol.ANTHROPIC_MESSAGES:
         return f"{base}/messages"
     if protocol is LLMProtocol.GEMINI_GENERATE_CONTENT:
-        path = f"{base}/models/{quote(model, safe='')}"
-        return (
-            path if provider is LLMProvider.OPENCODE_ZEN else f"{path}:generateContent"
-        )
+        return f"{base}/models/{quote(model, safe='')}:generateContent"
     raise SemanticProviderError("semantic provider unavailable")
 
 
@@ -104,6 +100,9 @@ def _request(
         "Accept": "application/json",
         "Accept-Encoding": "identity",
         "Content-Type": "application/json",
+        # Cloudflare-fronted providers (OpenCode Zen) reject urllib's default
+        # "Python-urllib" agent with error 1010 before authentication.
+        "User-Agent": "DocGrading/1.0",
     }
     if provider is LLMProvider.OPENCODE_ZEN or protocol in (
         LLMProtocol.OPENAI_CHAT,

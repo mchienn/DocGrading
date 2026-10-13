@@ -126,6 +126,8 @@ BM25 is standard-library code over bounded Source IR passages. BGE-M3 was measur
 
 One versioned `CITATION_SEMANTIC` route selects exactly one fixed provider adapter: OpenAI, Anthropic Claude, Google Gemini, DeepSeek, OpenCode Zen or Amazon Bedrock. OpenAI/DeepSeek use OpenAI chat-compatible requests; Claude uses Messages; Gemini uses `generateContent`; OpenCode Zen stores the model protocol explicitly because its catalog routes models through OpenAI Chat, OpenAI Responses, Anthropic Messages or Gemini `generateContent`. Every protocol sends the semantic instruction through its dedicated system channel (`system` message, `instructions`, `system` or Gemini `systemInstruction`), never concatenated with untrusted claim/source text. Hosts, schemes and paths are code-owned HTTPS constants. Admin input cannot set base URL, raw path, proxy or redirect. There is no automatic provider fallback.
 
+OpenCode requests use the Console inference API at `https://opencode.ai/inference/v1` (`/chat/completions`, `/responses`, `/messages`, `/models/<id>:generateContent`, catalog `/models`); Console service-account keys (`oc_sk_…`) are rejected by the legacy `/zen/v1` Messages and Gemini paths. OpenCode's free models answer `FreeTierError` outside the OpenCode client, so routes must select a paid model on a funded workspace. Every hosted request sends `User-Agent: DocGrading/1.0`: OpenCode's Cloudflare front returns 403 (error 1010) to urllib's default agent, which would otherwise surface as an invalid credential.
+
 OpenAI, Anthropic, Gemini, DeepSeek and OpenCode keys come from a fixed server-environment allowlist or Admin-pasted encrypted storage. Bedrock uses the AWS IAM credential chain only. Stored keys use vetted authenticated encryption with a versioned key ID and encrypted envelope bound to credential row/provider; the encryption keyring exists only in API/worker environment. Plaintext key is never returned, audited, logged, queued or copied into a job snapshot. Reads expose source and masked hint only. Unknown key version, failed decryption, disabled provider, policy denial, missing environment key or credential revision mismatch fails closed to manual review. Previous encryption keys must remain available for live rows and restorable backups until re-encryption and backup retention complete.
 
 Before hosted or Bedrock generation, worker resolves submission owner and de-identifies outbound text with exact owner UUID, email and display name plus bounded generic email, UUID and labeled student-identity patterns. Display names of three or more characters are redacted as case-insensitive substrings; shorter names are redacted only as standalone Unicode tokens. Provider payload contains only redacted claim/context, `source_id`, access type and redacted passage ID/text; source title, author, page and section metadata are omitted. Missing submission identity fails closed to manual review.
@@ -146,7 +148,7 @@ Official contracts used for adapters:
 - Anthropic API authentication, Messages and model listing: <https://platform.claude.com/docs/en/api/overview>
 - Gemini API keys and model listing: <https://ai.google.dev/gemini-api/docs/api-key>
 - DeepSeek OpenAI-compatible API: <https://api-docs.deepseek.com/>
-- OpenCode Zen gateway and per-model protocols: <https://opencode.ai/docs/zen/>
+- OpenCode Console models, endpoints and inference API: <https://opencode.ai/docs/zen/>, <https://opencode.ai/v2/docs/console/inference>
 
 ## 7. Scoring and quality gate
 

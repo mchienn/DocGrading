@@ -523,7 +523,13 @@ def test_postgresql_llm_route_activation_and_environment_rotation(
         (
             LLMProvider.OPENCODE_ZEN,
             LLMProtocol.ANTHROPIC_MESSAGES,
-            "/zen/v1/messages",
+            "opencode.ai/inference/v1/messages",
+            "Authorization",
+        ),
+        (
+            LLMProvider.OPENCODE_ZEN,
+            LLMProtocol.GEMINI_GENERATE_CONTENT,
+            "opencode.ai/inference/v1/models/model%2Fid:generateContent",
             "Authorization",
         ),
     ],
@@ -535,6 +541,38 @@ def test_hosted_request_builder_has_fixed_endpoint_and_auth(
     assert request.full_url.endswith(suffix)
     assert header.lower() in {key.lower() for key in request.headers}
     assert "secret" not in request.full_url
+    assert request.get_header("User-agent") == "DocGrading/1.0"
+
+
+def test_catalog_request_sends_explicit_user_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import llm_providers
+
+    sent: list[urllib.request.Request] = []
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _limit: int) -> bytes:
+            return b'{"data": []}'
+
+    class FakeOpener:
+        def open(self, request: urllib.request.Request, timeout: float) -> FakeResponse:
+            sent.append(request)
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        llm_providers.urllib.request, "build_opener", lambda *_handlers: FakeOpener()
+    )
+    assert llm_providers._transport(LLMProvider.OPENCODE_ZEN, "secret")[0] == 200
+    assert sent[0].get_header("User-agent") == "DocGrading/1.0"
 
 
 def test_hosted_request_builder_rejects_oversized_body() -> None:
