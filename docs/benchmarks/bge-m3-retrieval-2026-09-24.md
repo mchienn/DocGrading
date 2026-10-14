@@ -57,18 +57,19 @@ Reconsider BGE-M3 only when human-gold retrieval data shows BM25 below target, d
 
 ## Real-paper Vietnamese probe (2026-10-14)
 
-The synthetic corpus gives every source five passages, so top 3 already covers 60% of a source and cannot show cross-lingual ranking failures. This probe uses five cached arXiv PDFs parsed by production Source IR (136–192 passages each) and 16 AI-drafted Vietnamese claims (5 contribution, 9 method detail, 2 numeric), with supporting passages matched by fixed English phrases. Two BERT claims have no matchable passage because its two-column layout is read across columns, leaving 14 scored claims. Not human gold.
+The synthetic corpus gives every source five passages, so top 3 already covers 60% of a source and cannot show cross-lingual ranking failures. This probe uses production Source IR (parser `pypdf-pdfplumber-v6`, after the two-column fix) of five cached arXiv PDFs (136–192 passages each) and 16 AI-drafted Vietnamese claims (5 contribution, 9 method detail, 2 numeric), with supporting passages matched by fixed English phrases. A second task checks in-document Vietnamese retrieval: each section heading of six student reports must retrieve a paragraph of its own section among up to 100 report paragraphs (219 headings). Not human gold; the heading task is a proxy, since section ownership in Document IR is noisy.
 
-| Retrieval | Hit@3 | Passage encoding (CPU) |
-|---|---:|---:|
-| BM25 (production) | 4/14 | n/a |
-| BM25, page-1 passage forced into slot 3 | 6/16 | n/a |
-| `BAAI/bge-m3` dense | 11/14 | 4.7 passages/s |
-| BM25 + `bge-m3` RRF | 7/14 | 4.7 passages/s |
-| `paraphrase-multilingual-MiniLM-L12-v2` dense | 8/14 | 57.9 passages/s |
-| `multilingual-e5-small` dense | 6/14 | 48.0 passages/s |
+| Retrieval | Claim→source Hit@3 (MRR@10) | Heading→paragraph Hit@3 | CPU cost |
+|---|---:|---:|---:|
+| BM25 (production) | 5/16 (0.312) | 43% | none |
+| `BAAI/bge-m3` dense | 13/16 (0.738) | 47% | 4.9 passages/s, +1.8 GB RSS |
+| `intfloat/multilingual-e5-large-instruct` dense | 13/16 (0.688) | 50% | 3.7 passages/s, +2.7 GB RSS |
+| `Qwen/Qwen3-Embedding-0.6B` dense | 12/16 (0.598) | 42% | not comparable (bf16 on CPU) |
+| `bge-m3` top 20 + `BAAI/bge-reranker-v2-m3` | 15/16 (0.906) | 52% | +7.8 s per query (20 pairs) |
 
-BM25 hits only number claims and claims that keep English terms. Fusion with BM25 lowers dense quality because BM25 ranks are noise for Vietnamese queries. Real passages are longer than synthetic ones, so BGE-M3 encodes about 40 s per 192-passage paper. Production remains BM25 until a dense path and its resource budget are approved.
+Earlier on the same claims, before the two-column fix: BM25+`bge-m3` RRF 7/14 and `paraphrase-multilingual-MiniLM-L12-v2` 8/14 versus `bge-m3` 11/14; e5-small 6/14. Fusion with BM25 lowers dense quality because BM25 ranks are noise for Vietnamese queries.
+
+Dense retrieval mainly helps cross-lingual matching; for same-language in-document matching it adds 4–7 points over BM25. `multilingual-e5-large-instruct` and Qwen3 ship fp16/bf16 weights, which run several times slower on CPU unless upcast to fp32; the e5 row is fp32. All models above have MIT or Apache-2.0 licenses. Production remains BM25 until a dense path and its resource budget are approved.
 
 ## Reproduce
 
