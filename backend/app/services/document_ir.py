@@ -36,7 +36,7 @@ from app.services.pdf_validation import (
 )
 
 SCHEMA_VERSION: int = 2
-PARSER_VERSION: str = "pypdf-pdfplumber-v5"
+PARSER_VERSION: str = "pypdf-pdfplumber-v6"
 
 _TABLE_SOURCE_OBJECT_TYPES = ("line", "rect", "curve")
 _MAX_TABLE_SOURCE_OBJECTS = 256
@@ -568,6 +568,96 @@ def _split_columns(words: Sequence[_Word], *, page_width: float) -> list[list[_W
     ]
 
 
+_PROSE_WORD = re.compile(r"[^\W\d_]{2,}")
+
+
+def _minimum_prose_gutter(page_width: float) -> float:
+    # ACL/IEEE two-column papers leave a 17-18 pt gutter; justified word gaps stay
+    # near 3-4 pt, so 1.5% of page width (about 9 pt) separates the two.
+    return max(8.0, page_width * 0.015)
+
+
+def _prose_gutter_split(
+    rows: Sequence[Sequence[_Word]], *, page_width: float
+) -> float | None:
+    """Split two justified prose columns separated by a narrow central gutter.
+
+    `_column_split` needs a 48 pt jump between word starts, which a two-column
+    paper never has: left-column words start right up to its 17 pt gutter. Here a
+    gutter is a central x range that most rows leave blank between two words and
+    few rows (title, wide figures) cross. Both sides must be justified prose, so
+    tables, tables of contents and equation blocks keep their row order.
+    """
+    if len(rows) < 12:
+        return None
+    minimum_gutter = _minimum_prose_gutter(page_width)
+    width = math.ceil(page_width) + 2
+    gapped = [0] * (width + 1)
+    crossing = [0] * (width + 1)
+
+    def mark(counts: list[int], start: float, end: float) -> None:
+        first = max(0, math.floor(start) + 1)
+        last = min(width, math.ceil(end))
+        if first < last:
+            counts[first] += 1
+            counts[last] -= 1
+
+    for row in rows:
+        spans: list[list[float]] = []
+        for word in row:
+            if spans and word.bbox.x0 <= spans[-1][1]:
+                spans[-1][1] = max(spans[-1][1], word.bbox.x1)
+            else:
+                spans.append([word.bbox.x0, word.bbox.x1])
+        for start, end in spans:
+            mark(crossing, start, end)
+        for (_, left_end), (right_start, _) in zip(spans, spans[1:], strict=False):
+            if right_start - left_end >= minimum_gutter:
+                mark(gapped, left_end, right_start)
+    for counts in (gapped, crossing):
+        for x in range(1, width + 1):
+            counts[x] += counts[x - 1]
+
+    crossing_limit = max(3, len(rows) // 5)
+    candidates = [
+        x
+        for x in range(math.ceil(page_width * 0.4), math.floor(page_width * 0.6) + 1)
+        if gapped[x] >= 10 and crossing[x] <= crossing_limit
+    ]
+    if not candidates:
+        return None
+    best = max(gapped[x] - crossing[x] for x in candidates)
+    best_xs = [x for x in candidates if gapped[x] - crossing[x] == best]
+    split = (best_xs[0] + best_xs[-1]) / 2
+
+    for side in (
+        lambda word: word.bbox.x1 <= split,
+        lambda word: word.bbox.x0 >= split,
+    ):
+        lines = [
+            [word for word in row if side(word)]
+            for row in rows
+            if not any(word.bbox.x0 < split < word.bbox.x1 for word in row)
+        ]
+        lines = [line for line in lines if len(line) >= 4]
+        if len(lines) < 10:
+            return None
+        prose = sorted(
+            sum(bool(_PROSE_WORD.search(word.text)) for word in line) for line in lines
+        )
+        if prose[len(prose) // 2] < 4:
+            return None
+        # Most lines of a justified column end at one x; a stray figure label must
+        # not move that edge.
+        right_edge = Counter(round(line[-1].bbox.x1) for line in lines).most_common(1)[
+            0
+        ][0]
+        justified = sum(abs(right_edge - line[-1].bbox.x1) <= 3 for line in lines)
+        if justified * 2 < len(lines):
+            return None
+    return split
+
+
 def _group_lines(
     words: Sequence[_Word], *, page_width: float | None = None
 ) -> list[_Line]:
@@ -575,11 +665,14 @@ def _group_lines(
     if page_width is None:
         return [_line_from_words(row) for row in rows]
     split = _column_split(words, rows, page_width=page_width)
+    minimum_gutter = max(36.0, page_width * 0.06)
+    if split is None:
+        split = _prose_gutter_split(rows, page_width=page_width)
+        minimum_gutter = _minimum_prose_gutter(page_width)
     if split is None:
         return [_line_from_words(row) for row in rows]
 
     body_size = median([word.font_size for word in words]) if words else 0.0
-    minimum_gutter = max(36.0, page_width * 0.06)
     lines: list[_Line] = []
     segment: list[list[_Word]] = []
 

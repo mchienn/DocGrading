@@ -94,7 +94,11 @@ Each page stores:
 
 - `number`, `width`, `height`;
 - reading-order `text` reconstructed from accepted lines, with detected two-column
-  pages emitted left column before right column;
+  pages emitted left column before right column. A wide gap between word starts
+  marks a column split; otherwise a central gutter of at least 1.5% of page width
+  (ACL/IEEE papers leave about 17 pt) counts only when both sides are justified
+  prose, so tables, tables of contents and equation blocks keep row order
+  (parser `pypdf-pdfplumber-v6`);
 - ordered IDs of headings, paragraphs, logical tables, and link annotations on that page.
 
 Repeated short headers, footers, and page-number margin lines are excluded from
