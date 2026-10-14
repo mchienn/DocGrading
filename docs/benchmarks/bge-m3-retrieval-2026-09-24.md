@@ -55,6 +55,21 @@ RSS delta varies with model artifact and OS page cache; encoding time varies wit
 
 Reconsider BGE-M3 only when human-gold retrieval data shows BM25 below target, dedicated resource budget exists, and candidate improves Hit@3 without violating end-to-end latency.
 
+## Real-paper Vietnamese probe (2026-10-14)
+
+The synthetic corpus gives every source five passages, so top 3 already covers 60% of a source and cannot show cross-lingual ranking failures. This probe uses five cached arXiv PDFs parsed by production Source IR (136–192 passages each) and 16 AI-drafted Vietnamese claims (5 contribution, 9 method detail, 2 numeric), with supporting passages matched by fixed English phrases. Two BERT claims have no matchable passage because its two-column layout is read across columns, leaving 14 scored claims. Not human gold.
+
+| Retrieval | Hit@3 | Passage encoding (CPU) |
+|---|---:|---:|
+| BM25 (production) | 4/14 | n/a |
+| BM25, page-1 passage forced into slot 3 | 6/16 | n/a |
+| `BAAI/bge-m3` dense | 11/14 | 4.7 passages/s |
+| BM25 + `bge-m3` RRF | 7/14 | 4.7 passages/s |
+| `paraphrase-multilingual-MiniLM-L12-v2` dense | 8/14 | 57.9 passages/s |
+| `multilingual-e5-small` dense | 6/14 | 48.0 passages/s |
+
+BM25 hits only number claims and claims that keep English terms. Fusion with BM25 lowers dense quality because BM25 ranks are noise for Vietnamese queries. Real passages are longer than synthetic ones, so BGE-M3 encodes about 40 s per 192-passage paper. Production remains BM25 until a dense path and its resource budget are approved.
+
 ## Reproduce
 
 The script emits model ID/revision and runtime versions for each run.

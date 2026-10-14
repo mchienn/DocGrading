@@ -1416,8 +1416,8 @@ def test_async_evaluator_integration() -> None:
         assert len(snapshot_report.results) == 4
         trace = job.snapshot["semantic_citation_trace"]
         assert trace["evaluator_version"] == "citation-semantic-v1"
-        assert trace["source_ir_schema_version"] == 1
-        assert trace["retrieval_version"] == "bm25-rrf-v1"
+        assert trace["source_ir_schema_version"] == semantic.SEMANTIC_SOURCE_IR_VERSION
+        assert trace["retrieval_version"] == semantic.SEMANTIC_RETRIEVAL_VERSION
         assert trace["model"]["provider"] == "injected-adapter"
         assert trace["model"]["calls"] == 2
         assert trace["model"]["call_budget"] == 2
@@ -1678,6 +1678,54 @@ def test_source_from_content_stops_at_max_passages(
     )
     assert len(source.passages) == semantic.MAX_SOURCE_PASSAGES
     assert constructed == semantic.MAX_SOURCE_PASSAGES
+
+
+def test_source_paragraphs_drop_fragments_and_rejoin_broken_prose() -> None:
+    # Real PDF layout: an abstract split around an equation number, a stacked
+    # formula fragment, and a word hyphenated across lines.
+    ref = _reference()
+    descriptor = semantic.SourceDescriptor(
+        source_id="src-1",
+        doi=ref.doi,
+        title=ref.title,
+        authors=tuple(ref.authors),
+        access_type=semantic.AccessType.FULL_TEXT,
+    )
+    paragraphs = [
+        {"id": "p-0", "text": "We train a generator", "page_number": 1},
+        {"id": "p-1", "text": "2", "page_number": 1},
+        {
+            "id": "p-2",
+            "text": "and a discriminator by backprop- agation.",
+            "page_number": 1,
+        },
+        {"id": "p-3", "text": "g data G 2 G 2", "page_number": 1},
+        {"id": "p-4", "text": "results continue on the next page.", "page_number": 2},
+    ]
+    source = semantic._source_from_content(
+        ref, descriptor, {"paragraphs": paragraphs}, "a" * 64
+    )
+    assert [p.text for p in source.passages] == [
+        "We train a generator and a discriminator by backpropagation.",
+        "results continue on the next page.",
+    ]
+
+
+def test_citation_marker_does_not_rank_equation_numbers() -> None:
+    source = _source(
+        passages=[
+            _passage(passage_id="p-equation", text="Equation (2)."),
+            _passage(
+                passage_id="p-evidence",
+                text="D and G play a two-player minimax game during training.",
+            ),
+        ]
+    )
+    ranked = semantic.retrieve_passages(
+        "Hai mạng chơi trò chơi minimax [2].", source, top_k=2
+    )
+    assert [p.passage_id for p, _ in ranked] == ["p-evidence", "p-equation"]
+    assert ranked[1][1] == 0
 
 
 def test_duplicate_doi_references_yield_one_pair_and_one_source_acquisition() -> None:
