@@ -1,5 +1,6 @@
 import logging
 import math
+from collections.abc import Sequence
 from io import BytesIO
 from threading import Barrier, Event, Thread
 from types import SimpleNamespace
@@ -23,7 +24,6 @@ from pypdf.generic import (
 from app.core.config import Settings
 from app.services import document_ir, pdf_validation
 from app.services.document_ir import (
-    PARSER_VERSION,
     SCHEMA_VERSION,
     DocumentIRExtractionError,
     ParsedDocumentIR,
@@ -2257,7 +2257,6 @@ def test_minimal_valid_text_pdf_returns_ir_payload() -> None:
     content = parsed.content
     assert content["schema_version"] == SCHEMA_VERSION
     assert SCHEMA_VERSION == 2
-    assert PARSER_VERSION == "pypdf-pdfplumber-v5"
 
     assert content["source"] == {
         "sha256": parsed.validation.sha256,
@@ -2448,6 +2447,73 @@ def test_full_width_heading_stays_whole_above_two_columns() -> None:
         "Full Heading",
         *(f"L{index}a L{index}b" for index in range(8)),
         *(f"R{index}a R{index}b" for index in range(8)),
+    ]
+
+
+def _justified_row(
+    texts: Sequence[str], *, left: float, right: float, top: float
+) -> list[_Word]:
+    step = (right - left) / len(texts)
+    return [
+        _Word(
+            text,
+            _BBox(left + index * step, top, left + (index + 1) * step - 4, top + 10),
+            10,
+            "Times",
+        )
+        for index, text in enumerate(texts)
+    ]
+
+
+def test_narrow_gutter_two_column_prose_is_column_major() -> None:
+    # ACL/IEEE papers: justified columns 72-290 and 307-525 with a 17 pt gutter.
+    # Seven words per line keep word starts closer than 48 pt, as in real text.
+    names = ("one", "two", "three", "four", "five", "six", "seven")
+    words = [
+        word
+        for index in range(12)
+        for side, (left, right) in (("L", (72, 294)), ("R", (307, 529)))
+        for word in _justified_row(
+            [f"{side}{index}{name}" for name in names],
+            left=left,
+            right=right,
+            top=100 + index * 12,
+        )
+    ]
+
+    lines = _group_lines(words, page_width=595)
+
+    assert [line.text.split()[0] for line in lines] == [
+        *(f"L{index}one" for index in range(12)),
+        *(f"R{index}one" for index in range(12)),
+    ]
+
+
+def test_table_of_contents_leaders_keep_row_order() -> None:
+    # Dot leaders leave the same central gap as a gutter but are not prose.
+    words = [
+        word
+        for index in range(12)
+        for word in (
+            *_justified_row(
+                [f"Entry{index}", "section", "title", "words"],
+                left=72,
+                right=284,
+                top=100 + index * 12,
+            ),
+            *_justified_row(
+                [".", ".", ".", ".", ".", str(index)],
+                left=300,
+                right=529,
+                top=100 + index * 12,
+            ),
+        )
+    ]
+
+    lines = _group_lines(words, page_width=595)
+
+    assert [line.text.split()[0] for line in lines] == [
+        f"Entry{index}" for index in range(12)
     ]
 
 

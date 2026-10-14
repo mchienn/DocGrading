@@ -1,8 +1,8 @@
 # Citation v0 benchmark report
 
-Generated: 2026-09-24T10:48:08.064695+00:00
+Generated: 2026-10-14T07:43:44.871962+00:00
 Runtime: Python 3.13.14 on Windows 11
-Document IR parser: `pypdf-pdfplumber-v5`
+Document IR parser: `pypdf-pdfplumber-v6`
 
 ## Scope
 
@@ -16,10 +16,10 @@ Document IR parser: `pypdf-pdfplumber-v5`
 
 ## Corpus integration
 
-- Validation + Document IR + citation parse: **35/35 passed** in 226.35s.
+- Validation + Document IR + citation parse: **35/35 passed** in 170.59s.
 - Failed: 0.
-- Extracted across all corpus files: 433 references, 397 mentions.
-- Parser-uncertain documents: 10.
+- Extracted across all corpus files: 421 references, 397 mentions.
+- Parser-uncertain documents: 4.
 
 ## Extraction metrics
 
@@ -34,7 +34,7 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 - DOI/arXiv exact identifier accuracy: **98.33%**.
 - DOI positive recall: **100.00%** (1 positive labels).
 - arXiv positive recall: **95.45%** (22 positive labels).
-- Gold parse time: 64.89s.
+- Gold parse time: 44.48s.
 
 ## Identity metrics
 
@@ -64,13 +64,13 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 - DOI: `10.1109/sp40000.2020.00063`.
 - Adapter calls: 1 for 2 resolver attempts.
 - Cache hits/rate: 1 / 50.00%.
-- First resolution latency: 1.084s; cached latency: 0.000s.
+- First resolution latency: 0.797s; cached latency: 0.000s.
 - Live identity result: `VERIFIED`; cached external ID stable: `true`.
 
 ## Errors and limits
 
 - Corpus failures: []
-- Gold extraction mismatches: 2; SHA-256-prefix details: `[{"kind": "reference_fn", "gold_id": "reference-7", "best_similarity": 0.6314, "sha256_prefix": "8e4dd65a4590"}, {"kind": "reference_fp", "actual_id": "reference-7", "sha256_prefix": "8e4dd65a4590"}]`
+- Gold extraction mismatches: 2; SHA-256-prefix details: `[{"kind": "reference_fn", "gold_id": "reference-7", "best_similarity": 0.6338, "sha256_prefix": "8e4dd65a4590"}, {"kind": "reference_fp", "actual_id": "reference-7", "sha256_prefix": "8e4dd65a4590"}]`
 - Live Crossref result is an operational probe, not gold truth. Offline identity metrics use fixed records.
 - No OCR, arbitrary URL fetching, semantic claim support, or style grading is included.
 
