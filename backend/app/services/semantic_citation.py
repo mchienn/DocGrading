@@ -54,8 +54,8 @@ MAX_SOURCE_BYTES = 50_000_000
 SOURCE_WORD_X_TOLERANCE_RATIO = 0.15
 MAX_MODEL_TOKENS = 1_024
 SEMANTIC_EVALUATOR_VERSION = "citation-semantic-v1"
-SEMANTIC_SOURCE_IR_VERSION = 1
-SEMANTIC_RETRIEVAL_VERSION = "bm25-rrf-v1"
+SEMANTIC_SOURCE_IR_VERSION = 2
+SEMANTIC_RETRIEVAL_VERSION = "bm25-rrf-v2"
 SEMANTIC_PROMPT_VERSION = "citation-semantic-v1"
 _GEOGRAPHIC_MODEL_PROFILES = ("us.", "eu.", "apac.", "us-gov.", "au.", "jp.", "ca.")
 _SEMANTIC_SYSTEM_PROMPT = (
@@ -794,6 +794,39 @@ def _content_identity_text(content: Mapping[str, Any]) -> str:
     )[:20_000]
 
 
+_SENTENCE_END = re.compile(r"[.!?:;][\"'”’)\]]*$")
+_LINE_BREAK_HYPHEN = re.compile(r"(?<=[a-z])- (?=[a-z])")
+
+
+def _source_paragraphs(content: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Prose paragraphs of a source PDF, with layout breaks repaired.
+
+    Drops paragraphs with fewer than two words (equation numbers, stacked
+    fractions, axis labels), joins a lowercase continuation onto a paragraph that
+    stopped mid-sentence on the same page, and rejoins words hyphenated across
+    lines ("adversar- ial").
+    """
+    merged: list[dict[str, Any]] = []
+    for paragraph in content.get("paragraphs", ()):
+        if not isinstance(paragraph, Mapping):
+            continue
+        text = _LINE_BREAK_HYPHEN.sub("", str(paragraph.get("text", "")).strip())
+        if len(re.findall(r"[^\W\d_]{3,}", text)) < 2:
+            continue
+        previous = merged[-1] if merged else None
+        if (
+            previous is not None
+            and previous.get("page_number") == paragraph.get("page_number")
+            and not _SENTENCE_END.search(previous["text"])
+            and text[:1].islower()
+            and len(previous["text"]) < MAX_PASSAGE_CHARS * 8
+        ):
+            previous["text"] = f"{previous['text']} {text}"
+            continue
+        merged.append({**paragraph, "text": text})
+    return merged
+
+
 def _source_from_content(
     reference: CitationReference,
     descriptor: SourceDescriptor,
@@ -801,9 +834,7 @@ def _source_from_content(
     source_hash: str,
 ) -> SemanticSource:
     passages: list[SemanticSourcePassage] = []
-    paragraphs = [
-        item for item in content.get("paragraphs", ()) if isinstance(item, Mapping)
-    ]
+    paragraphs = _source_paragraphs(content)
     for paragraph_index, paragraph in enumerate(paragraphs):
         if len(passages) >= MAX_SOURCE_PASSAGES:
             break
@@ -961,6 +992,7 @@ def build_source_ir(
             max_nodes=100_000,
             extract_tables=False,
             word_x_tolerance_ratio=SOURCE_WORD_X_TOLERANCE_RATIO,
+            upright_only=True,
         )
         source = _source_from_content(reference, descriptor, parsed.content, digest)
         return (
@@ -976,6 +1008,15 @@ def build_source_ir(
         return None
 
 
+_QUERY_CITATION_MARKER = re.compile(r"\[\s*\d{1,4}(?:\s*[,;–-]\s*\d{1,4})*\s*\]")
+
+
+def _retrieval_query(claim: str) -> str:
+    """Claim text for ranking: numeric citation markers like "[2]" are not content
+    and would otherwise match equation numbers such as "(2)" in the source."""
+    return _QUERY_CITATION_MARKER.sub(" ", claim)
+
+
 def retrieve_passages(
     query: str,
     source: SemanticSource,
@@ -984,6 +1025,7 @@ def retrieve_passages(
     top_k: int = MAX_PASSAGES,
 ) -> list[tuple[SemanticSourcePassage, float]]:
     top_k = max(1, min(MAX_PASSAGES, top_k))
+    query = _retrieval_query(query)
     terms = Counter(_tokens(query))
     docs = [Counter(_tokens(item.text)) for item in source.passages]
     df = Counter(term for doc in docs for term in doc)
@@ -1255,8 +1297,9 @@ def evaluate_claim(
             SemanticPipelineStatus.SOURCE_UNAVAILABLE,
             SemanticReasonCode.SOURCE_NOT_AVAILABLE,
         )
-    ranked = dense_ranker(pair.claim, source.passages) if dense_ranker else None
-    passages = [item[0] for item in retrieve_passages(pair.claim, source, ranked)]
+    query = _retrieval_query(pair.claim)
+    ranked = dense_ranker(query, source.passages) if dense_ranker else None
+    passages = [item[0] for item in retrieve_passages(query, source, ranked)]
     if source.access_type is AccessType.ABSTRACT_ONLY and _abstract_is_detailed(
         pair.claim
     ):
@@ -1847,6 +1890,7 @@ def _source_from_pdf_bytes(
         max_nodes=100_000,
         extract_tables=False,
         word_x_tolerance_ratio=SOURCE_WORD_X_TOLERANCE_RATIO,
+        upright_only=True,
     )
     kind = "doi" if reference.doi else "arxiv"
     identifier = reference.doi or reference.arxiv_id or reference.id

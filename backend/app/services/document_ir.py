@@ -634,12 +634,17 @@ def _extract_lines(
     budget: _NodeBudget,
     excluded_bboxes: Sequence[_BBox] = (),
     word_x_tolerance_ratio: float | None = None,
+    upright_only: bool = False,
 ) -> tuple[list[_Line], list[_Line], list[_Word]]:
     extracted = page.extract_words(
         extra_attrs=["fontname", "size"],
         x_tolerance_ratio=word_x_tolerance_ratio,
     )
     budget.consume(len(extracted))
+    if upright_only:
+        # Rotated margin stamps (arXiv "arXiv:1406.2661v1 [stat.ML] 10 Jun 2014")
+        # otherwise interleave single glyphs into body lines and split paragraphs.
+        extracted = [word for word in extracted if word.get("upright", True)]
     words = [
         _word_from_pdf(
             word,
@@ -1288,6 +1293,7 @@ def _parse_pages(
     links: list[dict[str, Any]] | None = None,
     extract_tables: bool = True,
     word_x_tolerance_ratio: float | None = None,
+    upright_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Extract bounded page geometry and structural containers."""
     all_sections = sections if sections is not None else []
@@ -1409,6 +1415,7 @@ def _parse_pages(
             budget=budget,
             excluded_bboxes=table_bboxes,
             word_x_tolerance_ratio=word_x_tolerance_ratio,
+            upright_only=upright_only,
         )
         page_link_ids: list[str] = []
         page_links = [
@@ -1745,6 +1752,7 @@ def parse_document_ir(
     max_nodes: int = 100_000,
     extract_tables: bool = True,
     word_x_tolerance_ratio: float | None = None,
+    upright_only: bool = False,
 ) -> ParsedDocumentIR:
     """Validate untrusted PDF bytes and extract bounded Document IR."""
     validation = validate_pdf(
@@ -1775,6 +1783,7 @@ def parse_document_ir(
                 links=links,
                 extract_tables=extract_tables,
                 word_x_tolerance_ratio=word_x_tolerance_ratio,
+                upright_only=upright_only,
             )
     except PDFValidationError:
         raise

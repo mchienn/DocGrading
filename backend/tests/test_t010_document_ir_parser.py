@@ -2103,6 +2103,22 @@ def test_word_gap_ratio_splits_kerned_words_below_three_points() -> None:
     assert parsed.content["paragraphs"][0]["text"] == "Teachers verify cited claims."
 
 
+def test_upright_only_drops_rotated_margin_stamp() -> None:
+    # arXiv stamps "arXiv:<id> [cat] <date>" vertically in the left margin; its
+    # glyphs otherwise land inside body lines and split paragraphs.
+    parsed = parse_document_ir(
+        _make_operations_pdf(
+            [
+                "BT /F1 12 Tf 72 700 Td (Teachers verify cited claims.) Tj ET",
+                "BT /F1 12 Tf 0 1 -1 0 30 500 Tm (arXiv:1406.2661v1) Tj ET",
+            ]
+        ),
+        upright_only=True,
+    )
+    texts = [paragraph["text"] for paragraph in parsed.content["paragraphs"]]
+    assert texts == ["Teachers verify cited claims."]
+
+
 def test_ordered_list_sentences_are_not_numbered_headings() -> None:
     parsed = parse_document_ir(
         _make_operations_pdf(
