@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from array import array
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 _BATCH_SIZE = 32
@@ -54,7 +54,7 @@ def similarity_order(query: array, documents: Sequence[array]) -> list[int]:
 class TextEncoder:
     embeddings_url: str
     model: str
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     query_prefix: str = ""
     document_prefix: str = ""
     rerank_url: str = ""
@@ -76,6 +76,7 @@ class TextEncoder:
             body = self._post(
                 f"{self.embeddings_url.rstrip('/')}/embeddings",
                 {"model": self.model, "input": batch},
+                api_key=self.api_key,
             )
             rows = body.get("data") if isinstance(body, dict) else None
             if not isinstance(rows, list) or len(rows) != len(batch):
@@ -87,7 +88,13 @@ class TextEncoder:
                     enumerate(rows), key=lambda item: int(item[1].get("index", item[0]))
                 )
                 vectors.extend(_normalized(row["embedding"]) for _, row in rows)
-            except (KeyError, TypeError, ValueError) as exc:
+            except (
+                AttributeError,
+                KeyError,
+                OverflowError,
+                TypeError,
+                ValueError,
+            ) as exc:
                 raise TextEncoderError("encoder returned an invalid response") from exc
         if len({len(vector) for vector in vectors}) > 1:
             raise TextEncoderError("encoder returned mixed vector sizes")
@@ -109,20 +116,22 @@ class TextEncoder:
         try:
             for row in body:
                 scores[int(row["index"])] = float(row["score"])
-        except (KeyError, TypeError, ValueError, IndexError) as exc:
+        except (IndexError, KeyError, OverflowError, TypeError, ValueError) as exc:
             raise TextEncoderError("reranker returned an invalid response") from exc
         if any(not math.isfinite(score) for score in scores):
             raise TextEncoderError("reranker returned an invalid response")
         return scores
 
-    def _post(self, url: str, payload: dict[str, Any]) -> Any:
+    def _post(self, url: str, payload: dict[str, Any], *, api_key: str = "") -> Any:
+        # The key belongs to the embeddings host only; the reranker is usually a
+        # plain-HTTP sidecar and must never receive it.
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
             "User-Agent": "DocGrading/1.0",
         }
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         request = urllib.request.Request(
             url,
             data=json.dumps(payload, ensure_ascii=False).encode(),
@@ -146,7 +155,7 @@ class TextEncoder:
             raise TextEncoderError("encoder response too large")
         try:
             return json.loads(raw)
-        except ValueError as exc:
+        except (RecursionError, ValueError) as exc:
             raise TextEncoderError("encoder returned an invalid response") from exc
 
 

@@ -1154,6 +1154,23 @@ def test_openalex_lane_tries_only_open_access_pdf_locations(
     ]
 
 
+def test_source_found_by_crossref_doi_passes_final_identity_check() -> None:
+    # Acquisition accepted this PDF for carrying the Crossref-matched DOI; the
+    # final check must use the same DOI, not drop the source for a weak title.
+    reference = replace(
+        _reference(doi=None, title="A Paper Whose Title Parsed Badly"),
+        provider_record={"provider": "crossref", "doi": "10.1000/matched"},
+    )
+    by_doi = _source(passages=[_passage(text="Journal header doi:10.1000/matched")])
+    unrelated = _source(passages=[_passage(text="Journal header doi:10.1000/other")])
+
+    accepted = semantic._accept_source(reference, by_doi)
+
+    assert accepted is not None
+    assert (accepted.doi, accepted.identifier) == ("10.1000/matched",) * 2
+    assert semantic._accept_source(reference, unrelated) is None
+
+
 def test_arxiv_downloader_uses_fixed_url_and_denies_invalid_responses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
