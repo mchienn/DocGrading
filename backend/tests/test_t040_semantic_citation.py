@@ -8,6 +8,7 @@ import hashlib
 import json
 import urllib.error
 from collections.abc import Sequence
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -546,7 +547,7 @@ def test_source_model_invariants_and_identity_match() -> None:
     )
 
 
-def test_retrieval_bm25_and_dense_rrf() -> None:
+def test_retrieval_bm25_and_dense_order() -> None:
 
     p1 = _passage(
         passage_id="p-1",
@@ -569,14 +570,12 @@ def test_retrieval_bm25_and_dense_rrf() -> None:
     assert results[0][0].retrieval_rank == 1
     assert results[0][0].retrieval_score is not None
 
-    # Dense RRF fusion
-    # If dense ranker puts p-2 first
-    dense_order = ["p-2", "p-1", "p-3"]
-    fused_results = semantic.retrieve_passages(
-        "accuracy", source, dense_rankings=dense_order, top_k=3
+    # Encoder order replaces BM25 order entirely (no fusion).
+    dense_results = semantic.retrieve_passages(
+        "accuracy 95%", source, dense_rankings=["p-3", "p-2", "missing"], top_k=3
     )
-    assert len(fused_results) == 3
-    assert fused_results[0][0].retrieval_rank == 1
+    assert [p.passage_id for p, _ in dense_results] == ["p-3", "p-2"]
+    assert [p.retrieval_rank for p, _ in dense_results] == [1, 2]
 
     # BM25Retriever helper wrapper
     retriever = semantic.BM25Retriever(top_k=2)
@@ -1010,22 +1009,21 @@ def test_arxiv_cache_miss_downloads_validated_pdf_and_writes_private(
     reference = _reference(doi=None, arxiv_id="1706.03762v7")
     expected = _source(doi=None, arxiv_id="1706.03762v7")
     pdf = b"%PDF-1.7 validated"
-    writes: list[tuple[str, bytes, str, str, str]] = []
+    writes: list[tuple[str, bytes, str, dict[str, str]]] = []
 
     class MissingStorage:
         def get_bounded(self, _key: str, _limit: int) -> bytes:
             raise StorageObjectNotFound
 
-        def put_private_pdf(
+        def put_private_object(
             self,
             key: str,
             data: bytes,
             *,
-            arxiv_id: str,
-            sha256: str,
-            provenance: str,
+            content_type: str,
+            metadata: dict[str, str],
         ) -> None:
-            writes.append((key, data, arxiv_id, sha256, provenance))
+            writes.append((key, data, content_type, metadata))
 
     monkeypatch.setattr(semantic, "_download_arxiv_pdf", lambda *_args: pdf)
     monkeypatch.setattr(
@@ -1037,7 +1035,7 @@ def test_arxiv_cache_miss_downloads_validated_pdf_and_writes_private(
         semantic_source_cache_prefix="semantic",
         semantic_max_source_bytes=1_000,
         pdf_max_decoded_bytes=1_000,
-        semantic_arxiv_fetch_enabled=True,
+        semantic_source_fetch_enabled=True,
     )
 
     result = semantic._resolve_from_operator_cache(
@@ -1046,25 +1044,32 @@ def test_arxiv_cache_miss_downloads_validated_pdf_and_writes_private(
 
     assert result == expected
     assert len(writes) == 1
-    key, stored, arxiv_id, digest, provenance = writes[0]
+    key, stored, content_type, metadata = writes[0]
     assert key == semantic.derive_cache_key(reference, "semantic")
     assert stored == pdf
-    assert arxiv_id == "1706.03762v7"
-    assert digest == hashlib.sha256(pdf).hexdigest()
-    assert provenance == "arxiv_oa_download"
+    assert content_type == "application/pdf"
+    assert metadata == {
+        "source-id": "1706.03762v7",
+        "sha256": hashlib.sha256(pdf).hexdigest(),
+        "provenance": "arxiv_oa_download",
+    }
 
 
-def test_arxiv_cache_hit_avoids_network_and_non_arxiv_never_auto_fetches(
+def test_source_lanes_cache_first_then_arxiv_or_openalex(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pdf = b"%PDF-1.7 cached"
     expected = _source(doi=None, arxiv_id="1706.03762v7")
-    downloads = 0
+    arxiv_downloads: list[str] = []
+    openalex_lookups: list[str] = []
 
-    def fail_download(*_args: object) -> bytes:
-        nonlocal downloads
-        downloads += 1
-        raise AssertionError("network must not be used")
+    def fail_download(arxiv_id: str, _limit: int) -> bytes:
+        arxiv_downloads.append(arxiv_id)
+        raise AssertionError("arXiv lane must not be used")
+
+    def no_open_access(doi: str, _limit: int):
+        openalex_lookups.append(doi)
+        return iter(())
 
     class CachedStorage:
         def get_bounded(self, _key: str, _limit: int) -> bytes:
@@ -1075,6 +1080,7 @@ def test_arxiv_cache_hit_avoids_network_and_non_arxiv_never_auto_fetches(
             raise StorageObjectNotFound
 
     monkeypatch.setattr(semantic, "_download_arxiv_pdf", fail_download)
+    monkeypatch.setattr(semantic, "_open_access_pdfs", no_open_access)
     monkeypatch.setattr(
         semantic,
         "_source_from_pdf_bytes",
@@ -1084,35 +1090,68 @@ def test_arxiv_cache_hit_avoids_network_and_non_arxiv_never_auto_fetches(
         semantic_source_cache_prefix="semantic",
         semantic_max_source_bytes=1_000,
         pdf_max_decoded_bytes=1_000,
-        semantic_arxiv_fetch_enabled=True,
+        semantic_source_fetch_enabled=True,
     )
+    budget = semantic.SourceFetchBudget(remaining=2)
 
-    cached = semantic._resolve_from_operator_cache(
-        _reference(doi=None, arxiv_id="1706.03762v7"),
-        settings,
-        CachedStorage(),
+    def resolve(reference: CitationReference, storage: object) -> object:
+        return semantic._resolve_from_operator_cache(
+            reference, settings, storage, budget
+        )
+
+    cached = resolve(_reference(doi=None, arxiv_id="1706.03762v7"), CachedStorage())
+    unversioned = resolve(_reference(doi=None, arxiv_id="1706.03762"), MissingStorage())
+    mixed = resolve(
+        _reference(doi="10.1000/182", arxiv_id="1706.03762v7"), MissingStorage()
     )
-    unsupported = semantic._resolve_from_operator_cache(
-        _reference(doi="10.1000/182", arxiv_id=None),
-        settings,
+    crossref_matched = resolve(
+        replace(
+            _reference(doi=None, arxiv_id=None),
+            provider_record={"provider": "crossref", "doi": "10.1000/matched"},
+        ),
         MissingStorage(),
     )
-    unversioned = semantic._resolve_from_operator_cache(
-        _reference(doi=None, arxiv_id="1706.03762"),
-        settings,
-        MissingStorage(),
-    )
-    mixed = semantic._resolve_from_operator_cache(
-        _reference(doi="10.1000/182", arxiv_id="1706.03762v7"),
-        settings,
-        MissingStorage(),
-    )
+    over_budget = resolve(_reference(doi="10.1000/third"), MissingStorage())
 
     assert cached == expected
-    assert unsupported is None
-    assert unversioned is None
-    assert mixed is None
-    assert downloads == 0
+    assert (unversioned, mixed, crossref_matched, over_budget) == (None,) * 4
+    assert arxiv_downloads == []
+    # Mixed DOI+arXiv references use the DOI lane; the budget stops the third.
+    assert openalex_lookups == ["10.1000/182", "10.1000/matched"]
+
+
+def test_openalex_lane_tries_only_open_access_pdf_locations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    work = {
+        "best_oa_location": {"is_oa": True, "pdf_url": "https://arxiv.org/pdf/1"},
+        "locations": [
+            {"is_oa": False, "pdf_url": "https://publisher.test/paywalled.pdf"},
+            {"is_oa": True, "pdf_url": "https://arxiv.org/pdf/1"},
+            {"is_oa": True, "pdf_url": "https://repository.test/a.pdf"},
+            {"is_oa": True, "pdf_url": "https://repository.test/b.pdf"},
+        ],
+    }
+    requested: list[str] = []
+
+    def fake_fetch(url: str, **_kwargs: object) -> bytes:
+        requested.append(url)
+        if url.startswith("https://api.openalex.org/"):
+            return json.dumps(work).encode()
+        return b"%PDF-1.7" if url.endswith("a.pdf") else b"<html>"
+
+    monkeypatch.setattr(semantic, "fetch_public_https", fake_fetch)
+    monkeypatch.setattr(semantic, "_wait_for_arxiv_pdf_rate_limit", lambda: None)
+
+    pdfs = list(semantic._open_access_pdfs("10.1000/ABC", 1_000))
+
+    assert pdfs == [b"%PDF-1.7"]
+    assert requested == [
+        "https://api.openalex.org/works/doi:10.1000/abc"
+        "?select=best_oa_location,locations",
+        "https://arxiv.org/pdf/1",
+        "https://repository.test/a.pdf",
+    ]
 
 
 def test_arxiv_downloader_uses_fixed_url_and_denies_invalid_responses(

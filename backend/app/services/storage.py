@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -262,23 +263,18 @@ class S3Storage:
             body.close()
         return data
 
-    def put_private_pdf(
+    def put_private_object(
         self,
         key: str,
         data: bytes,
         *,
-        arxiv_id: str,
-        sha256: str,
-        provenance: str = "arxiv_oa_download",
+        content_type: str,
+        metadata: Mapping[str, str],
     ) -> None:
         self._internal.put_object(
             Bucket=self.bucket,
             Key=key,
             Body=data,
-            ContentType="application/pdf",
-            Metadata={
-                "arxiv-id": arxiv_id,
-                "sha256": sha256,
-                "provenance": provenance,
-            },
+            ContentType=content_type,
+            Metadata=dict(metadata),
         )

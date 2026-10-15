@@ -1,4 +1,4 @@
-"""Compare bounded BM25 retrieval with BGE-M3 dense retrieval and RRF."""
+"""Compare bounded BM25 retrieval with BGE-M3 dense retrieval."""
 
 from __future__ import annotations
 
@@ -84,8 +84,7 @@ def main() -> None:
     query_seconds = time.perf_counter() - started
 
     metrics = {
-        name: {"hit": 0, "mrr_at_3_sum": 0.0, "top1": 0}
-        for name in ("bm25", "dense", "bm25_rrf")
+        name: {"hit": 0, "mrr_at_3_sum": 0.0, "top1": 0} for name in ("bm25", "dense")
     }
     for candidate, query_vector in zip(candidates, query_vectors, strict=True):
         query = candidate["expected_extraction"]["claim_text"]
@@ -101,15 +100,6 @@ def main() -> None:
                 for passage, _score in retrieve_passages(query, source, top_k=3)
             ],
             "dense": dense_ids[:3],
-            "bm25_rrf": [
-                passage.passage_id
-                for passage, _score in retrieve_passages(
-                    query,
-                    source,
-                    dense_ids,
-                    top_k=3,
-                )
-            ],
         }
         gold = set(candidate["expected_retrieval"]["evidence_passage_ids"])
         for name, passage_ids in ranked_ids.items():

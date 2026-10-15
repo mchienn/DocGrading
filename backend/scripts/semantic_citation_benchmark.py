@@ -704,9 +704,9 @@ def run_stage3_retrieval(
         "cross_lingual": group_metrics(groups["cross_lingual"]),
         "monolingual": group_metrics(groups["monolingual"]),
         "note": (
-            "Production remains BM25-only. A separate BGE-M3 experiment on"
-            " this same synthetic corpus measured lower Hit@3 for dense and"
-            " BM25+dense RRF retrieval."
+            "Stage 3 measures the BM25 fallback. On this synthetic corpus (five"
+            " passages per source) BGE-M3 dense measured lower Hit@3; on real"
+            " papers it measured far higher for Vietnamese claims."
         ),
     }
 
@@ -1084,10 +1084,12 @@ def render_markdown_report(
             "",
             (
                 "*Note: Evaluated on 104 full-text candidates with anchored"
-                " source passages. A separate BGE-M3 experiment on this same"
-                " synthetic corpus measured lower Hit@3 for dense (91.35%)"
-                " and BM25+dense RRF (86.54%) than BM25 (93.27%), so no dense"
-                " production dependency was added.*"
+                " source passages. This stage measures the BM25 fallback used"
+                " when no encoder is configured. BGE-M3 dense measured 91.35%"
+                " Hit@3 here versus 93.27% for BM25, but each synthetic source has"
+                " only five passages; on real arXiv papers dense retrieval is far"
+                " ahead for Vietnamese claims (see"
+                " `docs/benchmarks/bge-m3-retrieval-2026-09-24.md`).*"
             ),
             "",
             f"- Evaluated Candidates: **{stage3['evaluated_count']}**",
@@ -1210,10 +1212,9 @@ def render_markdown_report(
                 " domain experts is conducted."
             ),
             (
-                "2. **Dense Retrieval & RRF Disabled**: BGE-M3 was measured"
-                " separately on this synthetic corpus. It improved MRR@3/top-1"
-                " but reduced primary Hit@3 and added substantial CPU latency"
-                " and memory. See"
+                "2. **Encoder Retrieval Not Scored Here**: Configured deployments"
+                " rank passages with the shared encoder instead of BM25. Its"
+                " measurements on this corpus and on real papers are in"
                 " `docs/benchmarks/bge-m3-retrieval-2026-09-24.md`."
             ),
             (

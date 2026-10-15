@@ -11,10 +11,12 @@ import threading
 import time
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
+from array import array
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol
@@ -41,6 +43,13 @@ from app.services.citation import (
     extract_arxiv_id,
 )
 from app.services.document_ir import parse_document_ir
+from app.services.safe_fetch import fetch_public_https
+from app.services.text_encoder import (
+    TextEncoder,
+    TextEncoderError,
+    encoder_from_settings,
+    similarity_order,
+)
 
 MAX_CLAIM_CHARS = 2_000
 MAX_CONTEXT_CHARS = 1_000
@@ -55,7 +64,7 @@ SOURCE_WORD_X_TOLERANCE_RATIO = 0.15
 MAX_MODEL_TOKENS = 1_024
 SEMANTIC_EVALUATOR_VERSION = "citation-semantic-v1"
 SEMANTIC_SOURCE_IR_VERSION = 3
-SEMANTIC_RETRIEVAL_VERSION = "bm25-rrf-v2"
+SEMANTIC_RETRIEVAL_VERSION = "bm25-or-encoder-v3"
 SEMANTIC_PROMPT_VERSION = "citation-semantic-v1"
 _GEOGRAPHIC_MODEL_PROFILES = ("us.", "eu.", "apac.", "us-gov.", "au.", "jp.", "ca.")
 _SEMANTIC_SYSTEM_PROMPT = (
@@ -419,9 +428,11 @@ class SourceLoader(Protocol):
 
 
 class DenseRanker(Protocol):
+    """Passage IDs in relevance order, or None to fall back to BM25."""
+
     def __call__(
         self, query: str, passages: Sequence[SemanticSourcePassage]
-    ) -> Sequence[str]: ...
+    ) -> Sequence[str] | None: ...
 
 
 class SemanticModel(Protocol):
@@ -1024,7 +1035,30 @@ def retrieve_passages(
     *,
     top_k: int = MAX_PASSAGES,
 ) -> list[tuple[SemanticSourcePassage, float]]:
+    """Top passages by encoder order when given, else by BM25.
+
+    Encoder order is used alone: fusing it with BM25 measured worse on both the
+    synthetic set and real papers, because BM25 ranks are noise for claims in a
+    different language from the source.
+    """
     top_k = max(1, min(MAX_PASSAGES, top_k))
+    if dense_rankings is not None:
+        by_id = {passage.passage_id: passage for passage in source.passages}
+        ordered = [
+            by_id[item] for item in dict.fromkeys(dense_rankings) if item in by_id
+        ]
+        return [
+            (
+                passage.model_copy(
+                    update={
+                        "retrieval_score": 1 / (index + 1),
+                        "retrieval_rank": index + 1,
+                    }
+                ),
+                1 / (index + 1),
+            )
+            for index, passage in enumerate(ordered[:top_k])
+        ]
     query = _retrieval_query(query)
     terms = Counter(_tokens(query))
     docs = [Counter(_tokens(item.text)) for item in source.passages]
@@ -1053,25 +1087,6 @@ def retrieve_passages(
         )
         lexical.append((passage, score))
     lexical.sort(key=lambda item: (-item[1], item[0].passage_id))
-    if dense_rankings is None:
-        return [
-            (
-                passage.model_copy(
-                    update={"retrieval_score": score, "retrieval_rank": index + 1}
-                ),
-                score,
-            )
-            for index, (passage, score) in enumerate(lexical[:top_k])
-        ]
-    dense = {item: index + 1 for index, item in enumerate(dense_rankings)}
-    fused = [
-        (
-            passage,
-            1 / (60 + index + 1) + 1 / (60 + dense.get(passage.passage_id, 10_000)),
-        )
-        for index, (passage, _) in enumerate(lexical)
-    ]
-    fused.sort(key=lambda item: (-item[1], item[0].passage_id))
     return [
         (
             passage.model_copy(
@@ -1079,8 +1094,120 @@ def retrieve_passages(
             ),
             score,
         )
-        for index, (passage, score) in enumerate(fused[:top_k])
+        for index, (passage, score) in enumerate(lexical[:top_k])
     ]
+
+
+_RERANK_CANDIDATES = 20
+_MAX_EMBEDDING_CACHE_BYTES = 16_000_000
+
+
+class EncoderRanker:
+    """DenseRanker backed by the shared text encoder.
+
+    Source passage vectors are computed once per encoder, Source IR version and
+    source hash, and kept next to cached source PDFs when a private cache prefix is
+    configured. Claims are de-identified before leaving the worker. Encoder order
+    is reranked with the cross-encoder when one is configured. Any encoder failure
+    returns None, so retrieval falls back to BM25 for that claim.
+    """
+
+    def __init__(
+        self,
+        encoder: TextEncoder,
+        *,
+        sensitive_values: Sequence[str] = (),
+        display_name: str | None = None,
+        storage: Any | None = None,
+        cache_prefix: str = "",
+    ) -> None:
+        self.encoder = encoder
+        self._sensitive_values = tuple(sensitive_values)
+        self._display_name = display_name
+        self._storage = storage
+        self._cache_prefix = cache_prefix.strip("/")
+        self._vectors: dict[str, list[array]] = {}
+        self.failures = 0
+
+    def __call__(
+        self, query: str, passages: Sequence[SemanticSourcePassage]
+    ) -> list[str] | None:
+        if not passages:
+            return None
+        claim = deidentify_provider_text(
+            query, self._sensitive_values, display_name=self._display_name
+        )
+        try:
+            documents = self._document_vectors(passages)
+            [query_vector] = self.encoder.embed([claim], kind="query")
+            order = similarity_order(query_vector, documents)
+            top = order[:_RERANK_CANDIDATES]
+            scores = self.encoder.rerank(claim, [passages[i].text for i in top])
+        except (TextEncoderError, ValueError):
+            self.failures += 1
+            return None
+        if scores is not None:
+            ranked = sorted(range(len(top)), key=lambda i: (-scores[i], i))
+            order = [top[i] for i in ranked] + order[_RERANK_CANDIDATES:]
+        return [passages[index].passage_id for index in order]
+
+    def _document_vectors(
+        self, passages: Sequence[SemanticSourcePassage]
+    ) -> list[array]:
+        source_hash = passages[0].source_hash
+        if source_hash in self._vectors:
+            vectors = self._vectors[source_hash]
+        else:
+            key = (
+                f"{self._cache_prefix}/embeddings/"
+                + hashlib.sha256(
+                    f"{self.encoder.fingerprint}|{SEMANTIC_SOURCE_IR_VERSION}|"
+                    f"{source_hash}".encode()
+                ).hexdigest()
+                + ".f32"
+            )
+            vectors = self._cached(key, len(passages))
+            if vectors is None:
+                vectors = self.encoder.embed(
+                    [passage.text for passage in passages], kind="document"
+                )
+                self._store(key, vectors)
+            self._vectors[source_hash] = vectors
+        if len(vectors) != len(passages):
+            raise ValueError("passage vectors do not match source passages")
+        return vectors
+
+    def _cached(self, key: str, count: int) -> list[array] | None:
+        if self._storage is None or not self._cache_prefix:
+            return None
+        try:
+            data = self._storage.get_bounded(key, _MAX_EMBEDDING_CACHE_BYTES)
+        except Exception:
+            return None
+        flat = array("f")
+        if len(data) > _MAX_EMBEDDING_CACHE_BYTES or len(data) % (4 * count):
+            return None
+        flat.frombytes(data)
+        size = len(flat) // count
+        if not size:
+            return None
+        return [flat[index * size : (index + 1) * size] for index in range(count)]
+
+    def _store(self, key: str, vectors: Sequence[array]) -> None:
+        if self._storage is None or not self._cache_prefix:
+            return
+        flat = array("f")
+        for vector in vectors:
+            flat.extend(vector)
+        try:
+            self._storage.put_private_object(
+                key,
+                flat.tobytes(),
+                content_type="application/octet-stream",
+                metadata={"encoder": self.encoder.fingerprint},
+            )
+        except Exception:
+            return
 
 
 def _feedback(
@@ -1673,6 +1800,37 @@ def _safe_model(criterion: Any) -> SemanticModel | None:
     return model if model is not None and hasattr(model, "evaluate") else None
 
 
+async def _submission_identity(
+    db: Any, job: Any
+) -> tuple[tuple[str, ...], str | None] | None:
+    """Submission owner's ID, email and display name for outbound redaction."""
+    import sqlalchemy as sa
+
+    from app.models.identity import User
+    from app.models.submission import DocumentVersion, Submission
+
+    identity = (
+        await db.execute(
+            sa.select(User.id, User.email, User.display_name)
+            .join(Submission, Submission.student_id == User.id)
+            .join(DocumentVersion, DocumentVersion.submission_id == Submission.id)
+            .where(DocumentVersion.id == job.document_version_id)
+        )
+    ).one_or_none()
+    if identity is None:
+        return None
+    user_id = str(getattr(identity, "id", identity[0]))
+    user_email = str(getattr(identity, "email", identity[1]))
+    raw_display_name = getattr(
+        identity, "display_name", identity[2] if len(identity) > 2 else None
+    )
+    display_name = str(raw_display_name) if raw_display_name is not None else None
+    values = tuple(
+        value for value in (user_id, user_email, display_name) if value is not None
+    )
+    return values, display_name
+
+
 async def _snapshot_model(db: Any, job: Any) -> SemanticModel | None:
     snapshot = getattr(job, "snapshot", None)
     route = snapshot.get("llm_route") if isinstance(snapshot, Mapping) else None
@@ -1683,8 +1841,6 @@ async def _snapshot_model(db: Any, job: Any) -> SemanticModel | None:
 
         from app.models import LLMProviderConfig
         from app.models.enums import LLMCredentialSource, LLMProtocol, LLMProvider
-        from app.models.identity import User
-        from app.models.submission import DocumentVersion, Submission
         from app.services.llm_credentials import (
             credential_fingerprint,
             parse_keyring,
@@ -1713,33 +1869,13 @@ async def _snapshot_model(db: Any, job: Any) -> SemanticModel | None:
             != "CATALOG_VERIFIED"
         ):
             return None
-        identity = (
-            await db.execute(
-                sa.select(User.id, User.email, User.display_name)
-                .join(Submission, Submission.student_id == User.id)
-                .join(
-                    DocumentVersion,
-                    DocumentVersion.submission_id == Submission.id,
-                )
-                .where(DocumentVersion.id == job.document_version_id)
-            )
-        ).one_or_none()
+        identity = await _submission_identity(db, job)
         if identity is None:
             return None
         route_data = dict(route)
-        user_id = str(getattr(identity, "id", identity[0]))
-        user_email = str(getattr(identity, "email", identity[1]))
-        raw_display_name = getattr(
-            identity, "display_name", identity[2] if len(identity) > 2 else None
-        )
-        user_display_name = (
-            str(raw_display_name) if raw_display_name is not None else None
-        )
-        route_data["_redact_values"] = tuple(
-            val for val in (user_id, user_email, user_display_name) if val is not None
-        )
-        if user_display_name:
-            route_data["_redact_display_name"] = user_display_name
+        route_data["_redact_values"], display_name = identity
+        if display_name:
+            route_data["_redact_display_name"] = display_name
         if row.provider is LLMProvider.BEDROCK:
             if LLMProtocol(str(route["protocol"])) is not LLMProtocol.BEDROCK_CONVERSE:
                 return None
@@ -1923,13 +2059,95 @@ def _source_from_pdf_bytes(
     )
 
 
+_OPENALEX_WORK_URL = (
+    "https://api.openalex.org/works/doi:{doi}?select=best_oa_location,locations"
+)
+_MAX_OPEN_ACCESS_PDFS_PER_SOURCE = 2
+_MAX_OPEN_ACCESS_LOOKUPS_PER_JOB = 16
+_PDF_CONTENT_TYPES = frozenset({"application/pdf", "application/octet-stream"})
+
+
+@dataclass
+class SourceFetchBudget:
+    """Per-job cap on network source lookups beyond the arXiv lane."""
+
+    remaining: int = _MAX_OPEN_ACCESS_LOOKUPS_PER_JOB
+
+    def take(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
+def _verified_doi(reference: CitationReference) -> str | None:
+    """DOI printed in the reference, else the DOI Crossref matched it to."""
+    record = reference.provider_record or {}
+    if reference.doi:
+        return reference.doi
+    if record.get("provider") == "crossref" and record.get("doi"):
+        return str(record["doi"])
+    return None
+
+
+def _open_access_pdfs(doi: str, limit: int) -> Iterator[bytes]:
+    """Open-access PDF copies OpenAlex lists for a DOI, best location first.
+
+    Only locations flagged `is_oa` are tried, so paywalled publisher copies are
+    never requested. Hosts come from OpenAlex, not from the report, and each
+    download goes through the public-HTTPS fetcher.
+    """
+    body = fetch_public_https(
+        _OPENALEX_WORK_URL.format(doi=urllib.parse.quote(doi.lower(), safe="/")),
+        accept="application/json",
+        content_types={"application/json"},
+        max_bytes=2_000_000,
+    )
+    try:
+        work = json.loads(body) if body else {}
+    except ValueError:
+        return
+    if not isinstance(work, Mapping):
+        return
+    locations = [work.get("best_oa_location"), *(work.get("locations") or [])]
+    urls: list[str] = []
+    for location in locations:
+        if not isinstance(location, Mapping) or location.get("is_oa") is not True:
+            continue
+        url = location.get("pdf_url")
+        if isinstance(url, str) and url not in urls:
+            urls.append(url)
+    for url in urls[:_MAX_OPEN_ACCESS_PDFS_PER_SOURCE]:
+        if (urlsplit(url).hostname or "").endswith("arxiv.org"):
+            _wait_for_arxiv_pdf_rate_limit()
+        data = fetch_public_https(
+            url,
+            accept="application/pdf, application/octet-stream",
+            content_types=_PDF_CONTENT_TYPES,
+            max_bytes=limit,
+        )
+        if data and data.startswith(b"%PDF-"):
+            yield data
+
+
 def _resolve_from_operator_cache(
     reference: CitationReference,
     settings: Any,
     storage: Any | None = None,
+    fetch_budget: SourceFetchBudget | None = None,
 ) -> SemanticSource | None:
+    """Source IR for a verified reference: private cache, then live download.
+
+    Downloads need `semantic_source_fetch_enabled`. An arXiv-only reference uses
+    its exact arXiv version; a reference with a DOI (printed or matched by
+    Crossref) uses open-access copies listed by OpenAlex. Every downloaded PDF is
+    parsed and identity-checked before it is cached or used.
+    """
     if settings is None:
         return None
+    doi = _verified_doi(reference)
+    if doi != reference.doi:
+        reference = replace(reference, doi=doi)
     prefix = getattr(settings, "semantic_source_cache_prefix", "") or ""
     key = derive_cache_key(reference, prefix)
     if not key:
@@ -1963,38 +2181,49 @@ def _resolve_from_operator_cache(
                 provenance,
                 require_pdf_magic=is_arxiv,
             )
-        if not (
-            reference.arxiv_id
-            and not reference.doi
-            and _exact_arxiv_id(reference.arxiv_id)
-            and reference.identity_status == VERIFIED
-            and bool(getattr(settings, "semantic_arxiv_fetch_enabled", False))
+        if reference.identity_status != VERIFIED or not bool(
+            getattr(settings, "semantic_source_fetch_enabled", False)
         ):
             return None
-        data = _download_arxiv_pdf(reference.arxiv_id, source_limit)
-        if data is None:
+        if reference.arxiv_id and not reference.doi:
+            if not _exact_arxiv_id(reference.arxiv_id):
+                return None
+            arxiv = _download_arxiv_pdf(reference.arxiv_id, source_limit)
+            candidates: Iterable[bytes] = [arxiv] if arxiv else []
+            provenance = "arxiv_oa_download"
+            identifier = reference.arxiv_id
+        elif reference.doi and (fetch_budget or SourceFetchBudget()).take():
+            candidates = _open_access_pdfs(reference.doi, source_limit)
+            provenance = "openalex_oa_download"
+            identifier = reference.doi
+        else:
             return None
-        source = _source_from_pdf_bytes(
-            reference,
-            key,
-            data,
-            source_limit,
-            "arxiv_oa_download",
-            require_pdf_magic=True,
-        )
-        if source is None:
-            return None
-        try:
-            storage.put_private_pdf(
+        for data in candidates:
+            source = _source_from_pdf_bytes(
+                reference,
                 key,
                 data,
-                arxiv_id=reference.arxiv_id,
-                sha256=hashlib.sha256(data).hexdigest(),
-                provenance="arxiv_oa_download",
+                source_limit,
+                provenance,
+                require_pdf_magic=True,
             )
-        except Exception:
-            return None
-        return source
+            if source is None:
+                continue
+            try:
+                storage.put_private_object(
+                    key,
+                    data,
+                    content_type="application/pdf",
+                    metadata={
+                        "source-id": identifier,
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                        "provenance": provenance,
+                    },
+                )
+            except Exception:
+                return None
+            return source
+        return None
     except Exception:
         return None
 
@@ -2072,6 +2301,7 @@ def _audit_trace(
     report: SemanticCitationReportResponse,
     elapsed_ms: float,
     deterministic_short_circuits: int = 0,
+    ranker: EncoderRanker | None = None,
 ) -> dict[str, Any]:
     budget = call_budget
     model_trace = (
@@ -2122,6 +2352,16 @@ def _audit_trace(
                 else ""
             ),
             "model_enabled": model is not None,
+            "encoder": (
+                {
+                    "model": ranker.encoder.model,
+                    "fingerprint": ranker.encoder.fingerprint,
+                    "reranker": bool(ranker.encoder.rerank_url),
+                    "failures": ranker.failures,
+                }
+                if ranker is not None
+                else None
+            ),
             "deterministic_short_circuits": max(0, deterministic_short_circuits),
         },
         "model": model_trace,
@@ -2206,7 +2446,30 @@ async def evaluate_semantic_citations(
         )
     )
     model = _BudgetedSemanticModel(raw_model, budget) if raw_model is not None else None
+    encoder = encoder_from_settings(settings)
+    if not callable(dense_ranker) and encoder is not None:
+        # Without the owner identity a claim cannot be de-identified before it
+        # leaves the worker, so retrieval stays on BM25.
+        try:
+            identity = await _submission_identity(db, job)
+            prefix = getattr(settings, "semantic_source_cache_prefix", "") or ""
+            storage = None
+            if prefix:
+                from app.services.storage import S3Storage
+
+                storage = S3Storage(settings=settings)
+        except Exception:
+            identity = None
+        if identity is not None:
+            dense_ranker = EncoderRanker(
+                encoder,
+                sensitive_values=identity[0],
+                display_name=identity[1],
+                storage=storage,
+                cache_prefix=prefix,
+            )
     sources_by_canonical: dict[str, SemanticSource | None] = {}
+    fetch_budget = SourceFetchBudget()
     verified_sources: dict[str, SemanticSource] = {}
     results: list[SemanticCitationResultResponse] = []
     deterministic_short_circuits = 0
@@ -2249,7 +2512,11 @@ async def evaluate_semantic_citations(
             elif settings and (settings.semantic_source_cache_prefix or "").strip():
                 try:
                     candidate = await asyncio.to_thread(
-                        _resolve_from_operator_cache, reference, settings
+                        _resolve_from_operator_cache,
+                        reference,
+                        settings,
+                        None,
+                        fetch_budget,
                     )
                     sources_by_canonical[canonical_id] = candidate
                 except Exception:
@@ -2372,6 +2639,7 @@ async def evaluate_semantic_citations(
         report=report_response,
         elapsed_ms=(time.perf_counter() - started) * 1_000,
         deterministic_short_circuits=deterministic_short_circuits,
+        ranker=dense_ranker if isinstance(dense_ranker, EncoderRanker) else None,
     )
     job.snapshot = snapshot
     return len(pending)
