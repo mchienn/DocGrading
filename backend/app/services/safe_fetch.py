@@ -4,7 +4,10 @@ Used for URLs that come from metadata providers rather than from code constants
 (for example open-access PDF locations). Every hop, including redirects, must be
 HTTPS on port 443 to a host whose every resolved address is globally routable; the
 connection goes to the address that was checked, so DNS cannot be re-bound between
-the check and the request. Proxies from the environment are never used.
+the check and the request. Addresses embedding an IPv4 address (NAT64,
+IPv4-compatible) are judged by that IPv4 address. A whole fetch, redirects and
+body included, stops after `_MAX_FETCH_SECONDS`, so a host trickling bytes cannot
+hold a worker. Proxies from the environment are never used.
 """
 
 from __future__ import annotations
@@ -13,10 +16,18 @@ import http.client
 import ipaddress
 import socket
 import ssl
+import time
 from collections.abc import Collection
 from urllib.parse import urljoin, urlsplit
 
 _REDIRECTS = {301, 302, 303, 307, 308}
+_MAX_FETCH_SECONDS = 60.0
+_READ_CHUNK = 65_536
+# A NAT64 gateway or IPv4-compatible address reaches the embedded IPv4 address.
+_EMBEDDED_IPV4 = (
+    ipaddress.ip_network("64:ff9b::/96"),
+    ipaddress.ip_network("::/96"),
+)
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -31,16 +42,20 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
+def _is_public(address: str) -> bool:
+    ip = ipaddress.ip_address(address.split("%", 1)[0])
+    if ip.version == 6 and any(ip in network for network in _EMBEDDED_IPV4):
+        ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return ip.is_global
+
+
 def _public_address(host: str) -> str | None:
     try:
         infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     except (OSError, UnicodeError):
         return None
     addresses = {info[4][0] for info in infos}
-    if not addresses or not all(
-        ipaddress.ip_address(address.split("%", 1)[0]).is_global
-        for address in addresses
-    ):
+    if not addresses or not all(_is_public(address) for address in addresses):
         return None
     # IPv4 first: containers often lack an IPv6 route.
     return sorted(addresses, key=lambda address: (":" in address, address))[0]
@@ -56,6 +71,7 @@ def fetch_public_https(
     max_redirects: int = 3,
 ) -> bytes | None:
     """Body of a 200 response, or None for any refusal or failure."""
+    deadline = time.monotonic() + _MAX_FETCH_SECONDS
     for _hop in range(max_redirects + 1):
         try:
             parts = urlsplit(url)
@@ -98,8 +114,15 @@ def fetch_public_https(
             declared = response.getheader("Content-Length")
             if declared and declared.isdigit() and int(declared) > max_bytes:
                 return None
-            body = response.read(max_bytes + 1)
-            return body if len(body) <= max_bytes else None
+            body = bytearray()
+            while len(body) <= max_bytes:
+                if time.monotonic() > deadline:
+                    return None
+                chunk = response.read(min(_READ_CHUNK, max_bytes + 1 - len(body)))
+                if not chunk:
+                    return bytes(body)
+                body += chunk
+            return None
         except (OSError, http.client.HTTPException, ValueError):
             return None
         finally:

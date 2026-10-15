@@ -46,7 +46,6 @@ from app.services.document_ir import parse_document_ir
 from app.services.safe_fetch import fetch_public_https
 from app.services.text_encoder import (
     TextEncoder,
-    TextEncoderError,
     encoder_from_settings,
     similarity_order,
 )
@@ -1105,11 +1104,12 @@ _MAX_EMBEDDING_CACHE_BYTES = 16_000_000
 class EncoderRanker:
     """DenseRanker backed by the shared text encoder.
 
-    Source passage vectors are computed once per encoder, Source IR version and
-    source hash, and kept next to cached source PDFs when a private cache prefix is
-    configured. Claims are de-identified before leaving the worker. Encoder order
-    is reranked with the cross-encoder when one is configured. Any encoder failure
-    returns None, so retrieval falls back to BM25 for that claim.
+    Source passage vectors are computed once per encoder and exact passage texts,
+    and kept next to cached source PDFs when a private cache prefix is configured;
+    keying by text means parser changes can never pair old vectors with new
+    passages. Claims are de-identified before leaving the worker. Encoder order is
+    reranked with the cross-encoder when one is configured. Any failure returns
+    None, so retrieval falls back to BM25 for that claim.
     """
 
     def __init__(
@@ -1143,7 +1143,7 @@ class EncoderRanker:
             order = similarity_order(query_vector, documents)
             top = order[:_RERANK_CANDIDATES]
             scores = self.encoder.rerank(claim, [passages[i].text for i in top])
-        except (TextEncoderError, ValueError):
+        except Exception:
             self.failures += 1
             return None
         if scores is not None:
@@ -1158,14 +1158,10 @@ class EncoderRanker:
         if source_hash in self._vectors:
             vectors = self._vectors[source_hash]
         else:
-            key = (
-                f"{self._cache_prefix}/embeddings/"
-                + hashlib.sha256(
-                    f"{self.encoder.fingerprint}|{SEMANTIC_SOURCE_IR_VERSION}|"
-                    f"{source_hash}".encode()
-                ).hexdigest()
-                + ".f32"
-            )
+            digest = hashlib.sha256(self.encoder.fingerprint.encode())
+            for passage in passages:
+                digest.update(b"\x00" + passage.text.encode())
+            key = f"{self._cache_prefix}/embeddings/{digest.hexdigest()}.f32"
             vectors = self._cached(key, len(passages))
             if vectors is None:
                 vectors = self.encoder.embed(
@@ -2090,6 +2086,40 @@ def _verified_doi(reference: CitationReference) -> str | None:
     return None
 
 
+def _accept_source(
+    reference: CitationReference, source: SemanticSource
+) -> SemanticSource | None:
+    """Re-check a resolved source against the reference and stamp its metadata.
+
+    Uses the same DOI as source acquisition (printed, else Crossref-matched), so a
+    PDF accepted there for carrying that DOI is not rejected here.
+    """
+    reference = replace(reference, doi=_verified_doi(reference))
+    if not _identity_match(
+        reference,
+        SourceDescriptor(
+            source_id=source.source_id,
+            doi=reference.doi,
+            arxiv_id=reference.arxiv_id,
+            title=reference.title,
+            authors=tuple(reference.authors),
+            access_type=source.access_type,
+        ),
+        " ".join(item.text for item in source.passages),
+        pages=source.passages,
+    ):
+        return None
+    return source.model_copy(
+        update={
+            "identifier": reference.doi or reference.arxiv_id or source.identifier,
+            "doi": reference.doi,
+            "arxiv_id": reference.arxiv_id,
+            "title": reference.title,
+            "authors": list(reference.authors),
+        }
+    )
+
+
 def _open_access_pdfs(doi: str, limit: int) -> Iterator[bytes]:
     """Open-access PDF copies OpenAlex lists for a DOI, best location first.
 
@@ -2526,32 +2556,8 @@ async def evaluate_semantic_citations(
 
         source = sources_by_canonical.get(canonical_id)
         if source is not None:
-            if not _identity_match(
-                reference,
-                SourceDescriptor(
-                    source_id=source.source_id,
-                    doi=reference.doi,
-                    arxiv_id=reference.arxiv_id,
-                    title=reference.title,
-                    authors=tuple(reference.authors),
-                    access_type=source.access_type,
-                ),
-                " ".join(item.text for item in source.passages),
-                pages=source.passages,
-            ):
-                source = None
-            else:
-                source = source.model_copy(
-                    update={
-                        "identifier": (
-                            reference.doi or reference.arxiv_id or source.identifier
-                        ),
-                        "doi": reference.doi,
-                        "arxiv_id": reference.arxiv_id,
-                        "title": reference.title,
-                        "authors": list(reference.authors),
-                    }
-                )
+            source = _accept_source(reference, source)
+            if source is not None:
                 verified_sources[canonical_id] = source
         calls_before = model.calls if model is not None else None
         result = await asyncio.to_thread(

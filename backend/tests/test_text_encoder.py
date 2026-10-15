@@ -93,20 +93,31 @@ def test_embed_accepts_rows_without_index_in_input_order(
 def test_rerank_maps_scores_back_to_input_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _fake_opener(
+    sent = _fake_opener(
         monkeypatch,
         lambda _url, _payload: [{"index": 1, "score": 0.9}, {"index": 0, "score": 0.1}],
     )
-    encoder = TextEncoder("http://encoder", "m", rerank_url="http://reranker")
+    encoder = TextEncoder(
+        "https://encoder.test/v1",
+        "m",
+        api_key="secret-key",
+        rerank_url="http://reranker",
+    )
 
     assert encoder.rerank("q", ["a", "b"]) == [0.1, 0.9]
+    # The embeddings API key never goes to the (plain-HTTP) reranker.
+    assert "Authorization" not in sent[0]["headers"]
+    assert "secret-key" not in repr(encoder)
     assert TextEncoder("http://encoder", "m").rerank("q", ["a"]) is None
 
 
+@pytest.mark.parametrize(
+    "body", [{"data": []}, {"data": [[0.1, 0.2]]}, {"data": [{"index": 1e400}]}]
+)
 def test_invalid_response_raises_sanitized_error(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, body: dict
 ) -> None:
-    _fake_opener(monkeypatch, lambda _url, _payload: {"data": []})
+    _fake_opener(monkeypatch, lambda _url, _payload: body)
     with pytest.raises(TextEncoderError) as error:
         TextEncoder("http://encoder", "m").embed(["secret claim"], kind="query")
     assert "secret claim" not in str(error.value)
@@ -148,7 +159,8 @@ class _FakeEncoder:
 
     def embed(self, texts: Sequence[str], *, kind: str) -> list[array]:
         if self.fail:
-            raise TextEncoderError("encoder unavailable")
+            # Not a TextEncoderError: any failure must still fall back to BM25.
+            raise AttributeError("unexpected response shape")
         if kind == "query":
             self.queries.extend(texts)
             return [array("f", [1.0, 0.0])]

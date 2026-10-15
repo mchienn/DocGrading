@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from typing import Any
 
 import pytest
@@ -23,13 +24,13 @@ class _Response:
     def __init__(self, status: int, headers: dict[str, str], body: bytes = b"") -> None:
         self.status = status
         self._headers = headers
-        self._body = body
+        self._body = io.BytesIO(body)
 
     def getheader(self, name: str) -> str | None:
         return self._headers.get(name)
 
     def read(self, limit: int) -> bytes:
-        return self._body[:limit]
+        return self._body.read(limit)
 
 
 def _fake_connections(
@@ -74,7 +75,17 @@ def test_rejects_non_https_non_default_port_and_credentials(url: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "address", ["127.0.0.1", "10.0.0.5", "169.254.169.254", "::1", "172.30.255.3"]
+    "address",
+    [
+        "127.0.0.1",
+        "10.0.0.5",
+        "169.254.169.254",
+        "::1",
+        "172.30.255.3",
+        # NAT64 and IPv4-compatible forms of 169.254.169.254 and 127.0.0.1.
+        "64:ff9b::a9fe:a9fe",
+        "::7f00:1",
+    ],
 )
 def test_rejects_hosts_resolving_to_non_public_addresses(
     monkeypatch: pytest.MonkeyPatch, address: str
@@ -145,3 +156,32 @@ def test_follows_public_redirect_and_enforces_type_and_size(
     assert fetch("https://repo.test/a.pdf") == b"%PDF-1.7"
     assert fetch("https://cdn.test/page") is None
     assert fetch("https://cdn.test/big.pdf") is None
+
+
+def test_trickled_body_is_abandoned_at_total_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Trickle(_Response):
+        def read(self, _limit: int) -> bytes:
+            return self._body.read(1)
+
+    monkeypatch.setattr(
+        safe_fetch.socket, "getaddrinfo", _addresses({"repo.test": "93.184.216.34"})
+    )
+    _fake_connections(
+        monkeypatch,
+        {
+            "repo.test/a.pdf": Trickle(
+                200, {"Content-Type": "application/pdf"}, b"%PDF-1.7"
+            )
+        },
+    )
+    clock = iter(range(0, 1_000, 25))
+    monkeypatch.setattr(safe_fetch.time, "monotonic", lambda: next(clock))
+
+    assert (
+        fetch_public_https(
+            "https://repo.test/a.pdf", accept="*/*", content_types=_PDF, max_bytes=100
+        )
+        is None
+    )
