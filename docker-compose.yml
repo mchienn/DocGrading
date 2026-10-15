@@ -169,6 +169,35 @@ services:
       retries: 5
     networks: [backend]
 
+  # Optional self-hosted text encoder for semantic retrieval (`--profile encoder`).
+  # Point the worker at it with SEMANTIC_ENCODER_URL=http://encoder/v1,
+  # SEMANTIC_ENCODER_MODEL=BAAI/bge-m3 and SEMANTIC_RERANKER_URL=http://reranker.
+  encoder:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    profiles: [encoder]
+    command:
+      [
+        "--model-id", "BAAI/bge-m3",
+        "--revision", "5617a9f61b028005a4858fdac845db406aefb181",
+        "--auto-truncate",
+      ]
+    volumes:
+      - encoder_models:/data
+    networks: [backend]
+
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    profiles: [encoder]
+    command:
+      [
+        "--model-id", "BAAI/bge-reranker-v2-m3",
+        "--revision", "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+        "--auto-truncate",
+      ]
+    volumes:
+      - encoder_models:/data
+    networks: [backend]
+
   frontend:
     build:
       context: frontend
@@ -284,6 +313,7 @@ volumes:
   redis_data:
   localstack_data:
   storage_recovery:
+  encoder_models:
 
 networks:
   backend:

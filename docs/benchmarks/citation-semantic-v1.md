@@ -1,7 +1,7 @@
 # Citation Semantic Support v1 Benchmark Report
 
-Generated: 2026-10-09 11:15:40 UTC
-Runtime: Python 3.13.14 on Windows 11
+Generated: 2026-10-15 06:54:32 UTC
+Runtime: Python 3.13.13 on Windows 11
 Benchmark Suite: `backend/scripts/semantic_citation_benchmark.py`
 
 ## Quality Gate Outcome
@@ -80,7 +80,7 @@ Benchmark Suite: `backend/scripts/semantic_citation_benchmark.py`
 
 ## Stage 3: Lexical Passage Retrieval (BM25)
 
-*Note: Evaluated on 104 full-text candidates with anchored source passages. A separate BGE-M3 experiment on this same synthetic corpus measured lower Hit@3 for dense (91.35%) and BM25+dense RRF (86.54%) than BM25 (93.27%), so no dense production dependency was added.*
+*Note: Evaluated on 104 full-text candidates with anchored source passages. This stage measures the BM25 fallback used when no encoder is configured. BGE-M3 dense measured 91.35% Hit@3 here versus 93.27% for BM25, but each synthetic source has only five passages; on real arXiv papers dense retrieval is far ahead for Vietnamese claims (see `docs/benchmarks/bge-m3-retrieval-2026-09-24.md`).*
 
 - Evaluated Candidates: **104**
 - Hit@3: **93.27%** (97/104)
@@ -107,7 +107,7 @@ Benchmark Suite: `backend/scripts/semantic_citation_benchmark.py`
 - Verdict E2E Accuracy: **NOT_MEASURED**
 - Teacher Acceptance Rate: **NOT_MEASURED**
 - Teacher Override Rate: **NOT_MEASURED**
-- Benchmark Execution Latency: **0.047s** (0.39 ms/candidate pair across Stages 1-3)
+- Benchmark Execution Latency: **0.028s** (0.23 ms/candidate pair across Stages 1-3)
 - Model API Calls: **0**
 - Input Tokens: **0**
 - Output Tokens: **0**
@@ -116,7 +116,7 @@ Benchmark Suite: `backend/scripts/semantic_citation_benchmark.py`
 ## Errors and Known Limits
 
 1. **No Human Semantic Gold**: Current dataset is a synthetic AI draft set (`human_gold_pairs=0`). Accuracy numbers must not be claimed until independent double annotation by domain experts is conducted.
-2. **Dense Retrieval & RRF Disabled**: BGE-M3 was measured separately on this synthetic corpus. It improved MRR@3/top-1 but reduced primary Hit@3 and added substantial CPU latency and memory. See `docs/benchmarks/bge-m3-retrieval-2026-09-24.md`.
+2. **Encoder Retrieval Not Scored Here**: Configured deployments rank passages with the shared encoder instead of BM25. Its measurements on this corpus and on real papers are in `docs/benchmarks/bge-m3-retrieval-2026-09-24.md`.
 3. **Abstract-Only Denial**: Under security policy, abstract-only sources fail semantic verification (`INSUFFICIENT_EVIDENCE`), denying ungrounded claims by default.
 4. **No Live Network / AWS**: Benchmark executes 100% offline without live network, PDF parser subprocesses, or Bedrock API calls.
 

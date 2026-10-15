@@ -73,11 +73,20 @@ class Settings(BaseSettings):
     pdf_max_decoded_bytes: int = Field(default=50_000_000, gt=0)
     pdf_max_page_count: int = Field(default=100, gt=0)
     pdf_ir_max_nodes: int = Field(default=100_000, gt=0)
-    semantic_arxiv_fetch_enabled: bool = False
+    # Download verified sources (arXiv, OpenAlex open-access PDFs) into the cache.
+    semantic_source_fetch_enabled: bool = False
     semantic_source_cache_prefix: str = ""
     semantic_model_call_budget: int = Field(default=32, ge=1, le=256)
     semantic_coverage_threshold: float = Field(default=1.0, gt=0, le=1)
     semantic_max_source_bytes: int = Field(default=50_000_000, gt=0, le=50_000_000)
+    # OpenAI-compatible embeddings endpoint (Text Embeddings Inference, OpenAI,
+    # Gemini...) and optional TEI reranker; empty keeps BM25 retrieval.
+    semantic_encoder_url: str = ""
+    semantic_encoder_model: str = ""
+    semantic_encoder_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    semantic_encoder_query_prefix: str = ""
+    semantic_encoder_document_prefix: str = ""
+    semantic_reranker_url: str = ""
     llm_credential_keyring: SecretStr = Field(default=SecretStr(""), repr=False)
     llm_credential_active_key_id: str = ""
 
@@ -150,6 +159,28 @@ class Settings(BaseSettings):
             self.semantic_source_cache_prefix = prefix.strip("/")
         else:
             self.semantic_source_cache_prefix = ""
+        for name in ("semantic_encoder_url", "semantic_reranker_url"):
+            url = getattr(self, name).strip()
+            parts = urlsplit(url)
+            if url and (
+                parts.scheme not in {"http", "https"}
+                or not parts.hostname
+                or parts.username
+                or parts.password
+                or parts.query
+                or parts.fragment
+            ):
+                raise ValueError(f"{name} must be a plain http(s) URL")
+            setattr(self, name, url.rstrip("/"))
+        if self.semantic_encoder_url and not self.semantic_encoder_model.strip():
+            raise ValueError("semantic_encoder_model is required with an encoder URL")
+        if self.semantic_reranker_url and not self.semantic_encoder_url:
+            raise ValueError("semantic_reranker_url requires semantic_encoder_url")
+        if (
+            self.semantic_encoder_api_key.get_secret_value()
+            and urlsplit(self.semantic_encoder_url).scheme != "https"
+        ):
+            raise ValueError("an encoder API key requires an HTTPS encoder URL")
         return self
 
     @property

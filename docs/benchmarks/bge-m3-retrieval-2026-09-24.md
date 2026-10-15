@@ -2,11 +2,11 @@
 
 Date: 2026-09-24
 
-## Decision
+## Decision (updated 2026-10-15)
 
-Keep production retrieval on bounded BM25. Do not add BGE-M3, PyTorch, Transformers, Sentence Transformers, or NumPy to production dependencies.
+Use `BAAI/bge-m3` (with `BAAI/bge-reranker-v2-m3`) as the default self-hosted encoder, served by Text Embeddings Inference in a separate Compose profile. Python production dependencies stay unchanged: the worker talks to the encoder over HTTP and falls back to BM25 when none is configured.
 
-BGE-M3 improved ranking when evidence was found, but failed primary retrieval criterion: Hit@3 was lower than BM25. CPU latency and memory cost are too high for shared 8-vCPU/16-GB deployment target.
+The original 2026-09-24 decision kept BM25 because BGE-M3 had lower Hit@3 on the synthetic corpus below. That corpus gives each source five passages, so it cannot show cross-lingual ranking failures; the real-paper probe further down reverses the result (BM25 5/16, BGE-M3 13/16, BGE-M3 + reranker 15/16). CPU cost remains real (about 5 passages/s, 8 s per reranked claim), so passage vectors are cached per source.
 
 ## Corpus and method
 
@@ -53,7 +53,7 @@ RSS delta varies with model artifact and OS page cache; encoding time varies wit
 - No CUDA result. GPU capacity is not part of current deployment contract.
 - No production dependency or model artifact was added.
 
-Reconsider BGE-M3 only when human-gold retrieval data shows BM25 below target, dedicated resource budget exists, and candidate improves Hit@3 without violating end-to-end latency.
+Superseded on 2026-10-15: the real-paper probe below shows the synthetic corpus could not measure cross-lingual retrieval (see Decision).
 
 ## Real-paper Vietnamese probe (2026-10-14)
 
@@ -66,10 +66,11 @@ The synthetic corpus gives every source five passages, so top 3 already covers 6
 | `intfloat/multilingual-e5-large-instruct` dense | 13/16 (0.688) | 50% | 3.7 passages/s, +2.7 GB RSS |
 | `Qwen/Qwen3-Embedding-0.6B` dense | 12/16 (0.598) | 42% | not comparable (bf16 on CPU) |
 | `bge-m3` top 20 + `BAAI/bge-reranker-v2-m3` | 15/16 (0.906) | 52% | +7.8 s per query (20 pairs) |
+| `gemini-embedding-001` (hosted, production `EncoderRanker`) | 14/16 (0.708) | not run | no local CPU; free tier needed 8-text batches 12 s apart, 28 min for the five papers |
 
 Earlier on the same claims, before the two-column fix: BM25+`bge-m3` RRF 7/14 and `paraphrase-multilingual-MiniLM-L12-v2` 8/14 versus `bge-m3` 11/14; e5-small 6/14. Fusion with BM25 lowers dense quality because BM25 ranks are noise for Vietnamese queries.
 
-Dense retrieval mainly helps cross-lingual matching; for same-language in-document matching it adds 4–7 points over BM25. `multilingual-e5-large-instruct` and Qwen3 ship fp16/bf16 weights, which run several times slower on CPU unless upcast to fp32; the e5 row is fp32. All models above have MIT or Apache-2.0 licenses. Production remains BM25 until a dense path and its resource budget are approved.
+Dense retrieval mainly helps cross-lingual matching; for same-language in-document matching it adds 4–7 points over BM25. `multilingual-e5-large-instruct` and Qwen3 ship fp16/bf16 weights, which run several times slower on CPU unless upcast to fp32; the e5 row is fp32. All local models above have MIT or Apache-2.0 licenses. The Gemini row ran through the production client against Gemini's OpenAI-compatible endpoint; unpaced free-tier requests answered 429, so a hosted encoder needs paid quota or a low-volume deployment.
 
 ## Reproduce
 

@@ -38,10 +38,10 @@ Follow-up 2026-10-12: with pdfplumber's fixed 3 pt word gap, justified LaTeX pap
 
 ```dotenv
 SEMANTIC_SOURCE_CACHE_PREFIX=semantic-sources
-SEMANTIC_ARXIV_FETCH_ENABLED=true
+SEMANTIC_SOURCE_FETCH_ENABLED=true
 ```
 
-Both controls are server-owned. Default remains `SEMANTIC_ARXIV_FETCH_ENABLED=false`.
+Both controls are server-owned. Default remains `SEMANTIC_SOURCE_FETCH_ENABLED=false`.
 
 ## Primary references
 
