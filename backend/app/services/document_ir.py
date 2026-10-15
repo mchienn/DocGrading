@@ -36,7 +36,7 @@ from app.services.pdf_validation import (
 )
 
 SCHEMA_VERSION: int = 2
-PARSER_VERSION: str = "pypdf-pdfplumber-v6"
+PARSER_VERSION: str = "pypdf-pdfplumber-v7"
 
 _TABLE_SOURCE_OBJECT_TYPES = ("line", "rect", "curve")
 _MAX_TABLE_SOURCE_OBJECTS = 256
@@ -584,15 +584,18 @@ def _prose_gutter_split(
 
     `_column_split` needs a 48 pt jump between word starts, which a two-column
     paper never has: left-column words start right up to its 17 pt gutter. Here a
-    gutter is a central x range that most rows leave blank between two words and
-    few rows (title, wide figures) cross. Both sides must be justified prose, so
+    gutter is a central x range with text on both sides that few rows (title, wide
+    figures) cross. Left and right lines often sit on different baselines (page 1
+    under a full-width title), so a row counts for each side it has text on while
+    nothing in it covers the gutter. Both sides must be justified prose, so
     tables, tables of contents and equation blocks keep their row order.
     """
     if len(rows) < 12:
         return None
     minimum_gutter = _minimum_prose_gutter(page_width)
     width = math.ceil(page_width) + 2
-    gapped = [0] * (width + 1)
+    left_clear = [0] * (width + 1)
+    right_clear = [0] * (width + 1)
     crossing = [0] * (width + 1)
 
     def mark(counts: list[int], start: float, end: float) -> None:
@@ -611,10 +614,13 @@ def _prose_gutter_split(
                 spans.append([word.bbox.x0, word.bbox.x1])
         for start, end in spans:
             mark(crossing, start, end)
+        mark(left_clear, spans[-1][1], width)
+        mark(right_clear, 0, spans[0][0])
         for (_, left_end), (right_start, _) in zip(spans, spans[1:], strict=False):
             if right_start - left_end >= minimum_gutter:
-                mark(gapped, left_end, right_start)
-    for counts in (gapped, crossing):
+                mark(left_clear, left_end, right_start)
+                mark(right_clear, left_end, right_start)
+    for counts in (left_clear, right_clear, crossing):
         for x in range(1, width + 1):
             counts[x] += counts[x - 1]
 
@@ -622,12 +628,15 @@ def _prose_gutter_split(
     candidates = [
         x
         for x in range(math.ceil(page_width * 0.4), math.floor(page_width * 0.6) + 1)
-        if gapped[x] >= 10 and crossing[x] <= crossing_limit
+        if left_clear[x] >= 10
+        and right_clear[x] >= 10
+        and crossing[x] <= crossing_limit
     ]
     if not candidates:
         return None
-    best = max(gapped[x] - crossing[x] for x in candidates)
-    best_xs = [x for x in candidates if gapped[x] - crossing[x] == best]
+    score = {x: left_clear[x] + right_clear[x] - crossing[x] for x in candidates}
+    best = max(score.values())
+    best_xs = [x for x in candidates if score[x] == best]
     split = (best_xs[0] + best_xs[-1]) / 2
 
     for side in (

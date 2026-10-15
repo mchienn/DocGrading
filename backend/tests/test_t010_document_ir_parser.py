@@ -2489,6 +2489,37 @@ def test_narrow_gutter_two_column_prose_is_column_major() -> None:
     ]
 
 
+def test_narrow_gutter_columns_on_different_baselines_are_column_major() -> None:
+    # Page 1 of ACL papers: full-width title, then columns whose lines never
+    # share a baseline, so no row holds text on both sides of the gutter.
+    names = ("one", "two", "three", "four", "five", "six", "seven")
+    words = [
+        *_justified_row(["Paper", "Title"], left=200, right=400, top=60),
+        *(
+            word
+            for index in range(12)
+            for side, (left, right), offset in (
+                ("L", (72, 294), 0),
+                ("R", (307, 529), 6),
+            )
+            for word in _justified_row(
+                [f"{side}{index}{name}" for name in names],
+                left=left,
+                right=right,
+                top=100 + index * 12 + offset,
+            )
+        ),
+    ]
+
+    lines = _group_lines(words, page_width=595)
+
+    assert [line.text.split()[0] for line in lines] == [
+        "Paper",
+        *(f"L{index}one" for index in range(12)),
+        *(f"R{index}one" for index in range(12)),
+    ]
+
+
 def test_table_of_contents_leaders_keep_row_order() -> None:
     # Dot leaders leave the same central gap as a gutter but are not prose.
     words = [

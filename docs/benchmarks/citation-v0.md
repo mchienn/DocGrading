@@ -1,8 +1,8 @@
 # Citation v0 benchmark report
 
-Generated: 2026-10-14T07:43:44.871962+00:00
-Runtime: Python 3.13.14 on Windows 11
-Document IR parser: `pypdf-pdfplumber-v6`
+Generated: 2026-10-15T07:16:13.641583+00:00
+Runtime: Python 3.13.13 on Windows 11
+Document IR parser: `pypdf-pdfplumber-v7`
 
 ## Scope
 
@@ -16,7 +16,7 @@ Document IR parser: `pypdf-pdfplumber-v6`
 
 ## Corpus integration
 
-- Validation + Document IR + citation parse: **35/35 passed** in 170.59s.
+- Validation + Document IR + citation parse: **35/35 passed** in 164.14s.
 - Failed: 0.
 - Extracted across all corpus files: 421 references, 397 mentions.
 - Parser-uncertain documents: 4.
@@ -34,7 +34,7 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 - DOI/arXiv exact identifier accuracy: **98.33%**.
 - DOI positive recall: **100.00%** (1 positive labels).
 - arXiv positive recall: **95.45%** (22 positive labels).
-- Gold parse time: 44.48s.
+- Gold parse time: 42.02s.
 
 ## Identity metrics
 
@@ -64,7 +64,7 @@ Reference matching requires page overlap and normalized text similarity >= 0.82.
 - DOI: `10.1109/sp40000.2020.00063`.
 - Adapter calls: 1 for 2 resolver attempts.
 - Cache hits/rate: 1 / 50.00%.
-- First resolution latency: 0.797s; cached latency: 0.000s.
+- First resolution latency: 0.829s; cached latency: 0.000s.
 - Live identity result: `VERIFIED`; cached external ID stable: `true`.
 
 ## Errors and limits

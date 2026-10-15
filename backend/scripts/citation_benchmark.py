@@ -768,6 +768,11 @@ def _render_report(
                 "or style grading is included."
             ),
             "",
+            "Semantic claim support is benchmarked separately in",
+            "[`citation-semantic-v1.md`](citation-semantic-v1.md); "
+            "that candidate set is not",
+            "human gold, so its quality gate remains blocked.",
+            "",
             "## Reproduce",
             "",
             "```bash",
