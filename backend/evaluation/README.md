@@ -29,6 +29,10 @@ ablation over three configurations of the chatbot.
 - `retrieval_eval.py` — retrieval-only comparison (see below).
 - `regroup.py` — recomputes a run's per-group tables with the current
   document grouping, from its `_details.json`, without calling the chatbot.
+- `rescore_tier2.py` — recomputes a run's tier 2 scores (adds the fixed-k
+  P@k) from its `_details.json` and an aggregates-only base snapshot, with no
+  chatbot/LLM/DB call; stops if the original-rule numbers don't reproduce.
+  `results/ablation_20261009_baseline_regrouped_fixedk.*` came from it.
 - `cache_cases.jsonl` — 12 summary-cache cases (submission ids only).
 - `scoring.py` — pure scoring functions (reply parsers, retrieval
   precision/recall, glue heuristic, Cohen's kappa, percentiles). No
@@ -109,9 +113,17 @@ question when, for **any** of its gold locations `{page, keyword}`:
   whitespace removed — so a chunk whose words the PDF reader glued together
   ("dựatrênđồthị") still matches "dựa trên đồ thị".
 
-Then, with k = number of chunks retrieved (6 when the corpus allows):
+Then:
 
-- Context Precision@k = relevant retrieved chunks / k;
+- Context Precision@k = relevant chunks among the top 6 / 6
+  (`scoring.FIXED_K`), the same denominator for every configuration and the
+  same rule as `retrieval_eval`. This is the headline P@k and carries the
+  70% threshold;
+- the original P@k, relevant retrieved chunks / number of chunks
+  **returned**, is still reported, labelled "mẫu số = số chunk trả về". It
+  is not comparable across configurations: `rule_only` often returns fewer
+  than 6 chunks, so its P@k was 45.0% under this rule but 16.2% at k = 6
+  in the 2026-10-09 baseline;
 - Context Recall = gold locations hit by at least one retrieved chunk /
   gold locations.
 

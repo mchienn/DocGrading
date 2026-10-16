@@ -373,15 +373,48 @@ def score_tier0(runs: list[CaseRun], cases: dict[str, dict]) -> dict[str, Any]:
 # --- Tier 2 -------------------------------------------------------------------
 
 
+_TOLERANCES = (("", 0), ("_tol2", 2))
+
+
 def _tier2_case(run: CaseRun, case: dict[str, Any], doc: dict[str, Any]) -> dict:
     gold = case["gold"]["relevant"]
-    retrieved = [_chunk_like(d) for d in run.retrieved]
     corpus = [_chunk_like(d) for d in doc["corpus"]]
+    n_relevant = {
+        label: scoring.count_relevant_chunks(corpus, gold, page_tolerance=tol)
+        for label, tol in _TOLERANCES
+    }
+    return tier2_case_scores(
+        run.case_id,
+        doc["glue_group"],
+        [_chunk_like(d) for d in run.retrieved],
+        gold,
+        n_relevant,
+    )
+
+
+def tier2_case_scores(
+    case_id: str,
+    group: str,
+    retrieved: list[scoring.ChunkLike],
+    gold: list[dict[str, Any]],
+    n_relevant_in_corpus: dict[str, int],
+) -> dict[str, Any]:
+    """Per-case tier 2 scores. ``n_relevant_in_corpus`` is keyed by tolerance
+    label ("" and "_tol2"), counted over the submission's whole corpus.
+
+    Two precisions are kept: ``precision`` divides by the chunks actually
+    returned (the original rule; a configuration returning fewer chunks scores
+    higher), ``precision_fixed`` divides by ``scoring.FIXED_K`` for every
+    configuration, so configurations are comparable.
+    """
     k = len(retrieved)
-    out: dict[str, Any] = {"case_id": run.case_id, "k": k, "group": doc["glue_group"]}
-    for label, tol in (("", 0), ("_tol2", 2)):
-        n_rel = scoring.count_relevant_chunks(corpus, gold, page_tolerance=tol)
+    out: dict[str, Any] = {"case_id": case_id, "k": k, "group": group}
+    for label, tol in _TOLERANCES:
+        n_rel = n_relevant_in_corpus[label]
         out[f"precision{label}"] = scoring.context_precision_at_k(
+            retrieved, gold, page_tolerance=tol
+        )
+        out[f"precision_fixed{label}"] = scoring.context_precision_fixed_k(
             retrieved, gold, page_tolerance=tol
         )
         out[f"recall{label}"] = scoring.context_recall(
@@ -390,6 +423,9 @@ def _tier2_case(run: CaseRun, case: dict[str, Any], doc: dict[str, Any]) -> dict
         out[f"n_relevant_in_corpus{label}"] = n_rel
         out[f"ceiling{label}"] = (
             scoring.theoretical_max_precision(n_rel, k) if k else None
+        )
+        out[f"ceiling_fixed{label}"] = scoring.theoretical_max_precision(
+            n_rel, scoring.FIXED_K
         )
     return out
 
@@ -407,6 +443,13 @@ def _aggregate_tier2(rows: list[dict[str, Any]]) -> dict[str, Any]:
         out[f"precision_ceiling{label}"] = ceiling
         out[f"precision_vs_ceiling{label}"] = (
             precision / ceiling if precision is not None and ceiling else None
+        )
+        fixed = scoring.mean([r[f"precision_fixed{label}"] for r in rows])
+        fixed_ceiling = scoring.mean([r[f"ceiling_fixed{label}"] for r in rows])
+        out[f"precision_at_k_fixed{label}"] = fixed
+        out[f"precision_ceiling_fixed{label}"] = fixed_ceiling
+        out[f"precision_vs_ceiling_fixed{label}"] = (
+            fixed / fixed_ceiling if fixed is not None and fixed_ceiling else None
         )
         out[f"n_gold_unmatchable_in_corpus{label}"] = sum(
             1 for r in rows if r[f"n_relevant_in_corpus{label}"] == 0

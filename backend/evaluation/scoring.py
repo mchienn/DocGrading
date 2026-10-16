@@ -100,6 +100,12 @@ def fold_compact(text: str) -> str:
     return "".join(fold(text).split())
 
 
+# Context Precision@k uses this fixed denominator for every configuration:
+# the chatbot's retrieval size (``app.services.rag.FINAL_TOP_K``) and the k
+# of ``retrieval_eval``.
+FIXED_K = 6
+
+
 @dataclass(frozen=True)
 class ChunkLike:
     """One retrieved chunk as the scorer sees it (full text, page range)."""
@@ -172,6 +178,24 @@ def context_precision_at_k(
     locations = _as_gold_locations(gold_relevant)
     relevant = sum(1 for c in chunks if _matches_any(c, locations, page_tolerance))
     return relevant / len(chunks)
+
+
+def context_precision_fixed_k(
+    chunks: list[ChunkLike],
+    gold_relevant: list[dict[str, Any]],
+    *,
+    k: int = FIXED_K,
+    page_tolerance: int = 0,
+) -> float:
+    """Relevant chunks among the top *k* retrieved, divided by *k* itself.
+
+    Unlike ``context_precision_at_k`` the denominator does not shrink when a
+    configuration returns fewer than k chunks, so configurations are
+    comparable; nothing retrieved scores 0.0.
+    """
+    locations = _as_gold_locations(gold_relevant)
+    relevant = sum(1 for c in chunks[:k] if _matches_any(c, locations, page_tolerance))
+    return relevant / k
 
 
 def context_recall(

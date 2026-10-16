@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from evaluation.scoring import (
+    FIXED_K,
     ChunkLike,
     agreement,
     cache_case_ok,
@@ -9,6 +10,7 @@ from evaluation.scoring import (
     clarification_outcome,
     cohen_kappa,
     context_precision_at_k,
+    context_precision_fixed_k,
     context_recall,
     count_relevant_chunks,
     detect_language,
@@ -251,6 +253,47 @@ def test_theoretical_max_precision_never_exceeds_one() -> None:
 
 def test_theoretical_max_precision_zero_k_is_zero_not_error() -> None:
     assert theoretical_max_precision(3, k=0) == 0.0
+
+
+def test_fixed_k_matches_the_chatbot_and_retrieval_eval() -> None:
+    from app.services.rag import FINAL_TOP_K
+    from evaluation.retrieval_eval import K
+
+    assert FIXED_K == FINAL_TOP_K == K == 6
+
+
+def test_fixed_k_precision_does_not_reward_returning_fewer_chunks() -> None:
+    # rule_only often returns fewer than 6 chunks: 1 relevant of 2 returned
+    # is 50% with "denominator = chunks returned" but 1/6 at a fixed k=6.
+    two = [chunk(5, "Benchmarks", "a"), chunk(20, "Other", "b")]
+    assert context_precision_at_k(two, ONE_GOLD) == 0.5
+    assert context_precision_fixed_k(two, ONE_GOLD) == 1 / 6
+
+
+def test_fixed_k_precision_equals_old_rule_when_k_chunks_returned() -> None:
+    six = [chunk(5, "Benchmarks", "a")] + [chunk(9, "Other", str(i)) for i in range(5)]
+    assert context_precision_fixed_k(six, ONE_GOLD) == context_precision_at_k(
+        six, ONE_GOLD
+    )
+
+
+def test_fixed_k_precision_of_nothing_retrieved_is_zero_not_none() -> None:
+    assert context_precision_fixed_k([], ONE_GOLD) == 0.0
+
+
+def test_fixed_k_precision_only_scores_the_top_k() -> None:
+    eight = [chunk(9, "Other", str(i)) for i in range(6)] + [
+        chunk(5, "Benchmarks", "late"),
+        chunk(5, "Benchmarks", "later"),
+    ]
+    assert context_precision_fixed_k(eight, ONE_GOLD) == 0.0
+    assert context_precision_fixed_k(eight, ONE_GOLD, k=8) == 2 / 8
+
+
+def test_fixed_k_precision_page_tolerance() -> None:
+    near = [chunk(7, "Benchmarks", "x")]
+    assert context_precision_fixed_k(near, ONE_GOLD) == 0.0
+    assert context_precision_fixed_k(near, ONE_GOLD, page_tolerance=2) == 1 / 6
 
 
 # --- Out-of-scope rejection ----------------------------------------------------

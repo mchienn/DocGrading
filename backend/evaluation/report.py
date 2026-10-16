@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from evaluation.scoring import FIXED_K
+
 CONFIG_ORDER = ("rule_only", "rag_only", "hybrid")
 SMALL_N = 20
 
@@ -23,6 +25,14 @@ NA_REASONS = {
 
 def _pct(value: float | None) -> str:
     return "—" if value is None else f"{value * 100:.1f}%"
+
+
+OLD_DENOMINATOR = "mẫu số = số chunk trả về"
+
+
+def _fixed(agg: dict[str, Any], key: str) -> str:
+    # Snapshots written before the fixed-k rule don't carry these keys.
+    return _pct(agg[key]) if key in agg else "— (chưa tính)"
 
 
 def _sec(value: float | None) -> str:
@@ -130,8 +140,42 @@ def _metric_rows(configs: dict[str, Any], calibrated: bool) -> list[list[str]]:
             ],
         ],
         [
-            "Context Precision@k (trang chính xác)",
+            f"Context Precision@k — mẫu số cố định k={FIXED_K} (trang chính xác)",
             "≥70%",
+            *[
+                get(
+                    c,
+                    lambda d: _cell(
+                        _fixed(d["tier2"]["all"], "precision_at_k_fixed"),
+                        d["tier2"]["all"]["n"],
+                    ),
+                )
+                for c in CONFIG_ORDER
+            ],
+        ],
+        [
+            f"  trần lý thuyết P@k (k={FIXED_K})",
+            "—",
+            *[
+                get(c, lambda d: _fixed(d["tier2"]["all"], "precision_ceiling_fixed"))
+                for c in CONFIG_ORDER
+            ],
+        ],
+        [
+            f"  P@k / trần (k={FIXED_K})",
+            "—",
+            *[
+                get(
+                    c,
+                    lambda d: _fixed(d["tier2"]["all"], "precision_vs_ceiling_fixed"),
+                )
+                for c in CONFIG_ORDER
+            ],
+        ],
+        [
+            f"Context Precision@k — {OLD_DENOMINATOR} (cũ, không so sánh được "
+            "giữa cấu hình)",
+            "—",
             *[
                 get(
                     c,
@@ -144,7 +188,7 @@ def _metric_rows(configs: dict[str, Any], calibrated: bool) -> list[list[str]]:
             ],
         ],
         [
-            "  trần lý thuyết P@k",
+            f"  trần lý thuyết P@k ({OLD_DENOMINATOR})",
             "—",
             *[
                 get(c, lambda d: _pct(d["tier2"]["all"]["precision_ceiling"]))
@@ -152,7 +196,7 @@ def _metric_rows(configs: dict[str, Any], calibrated: bool) -> list[list[str]]:
             ],
         ],
         [
-            "  P@k / trần",
+            f"  P@k / trần ({OLD_DENOMINATOR})",
             "—",
             *[
                 get(c, lambda d: _pct(d["tier2"]["all"]["precision_vs_ceiling"]))
@@ -322,10 +366,14 @@ def render_markdown(snapshot: dict[str, Any]) -> str:
                     c,
                     g,
                     str(agg["n"]) + (" ⚠" if agg["n"] < SMALL_N else ""),
+                    _fixed(agg, "precision_at_k_fixed"),
+                    _fixed(agg, "precision_ceiling_fixed"),
+                    _fixed(agg, "precision_vs_ceiling_fixed"),
                     _pct(agg["precision_at_k"]),
                     _pct(agg["precision_ceiling"]),
                     _pct(agg["precision_vs_ceiling"]),
                     _pct(agg["recall"]),
+                    _fixed(agg, "precision_at_k_fixed_tol2"),
                     _pct(agg["precision_at_k_tol2"]),
                     _pct(agg["recall_tol2"]),
                 ]
@@ -336,18 +384,25 @@ def render_markdown(snapshot: dict[str, Any]) -> str:
         "",
         "Nhóm: en = tài liệu tiếng Anh (loại khỏi phân nhóm dính chữ); tài liệu "
         "tiếng Việt: low < 2%, mid 2–10%, high ≥ 10% (heuristic của chunk audit). "
-        "Hai cột cuối là kiểm tra độ nhạy với dung sai trang ±2 (quy tắc cũ).",
+        "Ba cột cuối là kiểm tra độ nhạy với dung sai trang ±2 (quy tắc cũ). "
+        f"P@k (k={FIXED_K}) chia cho {FIXED_K} ở mọi cấu hình nên so sánh được "
+        f'giữa cấu hình; cột "{OLD_DENOMINATOR}" chia cho số chunk thực sự '
+        "trả về, nên cấu hình trả ít chunk hơn (rule_only) được lợi.",
         "",
         _table(
             [
                 "Config",
                 "Nhóm",
                 "N",
-                "P@k",
-                "Trần",
-                "P@k/trần",
+                f"P@k (k={FIXED_K})",
+                f"Trần (k={FIXED_K})",
+                f"P@k/trần (k={FIXED_K})",
+                f"P@k ({OLD_DENOMINATOR})",
+                f"Trần ({OLD_DENOMINATOR})",
+                f"P@k/trần ({OLD_DENOMINATOR})",
                 "Recall",
-                "P@k ±2",
+                f"P@k ±2 (k={FIXED_K})",
+                f"P@k ±2 ({OLD_DENOMINATOR})",
                 "Recall ±2",
             ],
             group_rows,
