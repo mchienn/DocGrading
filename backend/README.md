@@ -146,6 +146,19 @@ uv run alembic upgrade head
 
 Revision `20260825_0001` là baseline rỗng và không tạo schema domain.
 
+## Lập chỉ mục lại sau khi đổi parser
+
+Khi `PARSER_VERSION` (trong `app/services/document_ir.py`) tăng, IR, chunk và embedding cũ không tự cập nhật. `scripts/reindex_documents.py` dựng lại chúng cho mọi phiên bản có IR cũ hơn (chạy lại an toàn: phiên bản đã ở parser hiện tại được bỏ qua) và, với `--summaries`, tạo lại tóm tắt để row có `source_hash` thật. PDF lấy từ object storage hoặc `--pdf-dir` (so khớp theo SHA-256); không tìm thấy PDF thì giữ nguyên dữ liệu cũ của phiên bản đó. Ghi thật cần `--expect-db` đúng tên database đang cấu hình.
+
+```bash
+cd backend
+uv run python -m scripts.reindex_documents --dry-run --pdf-dir ../test_submissions
+uv run python -m scripts.reindex_documents --pdf-dir ../test_submissions \
+  --expect-db <POSTGRES_DB> --summaries --report reindex.json
+```
+
+Sao lưu database trước khi ghi. Lệnh gọi API embedding/LLM thật (tốn token).
+
 ## Chất lượng mã
 
 ```bash

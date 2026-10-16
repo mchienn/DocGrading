@@ -2209,7 +2209,7 @@ def test_minimal_valid_text_pdf_returns_ir_payload() -> None:
     content = parsed.content
     assert content["schema_version"] == SCHEMA_VERSION
     assert SCHEMA_VERSION == 2
-    assert PARSER_VERSION == "pypdf-pdfplumber-v5"
+    assert PARSER_VERSION == "pypdf-pdfplumber-v6"
 
     assert content["source"] == {
         "sha256": parsed.validation.sha256,

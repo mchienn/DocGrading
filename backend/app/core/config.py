@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     pdf_max_decoded_bytes: int = Field(default=50_000_000, gt=0)
     pdf_max_page_count: int = Field(default=100, gt=0)
     pdf_ir_max_nodes: int = Field(default=100_000, gt=0)
+    # Max gap (pt) between characters of one word; see document_ir.
+    pdf_word_x_tolerance: float = Field(default=1.5, gt=0)
 
     analysis_job_lease_seconds: int = Field(default=300, gt=0)
     analysis_job_heartbeat_seconds: int = Field(default=30, gt=0)
