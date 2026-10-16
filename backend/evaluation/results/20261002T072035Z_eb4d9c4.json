@@ -1,0 +1,174 @@
+{
+  "timestamp": "20261002T072035Z",
+  "git_commit": "eb4d9c4",
+  "postgres_db": "docgrading",
+  "llm_key_configured": true,
+  "summary_rows": [
+    {
+      "#": 1,
+      "tier": 1,
+      "metric": "Intent accuracy",
+      "n": 53,
+      "value": 1.0,
+      "threshold": 0.95,
+      "pct": true
+    },
+    {
+      "#": 2,
+      "tier": 1,
+      "metric": "Out-of-scope rejection rate",
+      "n": 18,
+      "value": 1.0,
+      "threshold": 0.9,
+      "pct": true
+    },
+    {
+      "#": 3,
+      "tier": 1,
+      "metric": "Numeric correctness",
+      "n": 53,
+      "value": 1.0,
+      "threshold": 1.0,
+      "pct": true
+    },
+    {
+      "#": 4,
+      "tier": 1,
+      "metric": "Error rate (5xx)",
+      "n": 71,
+      "value": 0.0,
+      "threshold": 0.0,
+      "pct": true
+    },
+    {
+      "#": 5,
+      "tier": 2,
+      "metric": "Context Precision@k",
+      "n": 36,
+      "value": 0.21296296296296294,
+      "threshold": 0.7,
+      "pct": true
+    },
+    {
+      "#": 6,
+      "tier": 2,
+      "metric": "Context Recall",
+      "n": 36,
+      "value": 0.9722222222222222,
+      "threshold": 0.8,
+      "pct": true
+    },
+    {
+      "#": 7,
+      "tier": 2,
+      "metric": "Latency (giây, trung bình)",
+      "n": 36,
+      "value": 0.524133480554964,
+      "threshold": 1.0,
+      "pct": false
+    },
+    {
+      "#": 8,
+      "tier": 3,
+      "metric": "Faithfulness",
+      "n": 16,
+      "value": 0.9,
+      "threshold": 0.9,
+      "pct": true
+    },
+    {
+      "#": 9,
+      "tier": 3,
+      "metric": "Citation precision",
+      "n": 16,
+      "value": 0.859375,
+      "threshold": 0.9,
+      "pct": true
+    },
+    {
+      "#": 10,
+      "tier": 3,
+      "metric": "Citation recall",
+      "n": 16,
+      "value": 0.796875,
+      "threshold": 0.85,
+      "pct": true
+    },
+    {
+      "#": 11,
+      "tier": 3,
+      "metric": "Cache correctness",
+      "n": 1,
+      "value": 1.0,
+      "threshold": 1.0,
+      "pct": true
+    },
+    {
+      "#": 12,
+      "tier": 0,
+      "metric": "Clarification precision",
+      "n": 10,
+      "value": 1.0,
+      "threshold": 0.9,
+      "pct": true
+    },
+    {
+      "#": 13,
+      "tier": 0,
+      "metric": "Clarification recall",
+      "n": 10,
+      "value": 1.0,
+      "threshold": 0.9,
+      "pct": true
+    }
+  ],
+  "tier0": {
+    "n_total": 10,
+    "error_count": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "mismatches": []
+  },
+  "tier1": {
+    "n_total": 71,
+    "error_count": 0,
+    "error_rate": 0.0,
+    "intent_accuracy": 1.0,
+    "intent_n": 53,
+    "oos_rejection_rate": 1.0,
+    "oos_n": 18,
+    "numeric_correctness": 1.0,
+    "numeric_n": 53,
+    "mismatches": []
+  },
+  "tier2": {
+    "n_total": 36,
+    "error_count": 0,
+    "precision_at_k": 0.21296296296296294,
+    "recall": 0.9722222222222222,
+    "latency_avg_s": 0.524133480554964,
+    "zero_citation_cases": []
+  },
+  "tier3_ask": {
+    "n_total": 16,
+    "n_judged": 16,
+    "error_count": 0,
+    "no_context_cases": [],
+    "faithfulness": 0.9,
+    "citation_precision": 0.859375,
+    "citation_recall": 0.796875,
+    "answer_relevancy": 0.9875,
+    "claim_coverage": 0.703125
+  },
+  "tier3_summarize": {
+    "n_total": 9,
+    "error_count": 0,
+    "structure_score_avg_of_5": 5.0
+  },
+  "tier3_cache_correctness": {
+    "ok": true,
+    "calls_on_first_request": 0,
+    "new_calls_on_second_request": 0,
+    "reply_unchanged": true
+  }
+}

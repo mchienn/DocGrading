@@ -30,6 +30,7 @@ from app.services.file_integrity import evaluate_file_integrity
 from app.services.pdf_validation import PDFValidationError
 from app.services.storage import S3Storage
 from app.workers.celery_app import celery_app
+from app.workers.index_document_chunks import enqueue_chunk_indexing
 
 
 @celery_app.task(name="app.workers.tasks.healthcheck")
@@ -239,8 +240,15 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                 await db.rollback()
                 return None
 
+        indexed_version_id = (
+            job.document_version.id if job_outcome[0] == "success" else None
+        )
+        finished_job_id = str(job.id)
         await db.commit()
-        return str(job.id)
+        if indexed_version_id is not None:
+            # DocumentIR is committed now; chunk + embed it for RAG retrieval.
+            await asyncio.to_thread(enqueue_chunk_indexing, indexed_version_id)
+        return finished_job_id
 
 
 async def _run_analysis_job_once(job_id: str | None) -> str | None:

@@ -1,0 +1,36 @@
+# Chat turn deadline measurements (production defaults, with the 6 s query-embedding cap) — raw pytest log
+# date: 2026-10-16T03:20:01Z
+# branch/commit: feat/chatbot d15111a + uncommitted changes
+# defaults: chat_turn_deadline_seconds=25, query_embedding_timeout_seconds=6, llm_router_timeout_seconds=8, summary_deadline_seconds=90, llm_timeout_seconds=30, llm_max_retries=1, llm_summary_max_retries=2, embedding_timeout_seconds=20, embedding_max_retries=2
+# provider: httpx.MockTransport (429 + 'Retry-After: 120', never answering, or answering at once); handle_chat() on docgrading_test (rolled back)
+# command: POSTGRES_DB=docgrading_test RUN_DATABASE_TESTS=1 RUN_SLOW_DEADLINE_TESTS=1 LLM_API_KEY= EMBEDDING_API_KEY= uv run --frozen pytest -v -s -p no:cacheprovider tests/test_chat_deadlines_db.py
+
+============================= test session starts =============================
+platform win32 -- Python 3.13.2, pytest-8.4.2, pluggy-1.6.0 -- D:\DocGrading\backend\.venv\Scripts\python.exe
+rootdir: D:\DocGrading\backend
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collecting ... collected 7 items
+
+tests/test_chat_deadlines_db.py::test_short_deadline_cuts_every_path_through_handle_chat PASSED
+tests/test_chat_deadlines_db.py::test_measured_ask_turn_with_retry_after_120 
+MEASURED ask (Retry-After 120 on embedding + answer): 25.05s
+PASSED
+tests/test_chat_deadlines_db.py::test_measured_search_turn_with_retry_after_120 
+MEASURED search (Retry-After 120 on embedding): 6.05s
+PASSED
+tests/test_chat_deadlines_db.py::test_measured_router_turn_when_provider_never_answers 
+MEASURED router (provider never answers): 8.01s
+PASSED
+tests/test_chat_deadlines_db.py::test_measured_slow_router_then_ask_shares_the_turn_deadline 
+MEASURED router 7 s -> ask (Retry-After 120): 25.04s
+PASSED
+tests/test_chat_deadlines_db.py::test_measured_summary_turn_with_retry_after_120 
+MEASURED summary (Retry-After 120): 90.03s
+PASSED
+tests/test_chat_deadlines_db.py::test_measured_ask_turn_embedding_hangs_llm_answers 
+MEASURED ask (embedding never answers, LLM answers): 6.08s
+PASSED
+
+======================== 7 passed in 182.05s (0:03:02) ========================
+# exit code: 0

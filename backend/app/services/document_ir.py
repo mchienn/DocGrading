@@ -36,7 +36,11 @@ from app.services.pdf_validation import (
 )
 
 SCHEMA_VERSION: int = 2
-PARSER_VERSION: str = "pypdf-pdfplumber-v5"
+PARSER_VERSION: str = "pypdf-pdfplumber-v6"
+# pdfplumber merges characters into one word when the gap between them is
+# at most x_tolerance. Its default (3 pt) glued words in justified reports,
+# whose inter-word gaps are often 2.3-3.0 pt (issue #47).
+DEFAULT_WORD_X_TOLERANCE: float = 1.5
 
 _TABLE_SOURCE_OBJECT_TYPES = ("line", "rect", "curve")
 _MAX_TABLE_SOURCE_OBJECTS = 256
@@ -257,6 +261,7 @@ async def get_or_build_document_ir(
         max_decoded_bytes=settings.pdf_max_decoded_bytes,
         max_page_count=settings.pdf_max_page_count,
         max_nodes=settings.pdf_ir_max_nodes,
+        word_x_tolerance=settings.pdf_word_x_tolerance,
     )
     document.validation_report = _validation_report_with_links(
         parsed.validation,
@@ -633,8 +638,11 @@ def _extract_lines(
     page_height: float,
     budget: _NodeBudget,
     excluded_bboxes: Sequence[_BBox] = (),
+    word_x_tolerance: float = DEFAULT_WORD_X_TOLERANCE,
 ) -> tuple[list[_Line], list[_Line], list[_Word]]:
-    extracted = page.extract_words(extra_attrs=["fontname", "size"])
+    extracted = page.extract_words(
+        extra_attrs=["fontname", "size"], x_tolerance=word_x_tolerance
+    )
     budget.consume(len(extracted))
     words = [
         _word_from_pdf(
@@ -1282,6 +1290,7 @@ def _parse_pages(
     *,
     pdf_links: Sequence[PDFLink] = (),
     links: list[dict[str, Any]] | None = None,
+    word_x_tolerance: float = DEFAULT_WORD_X_TOLERANCE,
 ) -> list[dict[str, Any]]:
     """Extract bounded page geometry and structural containers."""
     all_sections = sections if sections is not None else []
@@ -1398,6 +1407,7 @@ def _parse_pages(
             page_height=page_height,
             budget=budget,
             excluded_bboxes=table_bboxes,
+            word_x_tolerance=word_x_tolerance,
         )
         page_link_ids: list[str] = []
         page_links = [
@@ -1732,6 +1742,7 @@ def parse_document_ir(
     max_decoded_bytes: int = 50_000_000,
     max_page_count: int = 100,
     max_nodes: int = 100_000,
+    word_x_tolerance: float = DEFAULT_WORD_X_TOLERANCE,
 ) -> ParsedDocumentIR:
     """Validate untrusted PDF bytes and extract bounded Document IR."""
     validation = validate_pdf(
@@ -1760,6 +1771,7 @@ def parse_document_ir(
                 tables,
                 pdf_links=validation.links,
                 links=links,
+                word_x_tolerance=word_x_tolerance,
             )
     except PDFValidationError:
         raise

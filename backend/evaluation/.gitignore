@@ -1,0 +1,6 @@
+# Contain student names or report text - never commit.
+golden_set.jsonl
+results/*_details.json
+calibration/citation_labels.jsonl
+private/
+__pycache__/

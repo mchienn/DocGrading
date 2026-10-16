@@ -1,0 +1,2633 @@
+{
+  "timestamp": "20261016T034513Z",
+  "postgres_db": "docgrading_test",
+  "golden_set": "golden_set.anonymized.jsonl",
+  "k": 6,
+  "bootstrap": {
+    "iterations": 2000,
+    "seed": 20261009
+  },
+  "methods": {
+    "vector": {
+      "all": {
+        "n": 36,
+        "recall": {
+          "value": 0.949074074074074,
+          "ci95": [
+            0.8796296296296297,
+            1.0
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.1898148148148148,
+          "ci95": [
+            0.16666666666666666,
+            0.21296296296296294
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 0.911111111111111,
+          "ci95": [
+            0.823529411764706,
+            1.0
+          ]
+        },
+        "mrr": {
+          "value": 0.775462962962963,
+          "ci95": [
+            0.6782407407407408,
+            0.865856481481482
+          ]
+        },
+        "ceiling": 0.20833333333333334,
+        "n_returned_lt_k": 0
+      },
+      "by_group": {
+        "en": {
+          "n": 12,
+          "recall": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.16666666666666666,
+            "ci95": [
+              0.16666666666666666,
+              0.16666666666666666
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.7986111111111112,
+            "ci95": [
+              0.6319444444444444,
+              0.9583333333333334
+            ]
+          },
+          "ceiling": 0.16666666666666666,
+          "n_returned_lt_k": 0
+        },
+        "low": {
+          "n": 12,
+          "recall": {
+            "value": 0.9305555555555555,
+            "ci95": [
+              0.8333333333333334,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.2222222222222222,
+            "ci95": [
+              0.18055555555555555,
+              0.2638888888888889
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.8421052631578947,
+            "ci95": [
+              0.7083333333333333,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.875,
+            "ci95": [
+              0.75,
+              1.0
+            ]
+          },
+          "ceiling": 0.2638888888888889,
+          "n_returned_lt_k": 0
+        },
+        "mid": {
+          "n": 6,
+          "recall": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.19444444444444442,
+            "ci95": [
+              0.16666666666666666,
+              0.25
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.6666666666666666,
+            "ci95": [
+              0.5,
+              0.8333333333333334
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 0
+        },
+        "high": {
+          "n": 6,
+          "recall": {
+            "value": 0.8333333333333334,
+            "ci95": [
+              0.5,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.16666666666666666,
+            "ci95": [
+              0.08333333333333333,
+              0.25
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.8571428571428572,
+            "ci95": [
+              0.5,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.638888888888889,
+            "ci95": [
+              0.3333333333333333,
+              0.9166666666666666
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 0
+        }
+      },
+      "low_lexical_overlap": {
+        "n": 3,
+        "recall": {
+          "value": 1.0,
+          "ci95": [
+            1.0,
+            1.0
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.16666666666666666,
+          "ci95": [
+            0.16666666666666666,
+            0.16666666666666666
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 1.0,
+          "ci95": [
+            1.0,
+            1.0
+          ]
+        },
+        "mrr": {
+          "value": 0.7777777777777778,
+          "ci95": [
+            0.3333333333333333,
+            1.0
+          ]
+        },
+        "ceiling": 0.16666666666666666,
+        "n_returned_lt_k": 0
+      }
+    },
+    "tsvector": {
+      "all": {
+        "n": 36,
+        "recall": {
+          "value": 0.8240740740740741,
+          "ci95": [
+            0.7037037037037037,
+            0.9351851851851851
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.16203703703703703,
+          "ci95": [
+            0.13425925925925924,
+            0.1898148148148148
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 0.7777777777777777,
+          "ci95": [
+            0.6666666666666666,
+            0.894736842105263
+          ]
+        },
+        "mrr": {
+          "value": 0.6851851851851852,
+          "ci95": [
+            0.5601273148148148,
+            0.8125
+          ]
+        },
+        "ceiling": 0.20833333333333334,
+        "n_returned_lt_k": 24
+      },
+      "by_group": {
+        "en": {
+          "n": 12,
+          "recall": {
+            "value": 0.8333333333333334,
+            "ci95": [
+              0.5833333333333334,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.13888888888888887,
+            "ci95": [
+              0.09722222222222221,
+              0.16666666666666666
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.8333333333333333,
+            "ci95": [
+              0.5833333333333333,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.5694444444444444,
+            "ci95": [
+              0.3609375,
+              0.7777777777777778
+            ]
+          },
+          "ceiling": 0.16666666666666666,
+          "n_returned_lt_k": 5
+        },
+        "low": {
+          "n": 12,
+          "recall": {
+            "value": 0.9305555555555555,
+            "ci95": [
+              0.8333333333333334,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.20833333333333334,
+            "ci95": [
+              0.16666666666666666,
+              0.25
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.7894736842105263,
+            "ci95": [
+              0.6538461538461537,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.8611111111111112,
+            "ci95": [
+              0.7222222222222222,
+              1.0
+            ]
+          },
+          "ceiling": 0.2638888888888889,
+          "n_returned_lt_k": 10
+        },
+        "mid": {
+          "n": 6,
+          "recall": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.19444444444444442,
+            "ci95": [
+              0.16666666666666666,
+              0.25
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.8333333333333334,
+            "ci95": [
+              0.6666666666666666,
+              1.0
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 5
+        },
+        "high": {
+          "n": 6,
+          "recall": {
+            "value": 0.4166666666666667,
+            "ci95": [
+              0.08333333333333333,
+              0.75
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.08333333333333333,
+            "ci95": [
+              0.027777777777777776,
+              0.13888888888888887
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.4285714285714286,
+            "ci95": [
+              0.14285714285714288,
+              0.7142857142857143
+            ]
+          },
+          "mrr": {
+            "value": 0.4166666666666667,
+            "ci95": [
+              0.08333333333333333,
+              0.75
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 4
+        }
+      },
+      "low_lexical_overlap": {
+        "n": 3,
+        "recall": {
+          "value": 0.3333333333333333,
+          "ci95": [
+            0.0,
+            1.0
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.05555555555555555,
+          "ci95": [
+            0.0,
+            0.16666666666666666
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 0.3333333333333333,
+          "ci95": [
+            0.0,
+            1.0
+          ]
+        },
+        "mrr": {
+          "value": 0.3333333333333333,
+          "ci95": [
+            0.0,
+            1.0
+          ]
+        },
+        "ceiling": 0.16666666666666666,
+        "n_returned_lt_k": 2
+      }
+    },
+    "substring": {
+      "all": {
+        "n": 36,
+        "recall": {
+          "value": 0.2222222222222222,
+          "ci95": [
+            0.08333333333333333,
+            0.3611111111111111
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.037037037037037035,
+          "ci95": [
+            0.018518518518518517,
+            0.06018518518518518
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 0.17777777777777776,
+          "ci95": [
+            0.07692307692307693,
+            0.315821566110398
+          ]
+        },
+        "mrr": {
+          "value": 0.08657407407407408,
+          "ci95": [
+            0.0287037037037037,
+            0.16342592592592592
+          ]
+        },
+        "ceiling": 0.20833333333333334,
+        "n_returned_lt_k": 4
+      },
+      "by_group": {
+        "en": {
+          "n": 12,
+          "recall": {
+            "value": 0.5833333333333334,
+            "ci95": [
+              0.3333333333333333,
+              0.8333333333333334
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.09722222222222221,
+            "ci95": [
+              0.05555555555555555,
+              0.13888888888888887
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.5833333333333333,
+            "ci95": [
+              0.3333333333333333,
+              0.8333333333333333
+            ]
+          },
+          "mrr": {
+            "value": 0.2388888888888889,
+            "ci95": [
+              0.09722222222222222,
+              0.4083333333333334
+            ]
+          },
+          "ceiling": 0.16666666666666666,
+          "n_returned_lt_k": 4
+        },
+        "low": {
+          "n": 12,
+          "recall": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ]
+          },
+          "mrr": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ]
+          },
+          "ceiling": 0.2638888888888889,
+          "n_returned_lt_k": 0
+        },
+        "mid": {
+          "n": 6,
+          "recall": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ]
+          },
+          "mrr": {
+            "value": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 0
+        },
+        "high": {
+          "n": 6,
+          "recall": {
+            "value": 0.16666666666666666,
+            "ci95": [
+              0.0,
+              0.5
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.027777777777777776,
+            "ci95": [
+              0.0,
+              0.08333333333333333
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.14285714285714288,
+            "ci95": [
+              0.0,
+              0.5
+            ]
+          },
+          "mrr": {
+            "value": 0.041666666666666664,
+            "ci95": [
+              0.0,
+              0.125
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 0
+        }
+      },
+      "low_lexical_overlap": {
+        "n": 3,
+        "recall": {
+          "value": 0.0,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.0,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 0.0,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        },
+        "mrr": {
+          "value": 0.0,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        },
+        "ceiling": 0.16666666666666666,
+        "n_returned_lt_k": 2
+      }
+    },
+    "keyword": {
+      "all": {
+        "n": 36,
+        "recall": {
+          "value": 0.8240740740740741,
+          "ci95": [
+            0.6990740740740741,
+            0.9306712962962967
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.16203703703703703,
+          "ci95": [
+            0.13425925925925924,
+            0.1898148148148148
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 0.7777777777777777,
+          "ci95": [
+            0.6666666666666666,
+            0.8863636363636364
+          ]
+        },
+        "mrr": {
+          "value": 0.6851851851851852,
+          "ci95": [
+            0.5601273148148148,
+            0.8078703703703703
+          ]
+        },
+        "ceiling": 0.20833333333333334,
+        "n_returned_lt_k": 23
+      },
+      "by_group": {
+        "en": {
+          "n": 12,
+          "recall": {
+            "value": 0.8333333333333334,
+            "ci95": [
+              0.5833333333333334,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.13888888888888887,
+            "ci95": [
+              0.09722222222222221,
+              0.16666666666666666
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.8333333333333333,
+            "ci95": [
+              0.5833333333333333,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.5694444444444444,
+            "ci95": [
+              0.3541666666666667,
+              0.7916666666666666
+            ]
+          },
+          "ceiling": 0.16666666666666666,
+          "n_returned_lt_k": 5
+        },
+        "low": {
+          "n": 12,
+          "recall": {
+            "value": 0.9305555555555555,
+            "ci95": [
+              0.8333333333333334,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.20833333333333334,
+            "ci95": [
+              0.16666666666666666,
+              0.25
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.7894736842105263,
+            "ci95": [
+              0.6538461538461537,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.8611111111111112,
+            "ci95": [
+              0.7083333333333334,
+              1.0
+            ]
+          },
+          "ceiling": 0.2638888888888889,
+          "n_returned_lt_k": 10
+        },
+        "mid": {
+          "n": 6,
+          "recall": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.19444444444444442,
+            "ci95": [
+              0.16666666666666666,
+              0.25
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.8333333333333334,
+            "ci95": [
+              0.6666666666666666,
+              1.0
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 5
+        },
+        "high": {
+          "n": 6,
+          "recall": {
+            "value": 0.4166666666666667,
+            "ci95": [
+              0.08333333333333333,
+              0.8333333333333334
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.08333333333333333,
+            "ci95": [
+              0.027777777777777776,
+              0.13888888888888887
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.4285714285714286,
+            "ci95": [
+              0.14285714285714288,
+              0.7142857142857143
+            ]
+          },
+          "mrr": {
+            "value": 0.4166666666666667,
+            "ci95": [
+              0.08333333333333333,
+              0.75
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 3
+        }
+      },
+      "low_lexical_overlap": {
+        "n": 3,
+        "recall": {
+          "value": 0.3333333333333333,
+          "ci95": [
+            0.0,
+            1.0
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.05555555555555555,
+          "ci95": [
+            0.0,
+            0.16666666666666666
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 0.3333333333333333,
+          "ci95": [
+            0.0,
+            1.0
+          ]
+        },
+        "mrr": {
+          "value": 0.3333333333333333,
+          "ci95": [
+            0.0,
+            1.0
+          ]
+        },
+        "ceiling": 0.16666666666666666,
+        "n_returned_lt_k": 2
+      }
+    },
+    "hybrid_rrf": {
+      "all": {
+        "n": 36,
+        "recall": {
+          "value": 0.949074074074074,
+          "ci95": [
+            0.8796296296296297,
+            1.0
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.1898148148148148,
+          "ci95": [
+            0.16666666666666666,
+            0.21296296296296294
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 0.911111111111111,
+          "ci95": [
+            0.8214285714285714,
+            1.0
+          ]
+        },
+        "mrr": {
+          "value": 0.8101851851851852,
+          "ci95": [
+            0.7083333333333334,
+            0.8981481481481483
+          ]
+        },
+        "ceiling": 0.20833333333333334,
+        "n_returned_lt_k": 0
+      },
+      "by_group": {
+        "en": {
+          "n": 12,
+          "recall": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.16666666666666666,
+            "ci95": [
+              0.16666666666666666,
+              0.16666666666666666
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.8194444444444445,
+            "ci95": [
+              0.6319444444444444,
+              1.0
+            ]
+          },
+          "ceiling": 0.16666666666666666,
+          "n_returned_lt_k": 0
+        },
+        "low": {
+          "n": 12,
+          "recall": {
+            "value": 0.9305555555555555,
+            "ci95": [
+              0.8333333333333334,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.2222222222222222,
+            "ci95": [
+              0.18055555555555555,
+              0.2638888888888889
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.8421052631578947,
+            "ci95": [
+              0.7037037037037037,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.875,
+            "ci95": [
+              0.75,
+              1.0
+            ]
+          },
+          "ceiling": 0.2638888888888889,
+          "n_returned_lt_k": 0
+        },
+        "mid": {
+          "n": 6,
+          "recall": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.19444444444444442,
+            "ci95": [
+              0.16666666666666666,
+              0.25
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 1.0,
+            "ci95": [
+              1.0,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.9166666666666666,
+            "ci95": [
+              0.75,
+              1.0
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 0
+        },
+        "high": {
+          "n": 6,
+          "recall": {
+            "value": 0.8333333333333334,
+            "ci95": [
+              0.5,
+              1.0
+            ]
+          },
+          "precision_at_k": {
+            "value": 0.16666666666666666,
+            "ci95": [
+              0.08333333333333333,
+              0.25
+            ]
+          },
+          "precision_vs_ceiling": {
+            "value": 0.8571428571428572,
+            "ci95": [
+              0.5,
+              1.0
+            ]
+          },
+          "mrr": {
+            "value": 0.5555555555555556,
+            "ci95": [
+              0.27777777777777773,
+              0.8333333333333334
+            ]
+          },
+          "ceiling": 0.19444444444444442,
+          "n_returned_lt_k": 0
+        }
+      },
+      "low_lexical_overlap": {
+        "n": 3,
+        "recall": {
+          "value": 1.0,
+          "ci95": [
+            1.0,
+            1.0
+          ]
+        },
+        "precision_at_k": {
+          "value": 0.16666666666666666,
+          "ci95": [
+            0.16666666666666666,
+            0.16666666666666666
+          ]
+        },
+        "precision_vs_ceiling": {
+          "value": 1.0,
+          "ci95": [
+            1.0,
+            1.0
+          ]
+        },
+        "mrr": {
+          "value": 0.7777777777777778,
+          "ci95": [
+            0.3333333333333333,
+            1.0
+          ]
+        },
+        "ceiling": 0.16666666666666666,
+        "n_returned_lt_k": 0
+      }
+    }
+  },
+  "flagged_low_lexical_overlap": [
+    {
+      "case_id": "T2-OPRO-05",
+      "query_coverage": 0.2857142857142857
+    },
+    {
+      "case_id": "T2-KET-RAG-10",
+      "query_coverage": 0.125
+    },
+    {
+      "case_id": "T2-KET-RAG-12",
+      "query_coverage": 0.0
+    }
+  ],
+  "per_case": [
+    {
+      "case_id": "T2-OPRO-01",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.5,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.2,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-OPRO-02",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.5,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 5
+        },
+        "substring": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 5
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 5
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-OPRO-03",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.3333333333333333,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 3
+        },
+        "substring": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 3
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 3
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-OPRO-04",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "substring": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-OPRO-05",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.2857142857142857,
+      "low_lexical_overlap": true,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-OPRO-06",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.5,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-KET-RAG-07",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.4,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-KET-RAG-08",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.6,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.16666666666666666,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-KET-RAG-09",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.4,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.16666666666666666,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-KET-RAG-10",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.125,
+      "low_lexical_overlap": true,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 0
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 0
+        },
+        "keyword": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 0
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-KET-RAG-11",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.4,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-KET-RAG-12",
+      "group": "en",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.0,
+      "low_lexical_overlap": true,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 0
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 0
+        },
+        "keyword": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 0
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-HybridRAG-13",
+      "group": "low",
+      "n_relevant_in_corpus": 3,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.5,
+          "recall": 0.5,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.5,
+          "recall": 0.5,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.5,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.5,
+          "recall": 0.5,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.5,
+          "recall": 0.5,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-HybridRAG-14",
+      "group": "low",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-HybridRAG-15",
+      "group": "low",
+      "n_relevant_in_corpus": 2,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.3333333333333333,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-HybridRAG-16",
+      "group": "low",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 3
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 3
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-HybridRAG-17",
+      "group": "low",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 5
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 5
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-HybridRAG-18",
+      "group": "low",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-Dialog2flow-19",
+      "group": "high",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "substring": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.25,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-Dialog2flow-20",
+      "group": "high",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-Dialog2flow-21",
+      "group": "high",
+      "n_relevant_in_corpus": 2,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.3333333333333333,
+          "recall": 0.5,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.3333333333333333,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.3333333333333333,
+          "recall": 0.5,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-Dialog2flow-22",
+      "group": "high",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 3
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 3
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-Dialog2flow-23",
+      "group": "high",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 0
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-Dialog2flow-24",
+      "group": "high",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-LightRAG-25",
+      "group": "mid",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-LightRAG-26",
+      "group": "mid",
+      "n_relevant_in_corpus": 2,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 5
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.3333333333333333,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 5
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-LightRAG-27",
+      "group": "mid",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-LightRAG-28",
+      "group": "mid",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 2
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 2
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-LightRAG-29",
+      "group": "mid",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 2
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 2
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-LightRAG-30",
+      "group": "mid",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 0.6,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-SV001-31",
+      "group": "low",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 2
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 2
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-SV001-32",
+      "group": "low",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-SV001-33",
+      "group": "low",
+      "n_relevant_in_corpus": 2,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.3333333333333333,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 0.3333333333333333,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.3333333333333333,
+          "recall": 1.0,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-SV001-34",
+      "group": "low",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 1
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-SV001-35",
+      "group": "low",
+      "n_relevant_in_corpus": 1,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.16666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 2
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.16666666666666666,
+          "ceiling": 0.16666666666666666,
+          "recall": 1.0,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        }
+      }
+    },
+    {
+      "case_id": "T2-SV001-36",
+      "group": "low",
+      "n_relevant_in_corpus": 4,
+      "query_coverage": 1.0,
+      "low_lexical_overlap": false,
+      "methods": {
+        "vector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.6666666666666666,
+          "recall": 0.6666666666666666,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        },
+        "tsvector": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.6666666666666666,
+          "recall": 0.6666666666666666,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "substring": {
+          "precision_at_k": 0.0,
+          "ceiling": 0.6666666666666666,
+          "recall": 0.0,
+          "reciprocal_rank": 0.0,
+          "n_returned": 6
+        },
+        "keyword": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.6666666666666666,
+          "recall": 0.6666666666666666,
+          "reciprocal_rank": 1.0,
+          "n_returned": 6
+        },
+        "hybrid_rrf": {
+          "precision_at_k": 0.3333333333333333,
+          "ceiling": 0.6666666666666666,
+          "recall": 0.6666666666666666,
+          "reciprocal_rank": 0.5,
+          "n_returned": 6
+        }
+      }
+    }
+  ],
+  "tokens": {
+    "llm_total_tokens": 0,
+    "llm_by_purpose": {},
+    "embedding": {
+      "calls": 36,
+      "tokens": 408
+    },
+    "errors": {},
+    "llm_budget": 2000000,
+    "budget_exceeded": false
+  }
+}

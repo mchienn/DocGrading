@@ -26,6 +26,7 @@ import { RubricTemplatesView } from '../components/teacher/RubricTemplatesView';
 import { SubmissionQueueView } from '../components/teacher/SubmissionQueueView';
 import { ReviewWorkspaceView } from '../components/teacher/ReviewWorkspaceView';
 import { AppealsInboxView } from '../components/teacher/AppealsInboxView';
+import { ChatView } from '../components/teacher/ChatView';
 import { StudentPublishedResultView } from '../components/student/StudentPublishedResultView';
 import { StudentAppealDetailView } from '../components/student/StudentAppealDetailView';
 import { StudentAssignmentsView } from '../components/student/StudentAssignmentsView';
@@ -263,17 +264,19 @@ export const App: React.FC = () => {
         ? 'Appeals'
         : location.pathname.startsWith('/student/appeals')
           ? 'Appeal Detail'
-          : location.pathname === '/student/join'
-            ? 'Join course'
-            : location.pathname.includes('/rubrics')
-              ? 'Rubrics'
-              : location.pathname.includes('/upload')
-                ? 'Upload'
-                : location.pathname.startsWith('/jobs/')
-                  ? 'Processing status'
-                  : activeRole === 'student'
-                    ? 'Assignments'
-                    : 'Courses'
+          : location.pathname.endsWith('/chat')
+            ? 'Chat Bot'
+            : location.pathname === '/student/join'
+              ? 'Join course'
+              : location.pathname.includes('/rubrics')
+                ? 'Rubrics'
+                : location.pathname.includes('/upload')
+                  ? 'Upload'
+                  : location.pathname.startsWith('/jobs/')
+                    ? 'Processing status'
+                    : activeRole === 'student'
+                      ? 'Assignments'
+                      : 'Courses'
     )
   );
 
@@ -316,6 +319,7 @@ export const App: React.FC = () => {
             <Route path="/teacher/appeals" element={activeRole === 'teacher' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions" element={activeRole === 'teacher' ? <SubmissionQueueView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions/:submissionId" element={activeRole === 'teacher' ? <ReviewWorkspaceView role="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/chat" element={activeRole === 'teacher' ? <ChatView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses" element={activeRole === 'admin' ? <CoursesPage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/dashboard" element={activeRole === 'admin' ? <AdminDashboardView /> : <Navigate to={home} replace />} />
             <Route path="/admin/users" element={activeRole === 'admin' ? <UserManagementView currentUserId={user.id} /> : <Navigate to={home} replace />} />
@@ -327,6 +331,7 @@ export const App: React.FC = () => {
             <Route path="/admin/rubrics" element={activeRole === 'admin' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions" element={activeRole === 'admin' ? <SubmissionQueueView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions/:submissionId" element={activeRole === 'admin' ? <ReviewWorkspaceView role="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/chat" element={activeRole === 'admin' ? <ChatView /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments" element={activeRole === 'student' ? <StudentAssignmentsView /> : <Navigate to={home} replace />} />
             <Route path="/student/join" element={activeRole === 'student' ? <StudentJoinCourseView /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments/:courseId/:assignmentId/upload" element={activeRole === 'student' ? <StudentUploadView /> : <Navigate to={home} replace />} />

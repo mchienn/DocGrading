@@ -113,6 +113,7 @@ def _patch_settings(monkeypatch: pytest.MonkeyPatch) -> None:
             pdf_max_decoded_bytes=25,
             pdf_max_page_count=100,
             pdf_ir_max_nodes=1000,
+            pdf_word_x_tolerance=1.5,
         ),
     )
 
@@ -141,6 +142,7 @@ async def _test_first_statement_locks_document_version_and_first_build_adds_one_
             pdf_max_decoded_bytes=10,
             pdf_max_page_count=12,
             pdf_ir_max_nodes=13,
+            pdf_word_x_tolerance=1.25,
         ),
     )
 
@@ -159,6 +161,7 @@ async def _test_first_statement_locks_document_version_and_first_build_adds_one_
         max_decoded_bytes=10,
         max_page_count=12,
         max_nodes=13,
+        word_x_tolerance=1.25,
     )
     submission_statement = db.execute.call_args_list[0].args[0]
     statement = db.execute.call_args_list[1].args[0]

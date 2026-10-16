@@ -21,7 +21,7 @@ function csrfToken(): string | undefined {
   }
 }
 
-function csrfFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export function csrfFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init);
   if (!MUTATION_METHODS[request.method.toUpperCase()]) return fetch(request);
   const token = csrfToken();
@@ -83,7 +83,7 @@ export function broadcastAuthChange(kind: AuthChangeKind): void {
   authChannel.postMessage(kind);
 }
 
-function notifyAuthExpired(): void {
+export function notifyAuthExpired(): void {
   window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
   broadcastAuthChange('signed-out');
 }

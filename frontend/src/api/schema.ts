@@ -1015,6 +1015,99 @@ export interface paths {
         patch: operations["respond_review_request_api_v1_review_requests__review_request_id__patch"];
         trace?: never;
     };
+    "/api/v1/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat
+         * @description Answer a teacher's free-text question about their own course's grading status.
+         */
+        post: operations["chat_api_v1_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/courses/{course_id}/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chat Scope Submissions
+         * @description Submissions of an owned course, for the "Phạm vi" picker.
+         */
+        get: operations["chat_scope_submissions_api_v1_chat_courses__course_id__submissions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Chat Sessions */
+        get: operations["list_chat_sessions_api_v1_chat_sessions_get"];
+        put?: never;
+        /** Create Chat Session */
+        post: operations["create_chat_session_api_v1_chat_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Chat Session */
+        delete: operations["delete_chat_session_api_v1_chat_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Chat Session */
+        patch: operations["update_chat_session_api_v1_chat_sessions__session_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/chat/sessions/{session_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Chat Messages */
+        get: operations["list_chat_messages_api_v1_chat_sessions__session_id__messages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/metrics": {
         parameters: {
             query?: never;
@@ -1450,6 +1543,203 @@ export interface components {
             /** Results */
             results: components["schemas"]["PublishedResultResponse"][];
         };
+        /** ChatMessageResponse */
+        ChatMessageResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Sender
+             * @enum {string}
+             */
+            sender: "user" | "bot";
+            /** Content */
+            content: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * ChatRequest
+         * @description A single chat turn from the teacher.
+         *
+         *     ``course_id``/``assignment_id`` carry the UI's currently selected context
+         *     (see ``ChatView``). The chatbot never guesses this scope from free text -
+         *     it always relies on explicit, authorization-checked identifiers.
+         *     ``course_id`` can be "all" to aggregate data across all teacher's courses.
+         *     ``submission_id`` narrows content questions (RAG) to one submission, e.g.
+         *     when the chat is opened from the Review workspace.
+         *     ``session_id`` (optional) stores the turn in a saved chat session.
+         */
+        ChatRequest: {
+            /** Message */
+            message: string;
+            /** Course Id */
+            course_id?: string | "all" | null;
+            /** Assignment Id */
+            assignment_id?: string | null;
+            /** Submission Id */
+            submission_id?: string | null;
+            /** Session Id */
+            session_id?: string | null;
+        };
+        /** ChatResponse */
+        ChatResponse: {
+            /** Reply */
+            reply: string;
+            /** Intent */
+            intent: string;
+            /** Needs Clarification */
+            needs_clarification?: ("course" | "assignment" | "submission") | null;
+            /** Clarification Options */
+            clarification_options?: components["schemas"]["ClarificationOption"][] | null;
+            /** Pending Message */
+            pending_message?: string | null;
+            stats?: components["schemas"]["ChatStats"] | null;
+            /** Citations */
+            citations?: components["schemas"]["Citation"][] | null;
+            open_document?: components["schemas"]["OpenDocument"] | null;
+            /** Session Id */
+            session_id?: string | null;
+            /**
+             * Llm Unavailable
+             * @default false
+             */
+            llm_unavailable: boolean;
+        };
+        /**
+         * ChatScopeSubmission
+         * @description A submission the teacher can narrow the chat to ("Phạm vi" picker).
+         */
+        ChatScopeSubmission: {
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Student Name */
+            student_name: string;
+            /** Student Email */
+            student_email: string;
+            /** Assignment Title */
+            assignment_title: string;
+            /** File Name */
+            file_name: string;
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+        };
+        /** ChatSessionCreate */
+        ChatSessionCreate: {
+            /** Title */
+            title?: string | null;
+            /** Course Id */
+            course_id?: string | "all" | null;
+            /** Submission Id */
+            submission_id?: string | null;
+        };
+        /** ChatSessionResponse */
+        ChatSessionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Course Id */
+            course_id: string | null;
+            /** All Courses */
+            all_courses: boolean;
+            /** Submission Id */
+            submission_id: string | null;
+            /** Is Pinned */
+            is_pinned: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * ChatSessionUpdate
+         * @description Only fields present in the body are changed (None clears a scope).
+         */
+        ChatSessionUpdate: {
+            /** Title */
+            title?: string | null;
+            /** Is Pinned */
+            is_pinned?: boolean | null;
+            /** Course Id */
+            course_id?: string | "all" | null;
+            /** Submission Id */
+            submission_id?: string | null;
+        };
+        /**
+         * ChatStats
+         * @description Live class numbers behind a SUMMARY answer (for the stats card).
+         */
+        ChatStats: {
+            /** Total Students */
+            total_students: number;
+            /** Submitted */
+            submitted: number;
+            /** Reviewed */
+            reviewed: number;
+            /** Pending Review */
+            pending_review: number;
+            /** Errors */
+            errors: number;
+        };
+        /**
+         * Citation
+         * @description A passage of a student document backing an answer (RAG).
+         */
+        Citation: {
+            /**
+             * Chunk Id
+             * Format: uuid
+             */
+            chunk_id: string;
+            /** Page */
+            page: number;
+            /** Page End */
+            page_end: number;
+            /** Section Path */
+            section_path?: string | null;
+            /** Excerpt */
+            excerpt: string;
+            /** Submission Id */
+            submission_id?: string | null;
+            /** Student Name */
+            student_name?: string | null;
+            /** Document Version Id */
+            document_version_id?: string | null;
+            /** File Name */
+            file_name?: string | null;
+            /** Highlights */
+            highlights?: components["schemas"]["Highlight"][];
+        };
         /** CitationAnchorResponse */
         CitationAnchorResponse: {
             /** Element Id */
@@ -1568,6 +1858,21 @@ export interface components {
             identity?: components["schemas"]["CitationIdentityResponse"][];
             /** Issues */
             issues?: components["schemas"]["CitationIssueResponse"][];
+        };
+        /**
+         * ClarificationOption
+         * @description One scope the teacher can pick when a question is missing/ambiguous.
+         */
+        ClarificationOption: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Detail */
+            detail?: string | null;
         };
         /** CompletionResponse */
         CompletionResponse: {
@@ -1981,6 +2286,15 @@ export interface components {
              */
             status: "ok";
         };
+        /**
+         * Highlight
+         * @description A paragraph box to highlight in the PDF viewer (PDF points, top-left).
+         */
+        Highlight: {
+            /** Page */
+            page: number;
+            bbox: components["schemas"]["BBox"];
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Email */
@@ -2049,6 +2363,26 @@ export interface components {
          * @enum {string}
          */
         NotificationType: "ANALYSIS_JOB_ERROR" | "RESULT_PUBLISHED" | "REVIEW_REQUEST_CREATED" | "REVIEW_REQUEST_RESOLVED" | "REVIEW_REQUEST_REJECTED";
+        /**
+         * OpenDocument
+         * @description A submission the UI should open (set as scope + show its PDF).
+         */
+        OpenDocument: {
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /** Label */
+            label: string;
+            /** File Name */
+            file_name: string;
+        };
         /** PresignRequest */
         PresignRequest: {
             /** Filename */
@@ -4913,6 +5247,218 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewRequestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_api_v1_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_scope_submissions_api_v1_chat_courses__course_id__submissions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                course_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatScopeSubmission"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chat_sessions_api_v1_chat_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionResponse"][];
+                };
+            };
+        };
+    };
+    create_chat_session_api_v1_chat_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_chat_session_api_v1_chat_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_chat_session_api_v1_chat_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSessionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chat_messages_api_v1_chat_sessions__session_id__messages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessageResponse"][];
                 };
             };
             /** @description Validation Error */
