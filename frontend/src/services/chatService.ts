@@ -63,6 +63,9 @@ export interface ChatResponse {
   citations: ChatCitation[] | null;
   open_document: OpenDocument | null;
   session_id: string | null;
+  /** The automatic answer/summary could not be generated; `reply` is a fallback.
+   * Optional: turns saved before this field existed don't carry it. */
+  llm_unavailable?: boolean;
 }
 
 /** Structured part of a saved bot turn (everything but the reply text). */

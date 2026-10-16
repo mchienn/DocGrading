@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  AlertTriangle,
   ArrowRight,
   ExternalLink,
   FileText,
@@ -207,6 +208,15 @@ const MessageBubble: React.FC<{
               : 'bg-slate-50 border border-slate-200 text-slate-800 rounded-tl-none'
         }`}
       >
+        {!isUser && payload.llm_unavailable && (
+          <div
+            role="status"
+            className="mb-2 flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            Trả lời tự động đang tạm gián đoạn; nội dung dưới đây chưa qua AI tổng hợp.
+          </div>
+        )}
         <p className="whitespace-pre-line">{isUser ? message.content : renderInline(message.content)}</p>
         {payload.stats && <StatsCard stats={payload.stats} />}
         {citations.length > 0 && (payload.intent === 'SEARCH_CONTENT'
