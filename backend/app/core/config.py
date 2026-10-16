@@ -77,11 +77,26 @@ class Settings(BaseSettings):
     embedding_provider: str = "openai"
     embedding_api_key: str = ""
     embedding_model: str = "text-embedding-3-small"
+    # Per-request budget passed to the OpenAI SDK (its own default is 600 s).
+    embedding_timeout_seconds: float = Field(default=20.0, gt=0)
+    embedding_max_retries: int = Field(default=2, ge=0)
 
     # RAG answer composer. Same rule: a missing key only fails when called.
     llm_provider: str = "openai"
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
+    llm_timeout_seconds: float = Field(default=30.0, gt=0)
+    # Chat answers and the LLM router retry once; summaries (cached) twice.
+    # Worst-case latency per path: see backend/README.md.
+    llm_max_retries: int = Field(default=1, ge=0)
+    llm_summary_max_retries: int = Field(default=2, ge=0)
+    # Wall-clock budgets (seconds) for the provider calls of one chat turn.
+    chat_turn_deadline_seconds: float = Field(default=25.0, gt=0)
+    llm_router_timeout_seconds: float = Field(default=8.0, gt=0)
+    # Cap for the chat's query embedding, inside the turn deadline: past it
+    # retrieval goes full-text only and the answer keeps the rest of the turn.
+    query_embedding_timeout_seconds: float = Field(default=6.0, gt=0)
+    summary_deadline_seconds: float = Field(default=90.0, gt=0)
 
     @model_validator(mode="after")
     def _validate_invariants(self) -> "Settings":

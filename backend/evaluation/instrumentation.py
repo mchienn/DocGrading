@@ -24,8 +24,7 @@ from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.config import ROOT_ENV_FILE, get_settings
-from app.models.chunk import EMBEDDING_DIMENSIONS
+from app.core.config import ROOT_ENV_FILE, Settings, get_settings
 from app.services import chat as chat_service
 from app.services import rag as rag_service
 from app.services.chat import Intent
@@ -62,6 +61,8 @@ class TokenLedger:
         )
     )
     embedding: dict[str, int] = field(default_factory=lambda: {"calls": 0, "tokens": 0})
+    # Provider calls that failed (after the SDK's retries), per purpose.
+    errors: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
     exceeded: bool = False
 
@@ -82,6 +83,9 @@ class TokenLedger:
                 f"LLM token budget exceeded: {self.llm_total} > {self.llm_budget}"
             )
 
+    def add_error(self, purpose: str) -> None:
+        self.errors[purpose] += 1
+
     def add_embedding(self, tokens: int) -> None:
         self.embedding["calls"] += 1
         self.embedding["tokens"] += tokens
@@ -91,76 +95,94 @@ class TokenLedger:
             "llm_total_tokens": self.llm_total,
             "llm_by_purpose": {k: dict(v) for k, v in self.llm.items()},
             "embedding": dict(self.embedding),
+            "errors": dict(self.errors),
             "llm_budget": self.llm_budget,
             "budget_exceeded": self.exceeded,
         }
 
 
 class CountingChatClient(OpenAIChatClient):
-    """``OpenAIChatClient`` with the same request, plus usage accounting.
+    """The product's ``OpenAIChatClient`` (same request, error wrapping and
+    timeout/retry settings) plus usage accounting through its hooks.
 
-    ``calls`` counts every call made through this instance (used by the
-    cache cases to tell a cache hit from a rebuild).
+    ``calls`` counts every completed or failed call made through this client
+    *and the copies the chat makes of it* (``with_options`` for the summary
+    and router paths share ``_stats``); the cache cases rely on it.
     """
 
-    def __init__(self, ledger: TokenLedger, *, api_key: str, model: str) -> None:
-        super().__init__(api_key, model)
+    def __init__(
+        self,
+        ledger: TokenLedger,
+        *,
+        api_key: str,
+        model: str,
+        settings: Settings | None = None,
+    ) -> None:
+        settings = settings or get_settings()
+        super().__init__(
+            api_key,
+            model,
+            timeout_seconds=settings.llm_timeout_seconds,
+            max_retries=settings.llm_max_retries,
+        )
         self._ledger = ledger
-        self.calls = 0
+        self._stats = {"calls": 0}
 
-    async def complete(self, *, system: str, prompt: str, max_tokens: int) -> str:
-        self.calls += 1
-        if not self._api_key:
-            raise LLMNotConfiguredError(
-                "LLM_API_KEY is not set; cannot call the OpenAI chat completions API"
-            )
-        from openai import AsyncOpenAI
+    @property
+    def calls(self) -> int:
+        return self._stats["calls"]
 
-        client = AsyncOpenAI(api_key=self._api_key)
-        try:
-            response = await client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": prompt},
-                ],
-                max_completion_tokens=max_tokens,
-            )
-        finally:
-            await client.close()
+    def _record_success(self, system: str, response: Any) -> None:
+        self._stats["calls"] += 1
         usage = response.usage
         self._ledger.add_llm(
             _purpose_of(system),
             usage.prompt_tokens if usage else 0,
             usage.completion_tokens if usage else 0,
         )
-        return response.choices[0].message.content or ""
+
+    def _record_failure(self, system: str) -> None:
+        self._stats["calls"] += 1
+        self._ledger.add_error(_purpose_of(system))
 
 
 class CountingEmbeddingProvider(OpenAIEmbeddingProvider):
-    def __init__(self, ledger: TokenLedger, *, api_key: str, model: str) -> None:
-        super().__init__(api_key, model)
+    """The product's embedding provider, configured like the chat's query
+    embedding (``get_embedding_provider(interactive=True)``), plus usage
+    accounting through its hooks."""
+
+    def __init__(
+        self,
+        ledger: TokenLedger,
+        *,
+        api_key: str,
+        model: str,
+        settings: Settings | None = None,
+    ) -> None:
+        settings = settings or get_settings()
+        super().__init__(
+            api_key,
+            model,
+            timeout_seconds=settings.embedding_timeout_seconds,
+            max_retries=settings.embedding_max_retries,
+            rate_limit_retries=0,
+        )
         self._ledger = ledger
 
-    async def _request(self, texts: list[str]) -> list[list[float]]:
-        from openai import AsyncOpenAI
-
-        client = AsyncOpenAI(api_key=self._api_key)
-        try:
-            response = await client.embeddings.create(
-                model=self.model_name, input=texts, dimensions=EMBEDDING_DIMENSIONS
-            )
-        finally:
-            await client.close()
+    def _record_response(self, response: Any) -> None:
         self._ledger.add_embedding(response.usage.total_tokens if response.usage else 0)
-        ordered = sorted(response.data, key=lambda item: item.index)
-        return [list(item.embedding) for item in ordered]
+
+    def _record_failure(self) -> None:
+        self._ledger.add_error("embedding")
 
 
 def make_llm_client(ledger: TokenLedger) -> CountingChatClient:
     settings = get_settings()
     return CountingChatClient(
-        ledger, api_key=settings.llm_api_key.strip(), model=settings.llm_model
+        ledger,
+        api_key=settings.llm_api_key.strip(),
+        model=settings.llm_model,
+        settings=settings,
     )
 
 
@@ -181,10 +203,12 @@ def judge_model_name() -> str:
 
 def make_judge_client(ledger: TokenLedger) -> CountingChatClient:
     """Same OpenAI key as the system; only the model can differ."""
+    settings = get_settings()
     return CountingChatClient(
         ledger,
-        api_key=get_settings().llm_api_key.strip(),
+        api_key=settings.llm_api_key.strip(),
         model=judge_model_name(),
+        settings=settings,
     )
 
 
@@ -194,6 +218,7 @@ def make_embedding_provider(ledger: TokenLedger) -> CountingEmbeddingProvider:
         ledger,
         api_key=settings.embedding_api_key.strip(),
         model=settings.embedding_model,
+        settings=settings,
     )
 
 
@@ -224,7 +249,7 @@ class _NoLLM:
         raise LLMNotConfiguredError("LLM disabled in the rule_only configuration")
 
 
-async def _no_route(message: str, history: Any) -> None:
+async def _no_route(message: str, history: Any, deadline: Any = None) -> None:
     return None
 
 

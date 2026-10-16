@@ -111,6 +111,9 @@ class ChatResponse(BaseModel):
     citations: list[Citation] | None = None
     open_document: OpenDocument | None = None
     session_id: uuid.UUID | None = None
+    # True when the automatic answer/summary could not be generated (provider
+    # error, no key, empty output): ``reply`` then carries a fallback text.
+    llm_unavailable: bool = False
 
 
 class ChatScopeSubmission(BaseModel):

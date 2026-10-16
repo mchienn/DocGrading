@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import unicodedata
 import uuid
 from collections.abc import Sequence
@@ -42,6 +43,7 @@ from app.api.schemas_chat import (
     Highlight,
     OpenDocument,
 )
+from app.core.config import get_settings
 from app.models.analysis import DocumentIR
 from app.models.assignment import Assignment
 from app.models.chunk import DocumentChunk
@@ -65,11 +67,15 @@ from app.services.embeddings import (
 from app.services.rag import (
     LLMClient,
     LLMNotConfiguredError,
+    LLMUnavailableError,
+    OpenAIChatClient,
+    ProviderDeadlineExceeded,
     RetrievedChunk,
     answer_with_citations,
     get_llm_client,
     make_excerpt,
     retrieve_chunks,
+    run_within,
     summarize_document,
 )
 from app.services.review import _ERROR_STATUSES, _REVIEWED_STATUSES
@@ -1018,7 +1024,7 @@ async def _resolve_rag_scope(
 
 def _rag_embedding_provider() -> EmbeddingProvider | None:
     try:
-        return get_embedding_provider()
+        return get_embedding_provider(interactive=True)
     except EmbeddingNotConfiguredError:
         return None
 
@@ -1123,8 +1129,12 @@ def _page_label(citation: Citation) -> str:
 
 
 async def _handle_search_content(
-    db: AsyncSession, scope: RagScope, message: str
+    db: AsyncSession,
+    scope: RagScope,
+    message: str,
+    deadline: TurnDeadline | None = None,
 ) -> ChatResponse:
+    deadline = deadline or TurnDeadline.start()
     topic = extract_search_topic(message)
     if not topic:
         return ChatResponse(
@@ -1137,7 +1147,11 @@ async def _handle_search_content(
             intent=Intent.SEARCH_CONTENT,
         )
     chunks = await retrieve_chunks(
-        db, scope.version_ids, topic, provider=_rag_embedding_provider()
+        db,
+        scope.version_ids,
+        topic,
+        provider=_rag_embedding_provider(),
+        embed_timeout=_query_embedding_budget(deadline),
     )
     if not chunks:
         return ChatResponse(
@@ -1161,8 +1175,67 @@ async def _handle_search_content(
     )
 
 
+ANSWER_FALLBACK_TEXT = (
+    "Hệ thống chưa tạo được câu trả lời tự động lúc này, đây là các đoạn liên quan."
+)
+SUMMARY_UNAVAILABLE_TEXT = (
+    "Hệ thống chưa tạo được bản tóm tắt lúc này. Bạn thử lại sau ít phút nhé."
+)
+
+
+@dataclass(frozen=True)
+class TurnDeadline:
+    """Wall-clock budget for the provider calls of one chat turn.
+
+    Counted from the start of the turn, so time spent in the router or the
+    query embedding is taken from what the answer can still use.
+    """
+
+    started: float
+    seconds: float
+
+    @classmethod
+    def start(cls) -> TurnDeadline:
+        return cls(time.monotonic(), get_settings().chat_turn_deadline_seconds)
+
+    def for_seconds(self, seconds: float) -> TurnDeadline:
+        """Same start, another length (the summary path has its own)."""
+        return TurnDeadline(self.started, seconds)
+
+    def remaining(self) -> float:
+        return max(0.0, self.started + self.seconds - time.monotonic())
+
+
+def _query_embedding_budget(deadline: TurnDeadline) -> float:
+    return min(get_settings().query_embedding_timeout_seconds, deadline.remaining())
+
+
+_PROVIDER_FAILURES = (
+    LLMNotConfiguredError,
+    LLMUnavailableError,
+    ProviderDeadlineExceeded,
+)
+
+
 def _rag_llm_client() -> LLMClient:
     return get_llm_client()
+
+
+def _rag_summary_llm_client() -> LLMClient:
+    client = _rag_llm_client()
+    if isinstance(client, OpenAIChatClient):
+        return client.with_options(max_retries=get_settings().llm_summary_max_retries)
+    return client
+
+
+def _rag_router_llm_client() -> LLMClient:
+    # Short timeout, no retry: a slow router only costs a fallback to UNKNOWN.
+    client = _rag_llm_client()
+    if isinstance(client, OpenAIChatClient):
+        return client.with_options(
+            timeout_seconds=get_settings().llm_router_timeout_seconds, max_retries=0
+        )
+    return client
 
 
 def _fallback_excerpt_lines(citations: list[Citation]) -> list[str]:
@@ -1173,8 +1246,12 @@ def _fallback_excerpt_lines(citations: list[Citation]) -> list[str]:
 
 
 async def _handle_ask_about_requirement(
-    db: AsyncSession, scope: RagScope, message: str
+    db: AsyncSession,
+    scope: RagScope,
+    message: str,
+    deadline: TurnDeadline | None = None,
 ) -> ChatResponse:
+    deadline = deadline or TurnDeadline.start()
     intent = Intent.ASK_ABOUT_REQUIREMENT
     if not scope.version_ids:
         return ChatResponse(
@@ -1183,7 +1260,11 @@ async def _handle_ask_about_requirement(
         )
     query = extract_search_topic(message) or message
     chunks = await retrieve_chunks(
-        db, scope.version_ids, query, provider=_rag_embedding_provider()
+        db,
+        scope.version_ids,
+        query,
+        provider=_rag_embedding_provider(),
+        embed_timeout=_query_embedding_budget(deadline),
     )
     if not chunks:
         return ChatResponse(
@@ -1192,34 +1273,48 @@ async def _handle_ask_about_requirement(
             citations=[],
         )
     try:
-        answer = await answer_with_citations(message, chunks, _rag_llm_client())
-    except LLMNotConfiguredError as exc:
-        # No key yet: still useful — hand back the retrieved passages verbatim.
-        citations = await _citations_for(db, chunks, query)
-        reply = "\n".join(
-            [
-                f"Chưa soạn được câu trả lời tự động ({exc}). "
-                "Các đoạn liên quan nhất:",
-                *_fallback_excerpt_lines(citations),
-            ]
+        answer = await run_within(
+            deadline.remaining(),
+            answer_with_citations(message, chunks, _rag_llm_client()),
         )
-        return ChatResponse(reply=reply, intent=intent, citations=citations)
+    except _PROVIDER_FAILURES:
+        # No key, a failed provider call or no time left in the turn: still
+        # useful — hand back the retrieved passages verbatim. Details go to
+        # the log, not the reply.
+        logger.warning("Automatic answer unavailable", exc_info=True)
+        citations = await _citations_for(db, chunks, query)
+        reply = "\n".join([ANSWER_FALLBACK_TEXT, *_fallback_excerpt_lines(citations)])
+        return ChatResponse(
+            reply=reply, intent=intent, citations=citations, llm_unavailable=True
+        )
     citations = await _citations_for(db, answer.citations, query)
     return ChatResponse(reply=answer.text, intent=intent, citations=citations)
 
 
 async def _handle_summarize_submission(
-    db: AsyncSession, scope: RagScope
+    db: AsyncSession, scope: RagScope, deadline: TurnDeadline | None = None
 ) -> ChatResponse:
+    # Several sequential LLM calls (map-reduce): its own, longer budget,
+    # counted from the start of the turn.
+    deadline = (deadline or TurnDeadline.start()).for_seconds(
+        get_settings().summary_deadline_seconds
+    )
     intent = Intent.SUMMARIZE_SUBMISSION
     if not scope.version_ids:
         return ChatResponse(reply="Bài nộp này chưa có tài liệu nào.", intent=intent)
     try:
-        summary = await summarize_document(db, scope.version_ids[0], _rag_llm_client())
-    except LLMNotConfiguredError as exc:
+        summary = await summarize_document(
+            db,
+            scope.version_ids[0],
+            _rag_summary_llm_client(),
+            llm_timeout_seconds=deadline.remaining(),
+        )
+    except _PROVIDER_FAILURES:
+        # Nothing is cached on this path: summarize_document stores a row only
+        # after a successful call.
+        logger.warning("Automatic summary unavailable", exc_info=True)
         return ChatResponse(
-            reply=f"Chưa tóm tắt được bài này: {exc}.",
-            intent=intent,
+            reply=SUMMARY_UNAVAILABLE_TEXT, intent=intent, llm_unavailable=True
         )
     if summary is None:
         return ChatResponse(
@@ -1229,7 +1324,9 @@ async def _handle_summarize_submission(
             ),
             intent=intent,
         )
-    return ChatResponse(reply=summary.text, intent=intent)
+    return ChatResponse(
+        reply=summary.text, intent=intent, llm_unavailable=summary.failed
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -1343,12 +1440,21 @@ async def route_with_llm(
     return parse_route(raw)
 
 
-async def _route_unknown(message: str, history: Sequence[str]) -> RoutedQuestion | None:
+async def _route_unknown(
+    message: str, history: Sequence[str], deadline: TurnDeadline | None = None
+) -> RoutedQuestion | None:
+    deadline = deadline or TurnDeadline.start()
+    budget = min(get_settings().llm_router_timeout_seconds, deadline.remaining())
     try:
-        return await route_with_llm(message, history, _rag_llm_client())
+        return await run_within(
+            budget, route_with_llm(message, history, _rag_router_llm_client())
+        )
     except LLMNotConfiguredError:
         return None
     except Exception:
+        # LLMUnavailableError (timeout, network, 429, 5xx, auth), the router
+        # budget running out, or a reply that fails to parse: answer as
+        # UNKNOWN; details stay in the log.
         logger.warning("LLM intent routing failed", exc_info=True)
         return None
 
@@ -1403,11 +1509,12 @@ async def handle_chat(
     If course_id is "all", aggregate data from all teacher's courses.
     """
     course_id = normalize_course_id(course_id)
+    deadline = TurnDeadline.start()
     intent = classify_intent(message)
     if intent is Intent.UNKNOWN:
         # Keywords missed: let the LLM pick an intent and rewrite the question
         # (resolving "bài đó"... from the teacher's previous questions).
-        routed = await _route_unknown(message, history)
+        routed = await _route_unknown(message, history, deadline=deadline)
         if routed is not None:
             intent, message = routed.intent, routed.question
             if routed.target and submission_id is None:
@@ -1446,10 +1553,10 @@ async def handle_chat(
         if isinstance(scope, ChatResponse):
             return scope
         if intent is Intent.ASK_ABOUT_REQUIREMENT:
-            return await _handle_ask_about_requirement(db, scope, message)
+            return await _handle_ask_about_requirement(db, scope, message, deadline)
         if intent is Intent.SUMMARIZE_SUBMISSION:
-            return await _handle_summarize_submission(db, scope)
-        return await _handle_search_content(db, scope, message)
+            return await _handle_summarize_submission(db, scope, deadline)
+        return await _handle_search_content(db, scope, message, deadline)
 
     if course_id is None:
         return await _ask_for_course(db, user, intent, message)

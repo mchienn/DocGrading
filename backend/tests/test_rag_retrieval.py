@@ -23,9 +23,14 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.models.enums import UserRole
 from app.services import chat as chat_service
-from app.services.chat import Intent, handle_chat
+from app.services.chat import ANSWER_FALLBACK_TEXT, Intent, handle_chat
 from app.services.embeddings import FakeEmbeddingProvider
-from app.services.rag import FakeLLMClient, retrieve_chunks, summarize_document
+from app.services.rag import (
+    SUMMARY_FAILED_TEXT,
+    FakeLLMClient,
+    retrieve_chunks,
+    summarize_document,
+)
 from app.workers.index_document_chunks import index_document_version
 from tests.test_t011_review_workspace import _actor, _ids, _seed_graph
 
@@ -277,7 +282,9 @@ def test_ask_about_requirement_without_llm_key_returns_passages() -> None:
             submission_id=ids["submission_2"],
         )
         assert response.intent == Intent.ASK_ABOUT_REQUIREMENT
-        assert "LLM_API_KEY" in response.reply
+        assert response.reply.splitlines()[0] == ANSWER_FALLBACK_TEXT
+        assert "LLM_API_KEY" not in response.reply
+        assert response.llm_unavailable is True
         assert response.citations and response.citations[0].page == 2
 
     _run(scenario)
@@ -410,6 +417,34 @@ def test_summary_row_without_source_hash_is_regenerated_once() -> None:
         cached = await summarize_document(session, version, client)
         assert cached and cached.cached
         assert len(client.calls) == 1
+
+    _run(scenario)
+
+
+def test_failed_summary_is_not_cached() -> None:
+    outputs = ["", "Tóm tắt thật"]
+    client = FakeLLMClient(lambda _s, _p: outputs.pop(0))
+
+    async def scenario(session: AsyncSession, ids: dict[str, uuid.UUID]) -> None:
+        version = ids["document_2"]
+        await index_document_version(session, version, None)
+        failed = await summarize_document(session, version, client)
+        assert failed and not failed.cached and failed.text == SUMMARY_FAILED_TEXT
+        rows = await session.scalar(
+            text(
+                "SELECT count(*) FROM public.document_summaries "
+                "WHERE document_version_id = :v"
+            ),
+            {"v": version},
+        )
+        assert rows == 0, "an empty LLM answer must not be stored"
+
+        retried = await summarize_document(session, version, client)
+        assert retried and not retried.cached and retried.text == "Tóm tắt thật"
+        assert len(client.calls) == 2, "the failure was not served from cache"
+        cached = await summarize_document(session, version, client)
+        assert cached and cached.cached and cached.text == "Tóm tắt thật"
+        assert len(client.calls) == 2
 
     _run(scenario)
 

@@ -23,6 +23,7 @@ from app.services.chunking import build_chunks
 from app.services.embeddings import (
     EmbeddingNotConfiguredError,
     EmbeddingProvider,
+    EmbeddingUnavailableError,
     get_embedding_provider,
 )
 from app.workers.celery_app import celery_app
@@ -51,6 +52,27 @@ async def _try_embed(
     except EmbeddingNotConfiguredError as exc:
         logger.warning("Storing chunks without embeddings: %s", exc)
         return None
+    except EmbeddingUnavailableError:
+        # Same path as "no key": keep the chunks for keyword retrieval; the
+        # vectors are filled later by backfill_chunks --fill-embeddings.
+        logger.warning(
+            "Embedding provider failed; storing chunks without embeddings",
+            exc_info=True,
+        )
+        return None
+
+
+def _warn_missing_embeddings(
+    version_id: uuid.UUID, provider: EmbeddingProvider | None
+) -> None:
+    # provider None means "index without vectors" on purpose; nothing to fill.
+    if provider is not None:
+        logger.warning(
+            "Document version %s has chunks without embeddings; once the provider "
+            "works, fill them with: python -m scripts.backfill_chunks "
+            "--fill-embeddings",
+            version_id,
+        )
 
 
 async def _fill_missing_embeddings(
@@ -74,6 +96,7 @@ async def _fill_missing_embeddings(
         return "already_indexed"
     vectors = await _try_embed(provider, [chunk.text for chunk in missing])
     if vectors is None:
+        _warn_missing_embeddings(version_id, provider)
         return "already_indexed_without_embeddings"
     for chunk, vector in zip(missing, vectors, strict=True):
         chunk.embedding = vector
@@ -108,6 +131,8 @@ async def index_document_version(
         return "no_chunks"
 
     vectors = await _try_embed(provider, [draft.text for draft in drafts])
+    if vectors is None:
+        _warn_missing_embeddings(version_id, provider)
     for position, draft in enumerate(drafts):
         db.add(
             DocumentChunk(

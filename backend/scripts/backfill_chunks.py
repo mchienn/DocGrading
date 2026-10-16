@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 from collections import Counter
 
 import sqlalchemy as sa
@@ -19,6 +20,8 @@ from app.db.session import _engine, _session_factory
 from app.models.analysis import DocumentIR
 from app.models.chunk import DocumentChunk
 from app.workers.index_document_chunks import _default_provider, index_document_version
+
+logger = logging.getLogger(__name__)
 
 
 async def _pending_version_ids(fill_embeddings: bool) -> list:
@@ -46,8 +49,13 @@ async def main(fill_embeddings: bool) -> None:
         provider = _default_provider()
         outcomes: Counter[str] = Counter()
         for position, version_id in enumerate(version_ids, start=1):
-            async with _session_factory()() as db:
-                outcome = await index_document_version(db, version_id, provider)
+            try:
+                async with _session_factory()() as db:
+                    outcome = await index_document_version(db, version_id, provider)
+            except Exception:
+                # One bad version must not stop the others; details to the log.
+                logger.warning("Indexing %s failed", version_id, exc_info=True)
+                outcome = "error"
             outcomes[outcome] += 1
             print(f"[{position}/{len(version_ids)}] {version_id}: {outcome}")
         print("Done:", dict(outcomes) or "nothing to do")

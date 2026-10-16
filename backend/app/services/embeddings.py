@@ -24,6 +24,10 @@ class EmbeddingNotConfiguredError(RuntimeError):
     """The configured embedding provider cannot be called (e.g. no API key)."""
 
 
+class EmbeddingUnavailableError(RuntimeError):
+    """The provider call failed; the message names the SDK error class only."""
+
+
 class EmbeddingProvider(Protocol):
     model_name: str
 
@@ -32,6 +36,12 @@ class EmbeddingProvider(Protocol):
 
 def _is_rate_limited(exc: BaseException) -> bool:
     return getattr(exc, "status_code", None) == 429
+
+
+def _is_provider_error(exc: BaseException) -> bool:
+    from openai import OpenAIError
+
+    return isinstance(exc, OpenAIError)
 
 
 class OpenAIEmbeddingProvider:
@@ -46,10 +56,16 @@ class OpenAIEmbeddingProvider:
         api_key: str,
         model: str,
         *,
+        timeout_seconds: float = 20.0,
+        max_retries: int = 2,
+        rate_limit_retries: int = RATE_LIMIT_RETRIES,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._api_key = api_key
         self.model_name = model
+        self._timeout_seconds = timeout_seconds
+        self._max_retries = max_retries
+        self._rate_limit_retries = rate_limit_retries
         self._sleep = sleep
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
@@ -59,20 +75,30 @@ class OpenAIEmbeddingProvider:
             )
         if not texts:
             return []
-        for attempt in range(self.RATE_LIMIT_RETRIES + 1):
+        for attempt in range(self._rate_limit_retries + 1):
             try:
                 return await self._request(texts)
             except Exception as exc:
-                if not _is_rate_limited(exc) or attempt == self.RATE_LIMIT_RETRIES:
-                    raise
-                await self._sleep(self.RATE_LIMIT_WAIT_SECONDS * (attempt + 1))
+                if _is_rate_limited(exc) and attempt < self._rate_limit_retries:
+                    await self._sleep(self.RATE_LIMIT_WAIT_SECONDS * (attempt + 1))
+                    continue
+                if _is_provider_error(exc):
+                    self._record_failure()
+                    raise EmbeddingUnavailableError(
+                        f"Embedding provider request failed ({type(exc).__name__})"
+                    ) from exc
+                raise
         raise AssertionError("unreachable")
 
     async def _request(self, texts: list[str]) -> list[list[float]]:
         # Imported lazily so the SDK is only loaded when embeddings are used.
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=self._api_key)
+        client = AsyncOpenAI(
+            api_key=self._api_key,
+            timeout=self._timeout_seconds,
+            max_retries=self._max_retries,
+        )
         try:
             response = await client.embeddings.create(
                 model=self.model_name,
@@ -81,8 +107,16 @@ class OpenAIEmbeddingProvider:
             )
         finally:
             await client.close()
+        self._record_response(response)
         ordered = sorted(response.data, key=lambda item: item.index)
         return [list(item.embedding) for item in ordered]
+
+    # Hooks for subclasses that account for usage (the benchmark does).
+    def _record_response(self, response: object) -> None:
+        return None
+
+    def _record_failure(self) -> None:
+        return None
 
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
@@ -118,13 +152,22 @@ class FakeEmbeddingProvider:
         return [value / norm for value in vector]
 
 
-def get_embedding_provider(settings: Settings | None = None) -> EmbeddingProvider:
+def get_embedding_provider(
+    settings: Settings | None = None, *, interactive: bool = False
+) -> EmbeddingProvider:
     settings = settings or get_settings()
     provider = settings.embedding_provider.strip().lower()
     if provider == "openai":
         return OpenAIEmbeddingProvider(
             api_key=settings.embedding_api_key.strip(),
             model=settings.embedding_model,
+            timeout_seconds=settings.embedding_timeout_seconds,
+            max_retries=settings.embedding_max_retries,
+            # A chat request must not sit in the backfill's 20/40/... s
+            # rate-limit waits; it falls back to keyword retrieval instead.
+            rate_limit_retries=(
+                0 if interactive else OpenAIEmbeddingProvider.RATE_LIMIT_RETRIES
+            ),
         )
     if provider == "fake":
         return FakeEmbeddingProvider()
