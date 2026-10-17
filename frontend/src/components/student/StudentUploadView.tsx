@@ -121,10 +121,8 @@ export const StudentUploadView: React.FC = () => {
       }));
 
       if (presign.analysis_job_id) {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['assignments', courseId] }),
-          queryClient.invalidateQueries({ queryKey: ['assignment', courseId, assignmentId] }),
-        ]);
+        void queryClient.invalidateQueries({ queryKey: ['assignments', courseId] });
+        void queryClient.invalidateQueries({ queryKey: ['assignment', courseId, assignmentId] });
         navigate(`/jobs/${presign.analysis_job_id}?submissionId=${presign.submission_id}&reused=${presign.reused}`);
         return;
       }
@@ -137,10 +135,8 @@ export const StudentUploadView: React.FC = () => {
       const completion = await apiData(api.POST('/api/v1/document-versions/{version_id}/complete', {
         params: { path: { version_id: presign.document_version_id } },
       }));
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['assignments', courseId] }),
-        queryClient.invalidateQueries({ queryKey: ['assignment', courseId, assignmentId] }),
-      ]);
+      void queryClient.invalidateQueries({ queryKey: ['assignments', courseId] });
+      void queryClient.invalidateQueries({ queryKey: ['assignment', courseId, assignmentId] });
       navigate(`/jobs/${completion.analysis_job_id}?submissionId=${completion.submission_id}`);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
