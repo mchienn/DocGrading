@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -807,7 +807,22 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
             await job_svc.authorize_job(session, foreign_job, other_teacher)
             await job_svc.authorize_job(session, foreign_job, admin)
 
+            # 00:30 UTC is the previous day in Pago Pago: the trend must still
+            # bucket by UTC day under a non-UTC connection time zone.
+            await connection.execute(text("SET LOCAL TIME ZONE 'Pacific/Pago_Pago'"))
+            await connection.execute(
+                text(
+                    "UPDATE public.analysis_jobs SET queued_at = :at, "
+                    "finished_at = :at WHERE id IN (:first, :second)"
+                ),
+                {
+                    "at": datetime.combine(datetime.now(UTC).date(), time(0, 30), UTC),
+                    "first": ids["job"],
+                    "second": extra["job"],
+                },
+            )
             dashboard = await operations_svc.get_dashboard(session)
+            await connection.execute(text("RESET TIME ZONE"))
             expected_job_counts = dict(baseline_dashboard.jobs_by_status)
             expected_job_counts[AnalysisJobStatus.DONE] += 1
             expected_job_counts[AnalysisJobStatus.ERROR] += 1
