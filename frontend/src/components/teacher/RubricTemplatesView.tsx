@@ -196,7 +196,10 @@ const CriterionModal: React.FC<CriterionModalProps> = ({
                 : COMMON_LEVEL_DESCRIPTORS,
               evaluator_config: {
                 ...criterionToEdit.evaluator_config,
-                grading_bullets: selectedCatalog?.gradingBullets ?? [],
+                grading_bullets:
+                  selectedCatalog?.gradingBullets ??
+                  criterionToEdit.evaluator_config.grading_bullets ??
+                  [],
               },
               evidence_requirements: {
                 ...criterionToEdit.evidence_requirements,

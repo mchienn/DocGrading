@@ -215,13 +215,16 @@ export const CourseWorkspaceView: React.FC<CourseWorkspaceViewProps> = ({
 
   const saveAnnouncement = async (event: React.FormEvent) => {
     event.preventDefault();
+    const title = announcementTitle.trim();
+    const body = announcementBody.trim();
+    if (!title || !body) {
+      setActionError('Announcement title and body cannot be blank.');
+      return;
+    }
     setAnnouncementSaving(true);
     setActionError(undefined);
     try {
-      await onSaveAnnouncement(
-        { title: announcementTitle.trim(), body: announcementBody.trim() },
-        editingAnnouncement?.id,
-      );
+      await onSaveAnnouncement({ title, body }, editingAnnouncement?.id);
       setEditingAnnouncement(undefined);
       setAnnouncementTitle('');
       setAnnouncementBody('');
