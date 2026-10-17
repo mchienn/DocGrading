@@ -7,7 +7,7 @@ export const authService = {
   },
 
   loadSession(): Promise<UserSession> {
-    return apiData(api.GET('/api/v1/auth/me'));
+    return apiData(api.GET('/api/v1/auth/me'), { sessionProbe: true });
   },
 
   logout(): Promise<void> {
