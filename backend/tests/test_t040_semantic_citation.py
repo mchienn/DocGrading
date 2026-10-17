@@ -304,12 +304,24 @@ def test_claim_extraction_anchors_and_scoping() -> None:
     assert pairs[0].claim_anchor.start == trailing_text.index("The measured")
     assert pairs[0].claim_anchor.end == len(trailing_text)
 
-    # Ambiguous multi-citation in sentence
-    report, document = _report("Method A is used [1] while Method B performs well [2].")
+    # Citations at different places split the sentence: each marker owns the text
+    # since the previous marker (parentheses are not markers).
+    text = "Method A (MA) is used [1] while Method B performs well [2]."
+    report, document = _report(text)
     pairs = semantic.extract_claim_pairs(report, document)
     assert len(pairs) == 1
-    assert pairs[0].status == semantic.SemanticPipelineStatus.AMBIGUOUS_CLAIM
-    assert pairs[0].ambiguity_reason == "multiple citation scopes"
+    assert pairs[0].claim == "Method A (MA) is used [1]"
+    assert pairs[0].extraction_method == semantic.ExtractionMethod.CLAUSE
+    assert pairs[0].ambiguity_reason is None
+    assert text[pairs[0].claim_anchor.start : pairs[0].claim_anchor.end] == (
+        pairs[0].claim
+    )
+
+    # Adjacent markers cite one statement: each keeps the whole sentence.
+    report, document = _report("Both attacks fool the classifier [1] [2].")
+    pairs = semantic.extract_claim_pairs(report, document)
+    assert pairs[0].claim == "Both attacks fool the classifier [1] [2]."
+    assert pairs[0].ambiguity_reason is None
 
     # Ambiguous coordinating proposition
     report, document = _report("Method A is used, and Method B shows higher score [1].")
