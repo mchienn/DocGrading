@@ -1031,6 +1031,222 @@
           "status": "LINKED",
           "context": "ikhảnăngtốthơn(RoBERTA,DeBERTA)hoặcchohiệunăngtốthơnnhưDistilBERT [1],ModernBERT[5]. Cácmôhìnhembeddingđượcđàotạobằngphươngphápđềxuấtvàbộdữliệucóthểđượcápdụng các bài toán khác trong hội thoại hướng tác vụ như truy vết trạng thái hội thoại",
           "uncertainty_reason": null
+        },
+        {
+          "id": "mention-8",
+          "raw": "Chen et al., 2021",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "ABCD (Chen et al., 2021) 20.4K 10 0 10 BiTOD (Lin et al., 2021) 72.5K 6 13 33 Disambiguation (Qian et al., 2022) 114.3K 8 9 28 DSTC2-Clean (Mrkšić et al., 2017) 25K 1 2 8 FRAMES (El A",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-9",
+          "raw": "Lin et al., 2021",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "ABCD (Chen et al., 2021) 20.4K 10 0 10 BiTOD (Lin et al., 2021) 72.5K 6 13 33 Disambiguation (Qian et al., 2022) 114.3K 8 9 28 DSTC2-Clean (Mrkšić et al., 2017) 25K 1 2 8 FRAMES (El Asri et al., 2017) 20K 1 21 46 GEORGE (Q",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-10",
+          "raw": "Qian et al., 2022",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "al., 2021) 20.4K 10 0 10 BiTOD (Lin et al., 2021) 72.5K 6 13 33 Disambiguation (Qian et al., 2022) 114.3K 8 9 28 DSTC2-Clean (Mrkšić et al., 2017) 25K 1 2 8 FRAMES (El Asri et al., 2017) 20K 1 21 46 GEORGE (Quan et al., 2019) 25K 1 2 10 HDS",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-11",
+          "raw": "Mrkšić et al., 2017",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "21) 72.5K 6 13 33 Disambiguation (Qian et al., 2022) 114.3K 8 9 28 DSTC2-Clean (Mrkšić et al., 2017) 25K 1 2 8 FRAMES (El Asri et al., 2017) 20K 1 21 46 GEORGE (Quan et al., 2019) 25K 1 2 10 HDSA-Dialog (Chen et al., 2019) 91.9K 8 6 24 KETO",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-12",
+          "raw": "Quan et al., 2019",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "rkšić et al., 2017) 25K 1 2 8 FRAMES (El Asri et al., 2017) 20K 1 21 46 GEORGE (Quan et al., 2019) 25K 1 2 10 HDSA-Dialog (Chen et al., 2019) 91.9K 8 6 24 KETOD (Chen et al., 2022) 107.7K 20 15 182 MS-DC (Li et al., 2018) 71.9K 3 11 56 MulD",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-13",
+          "raw": "Chen et al., 2019",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "ri et al., 2017) 20K 1 21 46 GEORGE (Quan et al., 2019) 25K 1 2 10 HDSA-Dialog (Chen et al., 2019) 91.9K 8 6 24 KETOD (Chen et al., 2022) 107.7K 20 15 182 MS-DC (Li et al., 2018) 71.9K 3 11 56 MulDoGO (Peskov et al., 2019) 74.8K 6 0 63 Mult",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-14",
+          "raw": "Chen et al., 2022",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "an et al., 2019) 25K 1 2 10 HDSA-Dialog (Chen et al., 2019) 91.9K 8 6 24 KETOD (Chen et al., 2022) 107.7K 20 15 182 MS-DC (Li et al., 2018) 71.9K 3 11 56 MulDoGO (Peskov et al., 2019) 74.8K 6 0 63 MultiWOZ2.1 (Eric et al., 2020) 108.3K 8 9",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-15",
+          "raw": "Li et al., 2018",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "en et al., 2019) 91.9K 8 6 24 KETOD (Chen et al., 2022) 107.7K 20 15 182 MS-DC (Li et al., 2018) 71.9K 3 11 56 MulDoGO (Peskov et al., 2019) 74.8K 6 0 63 MultiWOZ2.1 (Eric et al., 2020) 108.3K 8 9 27 MultiWOZ2.2 (Zang et al., 2020) 55.9K 8",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-16",
+          "raw": "Peskov et al., 2019",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "n et al., 2022) 107.7K 20 15 182 MS-DC (Li et al., 2018) 71.9K 3 11 56 MulDoGO (Peskov et al., 2019) 74.8K 6 0 63 MultiWOZ2.1 (Eric et al., 2020) 108.3K 8 9 27 MultiWOZ2.2 (Zang et al., 2020) 55.9K 8 2 26 SGD (Rastogi et al., 2020) 479.5K 2",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-17",
+          "raw": "Eric et al., 2020",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "l., 2018) 71.9K 3 11 56 MulDoGO (Peskov et al., 2019) 74.8K 6 0 63 MultiWOZ2.1 (Eric et al., 2020) 108.3K 8 9 27 MultiWOZ2.2 (Zang et al., 2020) 55.9K 8 2 26 SGD (Rastogi et al., 2020) 479.5K 20 15 184 Taskmaster1 (Byrne et al., 2019) 30.7K",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-18",
+          "raw": "Zang et al., 2020",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": ", 2019) 74.8K 6 0 63 MultiWOZ2.1 (Eric et al., 2020) 108.3K 8 9 27 MultiWOZ2.2 (Zang et al., 2020) 55.9K 8 2 26 SGD (Rastogi et al., 2020) 479.5K 20 15 184 Taskmaster1 (Byrne et al., 2019) 30.7K 6 1 59 Taskmaster2 (Byrne et al., 2019) 147K",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-19",
+          "raw": "Rastogi et al., 2020",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "c et al., 2020) 108.3K 8 9 27 MultiWOZ2.2 (Zang et al., 2020) 55.9K 8 2 26 SGD (Rastogi et al., 2020) 479.5K 20 15 184 Taskmaster1 (Byrne et al., 2019) 30.7K 6 1 59 Taskmaster2 (Byrne et al., 2019) 147K 11 1 117 WOZ2.0 (Mrkšić et al., 2017)",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-20",
+          "raw": "Byrne et al., 2019",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "l., 2020) 55.9K 8 2 26 SGD (Rastogi et al., 2020) 479.5K 20 15 184 Taskmaster1 (Byrne et al., 2019) 30.7K 6 1 59 Taskmaster2 (Byrne et al., 2019) 147K 11 1 117 WOZ2.0 (Mrkšić et al., 2017) 4.4K 1 2 10 SimJointMovie (Shah et al., 2018) 7.2K",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-21",
+          "raw": "Byrne et al., 2019",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "20) 479.5K 20 15 184 Taskmaster1 (Byrne et al., 2019) 30.7K 6 1 59 Taskmaster2 (Byrne et al., 2019) 147K 11 1 117 WOZ2.0 (Mrkšić et al., 2017) 4.4K 1 2 10 SimJointMovie (Shah et al., 2018) 7.2K 1 14 5 SimJointRestaurant (Shah et al., 2018)",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-22",
+          "raw": "Mrkšić et al., 2017",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "al., 2019) 30.7K 6 1 59 Taskmaster2 (Byrne et al., 2019) 147K 11 1 117 WOZ2.0 (Mrkšić et al., 2017) 4.4K 1 2 10 SimJointMovie (Shah et al., 2018) 7.2K 1 14 5 SimJointRestaurant (Shah et al., 2018) 20K 1 15 9 SimJointGEN (Zhang et al., 2024)",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-23",
+          "raw": "Shah et al., 2018",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "l., 2019) 147K 11 1 117 WOZ2.0 (Mrkšić et al., 2017) 4.4K 1 2 10 SimJointMovie (Shah et al., 2018) 7.2K 1 14 5 SimJointRestaurant (Shah et al., 2018) 20K 1 15 9 SimJointGEN (Zhang et al., 2024) 1.3M 16 16 5",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-24",
+          "raw": "Shah et al., 2018",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": ") 4.4K 1 2 10 SimJointMovie (Shah et al., 2018) 7.2K 1 14 5 SimJointRestaurant (Shah et al., 2018) 20K 1 15 9 SimJointGEN (Zhang et al., 2024) 1.3M 16 16 5",
+          "uncertainty_reason": null
+        },
+        {
+          "id": "mention-25",
+          "raw": "Zhang et al., 2024",
+          "page": 16,
+          "element_id": "paragraph-78",
+          "line_start": 5,
+          "line_end": 23,
+          "reference_ids": [],
+          "status": "ORPHAN_MENTION",
+          "context": "018) 7.2K 1 14 5 SimJointRestaurant (Shah et al., 2018) 20K 1 15 9 SimJointGEN (Zhang et al., 2024) 1.3M 16 16 5",
+          "uncertainty_reason": null
         }
       ],
       "non_mentions": [
@@ -1043,7 +1259,8 @@
       ],
       "reviewer_notes": [
         "Five numbered entries are confirmed on page 29; seven linked in-text mentions occur on pages 8, 9, and 28.",
-        "Two mathematical interval tokens [0, 1] on page 24 are not citation mentions."
+        "Two mathematical interval tokens [0, 1] on page 24 are not citation mentions.",
+        "Parser v8 splits the glued words of the page-16 dataset table; its 18 author-year citations are real mentions of works absent from this report's numbered bibliography (ORPHAN_MENTION)."
       ]
     },
     {
@@ -2501,7 +2718,7 @@
         },
         {
           "id": "mention-2",
-          "raw": "[5,6]",
+          "raw": "[5, 6]",
           "page": 1,
           "element_id": "paragraph-5",
           "line_start": 9,
@@ -2746,7 +2963,8 @@
       ],
       "non_mentions": [],
       "reviewer_notes": [
-        "7 numbered entries and 18 linked in-text mentions are confirmed."
+        "7 numbered entries and 18 linked in-text mentions are confirmed.",
+        "Parser v8 keeps the typographic space in the [5, 6] marker."
       ]
     },
     {

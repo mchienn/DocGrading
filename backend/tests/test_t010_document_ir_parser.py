@@ -2088,7 +2088,7 @@ def test_typography_baseline_ignores_many_large_headings() -> None:
     )
 
 
-def test_word_gap_ratio_splits_kerned_words_below_three_points() -> None:
+def test_kerned_words_below_three_points_stay_separate() -> None:
     # LaTeX justification places words with TJ offsets instead of space glyphs;
     # -200/1000 em at 12 pt leaves a 2.4 pt gap that a fixed 3 pt tolerance glues.
     parsed = parse_document_ir(
@@ -2097,8 +2097,7 @@ def test_word_gap_ratio_splits_kerned_words_below_three_points() -> None:
                 "BT /F1 12 Tf 72 700 Td "
                 "[(Teachers) -200 (verify) -200 (cited) -200 (claims.)] TJ ET"
             ]
-        ),
-        word_x_tolerance_ratio=0.15,
+        )
     )
     assert parsed.content["paragraphs"][0]["text"] == "Teachers verify cited claims."
 
