@@ -5123,8 +5123,8 @@ export interface operations {
     update_provider_api_v1_operations_llm_providers__provider__put: {
         parameters: {
             query?: never;
-            header: {
-                "If-Match": string;
+            header?: {
+                "If-Match"?: string | null;
             };
             path: {
                 provider: components["schemas"]["LLMProvider"];
@@ -5160,8 +5160,8 @@ export interface operations {
     remove_credential_api_v1_operations_llm_providers__provider__credential_delete: {
         parameters: {
             query?: never;
-            header: {
-                "If-Match": string;
+            header?: {
+                "If-Match"?: string | null;
             };
             path: {
                 provider: components["schemas"]["LLMProvider"];
@@ -5193,8 +5193,8 @@ export interface operations {
     test_provider_api_v1_operations_llm_providers__provider__test_post: {
         parameters: {
             query?: never;
-            header: {
-                "If-Match": string;
+            header?: {
+                "If-Match"?: string | null;
             };
             path: {
                 provider: components["schemas"]["LLMProvider"];
@@ -5246,8 +5246,8 @@ export interface operations {
     update_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_put: {
         parameters: {
             query?: never;
-            header: {
-                "If-Match": string;
+            header?: {
+                "If-Match"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -5281,8 +5281,8 @@ export interface operations {
     activate_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_activate_post: {
         parameters: {
             query?: never;
-            header: {
-                "If-Match": string;
+            header?: {
+                "If-Match"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -5316,8 +5316,8 @@ export interface operations {
     deactivate_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_deactivate_post: {
         parameters: {
             query?: never;
-            header: {
-                "If-Match": string;
+            header?: {
+                "If-Match"?: string | null;
             };
             path?: never;
             cookie?: never;
