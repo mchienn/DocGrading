@@ -4,7 +4,9 @@ Date: 2026-09-24
 
 ## Decision
 
-Automatic source acquisition is arXiv-only and disabled by default. DOI and every non-arXiv source remain operator-cache-only.
+Superseded on 2026-10-17: two automatic acquisition lanes now ship, both disabled by default (`SEMANTIC_SOURCE_FETCH_ENABLED`) and both requiring a `VERIFIED` reference and a private cache prefix. The arXiv lane (this smoke report) takes arXiv-only references with an exact `vN`. The OpenAlex lane takes references with a DOI and downloads open-access PDFs through `fetch_public_https`. Everything else remains operator-cache-only. See [`design §5`](../superpowers/specs/2026-09-24-semantic-citation-support-design.md).
+
+Original 2026-09-24 decision: automatic source acquisition is arXiv-only and disabled by default; DOI and every non-arXiv source remain operator-cache-only.
 
 ## Live papers
 

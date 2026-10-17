@@ -115,6 +115,7 @@ class SemanticReasonCode(StrEnum):
     SOURCE_NOT_AVAILABLE = "SOURCE_NOT_AVAILABLE"
     AMBIGUOUS_SCOPE = "AMBIGUOUS_SCOPE"
     INVALID_MODEL_OUTPUT = "INVALID_MODEL_OUTPUT"
+    MODEL_NOT_ROUTED = "MODEL_NOT_ROUTED"
 
 
 _EXPECTED_REASON = {
@@ -1452,8 +1453,8 @@ def evaluate_claim(
     if model is None:
         return _result(
             pair,
-            SemanticPipelineStatus.INSUFFICIENT_EVIDENCE,
-            SemanticReasonCode.INSUFFICIENT_SOURCE_DETAIL,
+            SemanticPipelineStatus.NEEDS_MANUAL_REVIEW,
+            SemanticReasonCode.MODEL_NOT_ROUTED,
             source,
             passages,
         )
