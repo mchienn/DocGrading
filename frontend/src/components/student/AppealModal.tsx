@@ -29,7 +29,11 @@ function trapFocus(event: React.KeyboardEvent<HTMLDialogElement>) {
 
 export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCreated }) => {
   const findingOptions = useMemo(() => {
+    // Number findings per criterion, matching "Finding N" in StudentPublishedResultView.
+    const seen = new Map<string, number>();
     return (result.findings as Array<typeof result.findings[number] & { criterion_code?: string; criterion_title?: string }>).map((finding) => {
+      const number = (seen.get(finding.criterion_version_id) ?? 0) + 1;
+      seen.set(finding.criterion_version_id, number);
       const critText = finding.criterion_code && finding.criterion_title
         ? `${finding.criterion_code} — ${finding.criterion_title}`
         : (finding.criterion_title ?? finding.criterion_code ?? 'Criterion');
@@ -40,7 +44,7 @@ export const AppealModal: React.FC<AppealModalProps> = ({ result, onClose, onCre
         : '';
       return {
         id: finding.finding_id,
-        label: `${critText}${shortDesc}${pageSuffix}`,
+        label: `${critText} — Finding ${number}${shortDesc}${pageSuffix}`,
       };
     });
   }, [result.findings]);
