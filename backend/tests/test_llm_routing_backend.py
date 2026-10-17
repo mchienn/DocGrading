@@ -621,6 +621,39 @@ def test_hosted_request_builder_has_fixed_endpoint_and_auth(
     assert request.get_header("User-agent") == "DocGrading/1.0"
 
 
+@pytest.mark.parametrize(
+    ("provider", "field", "other"),
+    [
+        (LLMProvider.OPENAI, "max_completion_tokens", "max_tokens"),
+        (LLMProvider.DEEPSEEK, "max_tokens", "max_completion_tokens"),
+        (LLMProvider.OPENCODE_ZEN, "max_tokens", "max_completion_tokens"),
+    ],
+)
+def test_openai_chat_token_limit_field_matches_provider(
+    provider: LLMProvider, field: str, other: str
+) -> None:
+    sent: list[dict[str, object]] = []
+
+    def transport(*args: object) -> tuple[int, dict[str, object]]:
+        sent.append(json.loads(args[-1]))  # type: ignore[arg-type]
+        return 200, {}
+
+    model = HostedSemanticModel(
+        {
+            "provider": provider.value,
+            "protocol": LLMProtocol.OPENAI_CHAT.value,
+            "model_id": "model-id",
+            "max_tokens": 321,
+            "credential": "secret",
+        },
+        transport=transport,  # type: ignore[arg-type]
+    )
+    model._request("user text")
+
+    assert sent[0][field] == 321
+    assert other not in sent[0]
+
+
 def test_catalog_request_sends_explicit_user_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
