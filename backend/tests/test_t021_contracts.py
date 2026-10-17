@@ -274,6 +274,7 @@ DASHBOARD_FIELDS = {
     "review_requests_by_status",
     "average_active_job_age_seconds",
     "jobs_last_7_days",
+    "semantic_retrieval",
 }
 COURSE_COUNT_FIELDS = {"course_id", "course_code", "course_name", "submission_count"}
 

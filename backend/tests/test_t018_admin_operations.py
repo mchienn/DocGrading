@@ -770,6 +770,36 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
                 dashboard.open_review_requests
                 == baseline_dashboard.open_review_requests + 1
             )
+            assert dashboard.semantic_retrieval.mode == "BM25_ONLY"
+            # An encoder failure recorded in a finished job's trace is surfaced.
+            await session.execute(
+                text("""
+                    UPDATE public.analysis_jobs SET snapshot = snapshot ||
+                    '{"semantic_citation_trace": {"execution":
+                      {"encoder": {"failures": 2}}}}'::jsonb
+                    WHERE id = :id
+                """),
+                {"id": extra["job"]},
+            )
+            with_failure = await operations_svc.get_dashboard(session)
+            await session.execute(
+                text("""
+                    UPDATE public.analysis_jobs
+                    SET snapshot = snapshot - 'semantic_citation_trace'
+                    WHERE id = :id
+                """),
+                {"id": extra["job"]},
+            )
+            baseline_semantic = baseline_dashboard.semantic_retrieval
+            assert (
+                with_failure.semantic_retrieval.semantic_jobs_last_7_days
+                == baseline_semantic.semantic_jobs_last_7_days + 1
+            )
+            assert (
+                with_failure.semantic_retrieval.encoder_failure_jobs_last_7_days
+                == baseline_semantic.encoder_failure_jobs_last_7_days + 1
+            )
+            assert with_failure.semantic_retrieval.last_encoder_failure_at is not None
 
             audit_page = await operations_svc.list_audit_events(
                 session,
