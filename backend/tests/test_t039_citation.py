@@ -127,6 +127,188 @@ def test_identity_accepts_crossref_full_author_list() -> None:
     assert citation._identity(reference, record) == (citation.VERIFIED, ())
 
 
+def _student_reference(raw: str, **fields: object) -> citation.CitationReference:
+    return citation.CitationReference(
+        id="reference-student",
+        number=1,
+        raw=raw,
+        page_number=1,
+        element_id="paragraph-1",
+        start=0,
+        end=len(raw),
+        snippet=raw,
+        **fields,
+    )
+
+
+def test_identity_checks_provider_title_against_raw_reference() -> None:
+    # Glued words and a title parsed into the wrong field still verify when the
+    # provider title occurs in the raw reference; an arXiv/proceedings year
+    # difference of one is accepted and venue abbreviations match by prefix.
+    glued = _student_reference(
+        "I. J. Goodfellow, J. Shlens, C. Szegedy. Explainingandharnessingadversarial "
+        "examples, arXiv preprint arXiv:1412.6572, 2014.",
+        title="Explainingandharnessingadversarial examples,",
+        authors=("I. J. Goodfellow",),
+        year=2014,
+        arxiv_id="1412.6572",
+    )
+    record = {
+        "comparison": {
+            "title": "explaining and harnessing adversarial examples",
+            "authors": ["ian j goodfellow", "jonathon shlens"],
+            "year": 2014,
+            "venue": None,
+        }
+    }
+    misparsed = _student_reference(
+        "Redmon, J., Farhadi, A.: Yolov3: An incremental improvement. arXiv "
+        "preprint arXiv:1804.02767 (2018)",
+        authors=("Redmon, J., Farhadi, A.: Yolov3: An incremental improvement",),
+        year=2018,
+        arxiv_id="1804.02767",
+    )
+    yolo = {
+        "comparison": {
+            "title": "yolov3 an incremental improvement",
+            "authors": ["joseph redmon", "ali farhadi"],
+            "year": 2018,
+            "venue": None,
+        }
+    }
+    later_print = _student_reference(
+        "Sarlin, P.-E. et al. (2020). SuperGlue: Learning Feature Matching with "
+        "Graph Neural Networks. Neural Comput.",
+        title="SuperGlue: Learning Feature Matching with Graph Neural Networks",
+        authors=("Sarlin, P.-E.",),
+        year=2020,
+        venue="Neural Comput",
+    )
+    superglue = {
+        "comparison": {
+            "title": "superglue learning feature matching with graph neural networks",
+            "authors": ["paul edouard sarlin"],
+            "year": 2019,
+            "venue": "neural computing and applications",
+        }
+    }
+
+    assert citation._identity(glued, record) == (citation.VERIFIED, ())
+    assert citation._identity(misparsed, yolo) == (citation.VERIFIED, ())
+    assert citation._identity(later_print, superglue) == (citation.VERIFIED, ())
+
+
+def test_identity_still_flags_a_different_work_behind_the_printed_id() -> None:
+    # Student cites "Attention is all you need" with the arXiv ID of another paper.
+    reference = _student_reference(
+        "Vaswani, A., Shazeer, N. (2017). Attention is all you need. "
+        "arXiv:1612.03144.",
+        title="Attention is all you need",
+        authors=("Vaswani, A.",),
+        year=2017,
+        arxiv_id="1612.03144",
+    )
+    record = {
+        "comparison": {
+            "title": "feature pyramid networks for object detection",
+            "authors": ["tsung yi lin", "piotr dollar"],
+            "year": 2016,
+            "venue": None,
+        }
+    }
+
+    assert citation._identity(reference, record) == (
+        citation.METADATA_MISMATCH,
+        ("title", "author"),
+    )
+
+
+def test_search_hit_needs_a_corroborating_author() -> None:
+    # A proceedings-volume record named like the cited venue has no authors.
+    reference = _student_reference(
+        "Deep residual hashing. In: Advances in Neural Information Processing "
+        "Systems, 2018.",
+        year=2018,
+    )
+    volume = {
+        "comparison": {
+            "title": "advances in neural information processing systems",
+            "authors": [],
+            "year": 2018,
+        }
+    }
+
+    assert citation._best_candidate(reference, [volume], threshold=0.70) is None
+
+
+def test_crossref_request_retries_rate_limit_but_not_missing_doi(monkeypatch) -> None:
+    import io
+    import urllib.error
+
+    calls: list[str] = []
+    answers = [429, 200, 404]
+
+    def opener(request, timeout):  # noqa: ANN001, ANN202
+        calls.append(request.full_url)
+        status = answers.pop(0)
+        if status != 200:
+            raise urllib.error.HTTPError(
+                request.full_url, status, "error", {"Retry-After": "0"}, None
+            )
+        return io.BytesIO(b'{"message": {}}')
+
+    monkeypatch.setattr(citation, "_open_provider_request", opener)
+    monkeypatch.setattr(citation.time, "sleep", lambda _seconds: None)
+
+    assert citation._crossref_request("https://api.crossref.org/works/a") == {
+        "message": {}
+    }
+    assert citation._crossref_request("https://api.crossref.org/works/b") is None
+    assert len(calls) == 3
+
+
+def test_openalex_title_search_runs_only_with_a_budget(monkeypatch) -> None:
+    reference = _student_reference(
+        "S. T. Luu, K. V. Nguyen, N. L. T. Nguyen. A large-scale dataset for hate "
+        "speech detection on Vietnamese social media texts. IEA/AIE 2021.",
+        title="A large-scale dataset for hate speech detection on Vietnamese "
+        "social media texts",
+        authors=("S. T. Luu",),
+        year=2021,
+    )
+    work = {
+        "id": "https://openalex.org/W1",
+        "doi": "https://doi.org/10.1007/978-3-030-79457-6_35",
+        "title": "A Large-Scale Dataset for Hate Speech Detection on Vietnamese "
+        "Social Media Texts",
+        "publication_year": 2021,
+        "authorships": [{"author": {"display_name": "Son T. Luu"}}],
+    }
+    requests: list[dict] = []
+
+    def request(path, params, budget):  # noqa: ANN001, ANN202
+        requests.append(params)
+        return {"results": [work]}
+
+    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda: None)
+    monkeypatch.setattr(citation, "_crossref_request", lambda _url: None)
+    monkeypatch.setattr(citation, "_openalex_request", request)
+
+    assert citation.resolve_reference(reference) is None
+    record = citation.resolve_reference(
+        reference, search_budget=citation._SearchBudget(1)
+    )
+
+    assert record is not None
+    assert record["provider"] == "openalex"
+    assert record["doi"] == "10.1007/978-3-030-79457-6_35"
+    assert citation._identity(reference, record) == (citation.VERIFIED, ())
+    assert "search.title" in requests[0]
+    # The budget is spent: no second billed search.
+    budget = citation._SearchBudget(1)
+    assert budget.take() and not budget.take()
+
+
 def test_candidate_search_selects_matching_record(monkeypatch) -> None:
     reference = citation.CitationReference(
         id="reference-search",
@@ -180,7 +362,7 @@ def test_crossref_search_results_are_not_shared_between_documents(monkeypatch) -
         citation.CitationReference(
             id=f"reference-{suffix}",
             number=1,
-            raw=raw_prefix + suffix,
+            raw=raw_prefix + " Lovelace " + suffix,
             page_number=1,
             element_id="paragraph-1",
             start=0,
@@ -203,6 +385,7 @@ def test_crossref_search_results_are_not_shared_between_documents(monkeypatch) -
                         {
                             "DOI": "10.0000/study",
                             "title": ["Study"],
+                            "author": [{"given": "Ada", "family": "Lovelace"}],
                             "published": {"date-parts": [[2024]]},
                         }
                     ]
@@ -241,7 +424,7 @@ def test_crossref_resolution_count_is_bounded(monkeypatch) -> None:
     monkeypatch.setattr(
         citation,
         "resolve_reference",
-        lambda reference: resolved.append(reference.id) or {"id": reference.id},
+        lambda reference, **_: resolved.append(reference.id) or {"id": reference.id},
     )
 
     records = asyncio.run(citation._resolve_references(references))
@@ -284,10 +467,11 @@ def test_arxiv_only_references_do_not_consume_crossref_budget(monkeypatch) -> No
         "_resolve_arxiv_batch",
         lambda ids: selected.append(tuple(ids)) or {},
     )
+    monkeypatch.setattr(citation, "_openalex_request", lambda *_args: None)
     monkeypatch.setattr(
         citation,
         "resolve_reference",
-        lambda reference: resolved.append(reference.id) or {"id": reference.id},
+        lambda reference, **_: resolved.append(reference.id) or {"id": reference.id},
     )
 
     records = asyncio.run(citation._resolve_references([*references, doi_reference]))
@@ -296,6 +480,45 @@ def test_arxiv_only_references_do_not_consume_crossref_budget(monkeypatch) -> No
     assert records[-1] == {"id": "doi-reference"}
     assert len(selected[0]) == citation._MAX_ARXIV_RESOLUTIONS
     assert records[-3:-1] == [None, None]
+
+
+def test_arxiv_outage_falls_back_to_openalex_datacite_doi(monkeypatch) -> None:
+    # export.arxiv.org answering 503 must not leave arXiv references unresolved.
+    reference = citation.CitationReference(
+        id="arxiv-madry",
+        number=1,
+        raw="A. Madry et al. Towards deep learning models resistant to adversarial "
+        "attacks. arXiv:1706.06083, 2017.",
+        page_number=1,
+        element_id="paragraph-1",
+        start=0,
+        end=1,
+        snippet="Madry",
+        arxiv_id="1706.06083",
+        title="Towards deep learning models resistant to adversarial attacks",
+        authors=("A. Madry",),
+        year=2017,
+    )
+    paths: list[str] = []
+
+    def openalex(path, params, budget):  # noqa: ANN001, ANN202
+        paths.append(path)
+        return {
+            "id": "https://openalex.org/W2",
+            "doi": "https://doi.org/10.48550/arXiv.1706.06083",
+            "title": "Towards Deep Learning Models Resistant to Adversarial Attacks",
+            "publication_year": 2017,
+            "authorships": [{"author": {"display_name": "Aleksander Madry"}}],
+        }
+
+    monkeypatch.setattr(citation, "_resolve_arxiv_batch", lambda _ids: {})
+    monkeypatch.setattr(citation, "_openalex_request", openalex)
+
+    [record] = asyncio.run(citation._resolve_references([reference]))
+
+    assert paths == ["/doi:10.48550/arxiv.1706.06083"]
+    assert record["doi"] == "10.48550/arxiv.1706.06083"
+    assert citation._identity(reference, record) == (citation.VERIFIED, ())
 
 
 def test_crossref_payload_rejects_malformed_nested_fields_without_raising() -> None:
@@ -355,7 +578,7 @@ def test_evaluator_persists_issue_findings_and_bounded_snapshot(
         snapshot={},
     )
     document_ir = SimpleNamespace(id=uuid.uuid4(), content=_document())
-    monkeypatch.setattr(citation, "resolve_reference", lambda _reference: None)
+    monkeypatch.setattr(citation, "resolve_reference", lambda _reference, **_: None)
     monkeypatch.setattr(citation, "_MAX_FINDINGS_PER_CRITERION", 2)
 
     class ScalarResult:
@@ -1346,7 +1569,8 @@ def test_arxiv_partial_batch_falls_back_for_missing_ids(monkeypatch) -> None:
     )
     assert citation._resolve_arxiv_batch(["2401.99999"]) == {}
     assert citation._resolve_arxiv_batch(["2401.99999"]) == {}
-    assert miss_calls == [("2401.99999",)]
+    # No answer is retried once, then cached as a miss.
+    assert miss_calls == [("2401.99999",), ("2401.99999",)]
     citation._ARXIV_MISS_CACHE.clear()
 
 
