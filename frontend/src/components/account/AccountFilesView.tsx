@@ -213,6 +213,7 @@ export const AccountFilesView: React.FC<AccountFilesViewProps> = ({ activeRole }
             <button
               type="button"
               onClick={() => setDownloadError(null)}
+              aria-label="Dismiss download error"
               className="text-rose-700 font-bold ml-2"
             >
               ×

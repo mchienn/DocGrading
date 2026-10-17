@@ -17,6 +17,13 @@ import type { components } from '../../api/schema';
 type JobStatus = components['schemas']['AnalysisJobStatus'];
 const statuses: JobStatus[] = ['QUEUED', 'RUNNING', 'DONE', 'ERROR'];
 
+const STATUS_BADGE_CLASS: Record<JobStatus, string> = {
+  DONE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  RUNNING: 'bg-sky-50 text-sky-700 border-sky-200',
+  QUEUED: 'bg-amber-50 text-amber-700 border-amber-200',
+  ERROR: 'bg-rose-50 text-rose-700 border-rose-200',
+};
+
 const JobDetail: React.FC<{ jobId: string; onClose: () => void }> = ({ jobId, onClose }) => {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -109,15 +116,7 @@ const JobDetail: React.FC<{ jobId: string; onClose: () => void }> = ({ jobId, on
               <dt className="font-semibold text-slate-500 shrink-0">Status</dt>
               <dd>
                 <span
-                  className={`px-2 py-0.5 rounded font-semibold text-[10px] ${
-                    job.status === 'DONE'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : job.status === 'RUNNING'
-                      ? 'bg-sky-50 text-sky-700 border border-sky-200'
-                      : job.status === 'QUEUED'
-                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                      : 'bg-rose-50 text-rose-700 border border-rose-200'
-                  }`}
+                  className={`px-2 py-0.5 rounded font-semibold text-[10px] border ${STATUS_BADGE_CLASS[job.status]}`}
                 >
                   {job.status}
                 </span>
@@ -268,6 +267,11 @@ export const JobMonitoringView: React.FC = () => {
 
   const pages = Math.max(1, Math.ceil((jobsData?.total ?? 0) / 25));
 
+  // Keep the page in range when the filtered total (and so the page count) shrinks.
+  useEffect(() => {
+    if (jobsData && page > pages) setPage(pages);
+  }, [jobsData, page, pages]);
+
   const filterCards: Array<{
     value: JobStatus | '';
     label: string;
@@ -329,7 +333,7 @@ export const JobMonitoringView: React.FC = () => {
         </select>
       </label>
 
-      {/* Status KPI Filter Buttons */}
+      {/* Status KPI Filter Buttons (platform-wide counts) */}
       <section aria-label="Status filters and summary" className="space-y-3">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {filterCards.map((card) => {
@@ -395,6 +399,11 @@ export const JobMonitoringView: React.FC = () => {
             )}
           </div>
         )}
+        {courseId && (
+          <p className="text-[11px] text-slate-500">
+            Status counts above cover all courses; the table below is filtered to the selected course.
+          </p>
+        )}
       </section>
 
       {/* Alerts */}
@@ -425,7 +434,11 @@ export const JobMonitoringView: React.FC = () => {
             <Activity className="w-10 h-10 mx-auto mb-2 text-slate-300 stroke-1" />
             <p className="font-semibold text-slate-700 text-sm">No analysis jobs found</p>
             <p className="text-xs text-slate-400 mt-1">
-              {status ? `No jobs currently in ${status} status.` : 'No analysis jobs have been submitted yet.'}
+              {courseId
+                ? `No ${status ? `${status} ` : ''}jobs found for the selected course.`
+                : status
+                ? `No jobs currently in ${status} status.`
+                : 'No analysis jobs have been submitted yet.'}
             </p>
           </div>
         ) : (
@@ -459,15 +472,7 @@ export const JobMonitoringView: React.FC = () => {
                       </td>
                       <td className="p-3.5">
                         <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                            job.status === 'DONE'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : job.status === 'RUNNING'
-                              ? 'bg-sky-50 text-sky-700 border-sky-200'
-                              : job.status === 'QUEUED'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${STATUS_BADGE_CLASS[job.status]}`}
                         >
                           {job.status}
                         </span>
