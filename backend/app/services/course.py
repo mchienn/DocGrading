@@ -157,6 +157,7 @@ async def update_course(
             reason="Course updated",
         )
         await db.flush()
+        await db.refresh(course)
 
     return course
 
@@ -226,6 +227,7 @@ async def archive_course(
         reason="Course archived",
     )
     await db.flush()
+    await db.refresh(course)
     return course
 
 
