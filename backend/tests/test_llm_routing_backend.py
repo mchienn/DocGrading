@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 import sqlalchemy as sa
 from fastapi import HTTPException
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -264,6 +265,65 @@ def test_job_snapshot_resolves_only_current_verified_credential(
 
     monkeypatch.setenv("OPENAI_API_KEY", "rotated-secret")
     assert asyncio.run(_snapshot_model(Database(), job)) is None
+
+
+@pytest.mark.parametrize(
+    ("keyring", "key", "status_code"),
+    [
+        pytest.param(
+            CredentialError("credential keyring is empty"),
+            "sk-valid",
+            503,
+            id="server-keyring-unavailable",
+        ),
+        pytest.param({"key-id": b"k" * 32}, "x" * 4097, 422, id="entered-key-too-long"),
+    ],
+)
+def test_stored_credential_separates_keyring_and_entered_key_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    keyring: object,
+    key: str,
+    status_code: int,
+) -> None:
+    provider = SimpleNamespace(
+        id=uuid.uuid4(),
+        provider=LLMProvider.OPENAI,
+        credential_source=LLMCredentialSource.NONE,
+        environment_key_name=None,
+        enabled=True,
+        data_policy_approved=False,
+        credential_revision=1,
+        revision=1,
+    )
+
+    async def lock(_db: object, row: object) -> object:
+        return row
+
+    def resolve() -> dict[str, bytes]:
+        if isinstance(keyring, Exception):
+            raise keyring
+        return keyring  # type: ignore[return-value]
+
+    monkeypatch.setattr("app.services.llm_providers._lock_provider", lock)
+    monkeypatch.setattr("app.services.llm_providers._keyring", resolve)
+    body = LLMProviderUpdateRequest.model_construct(
+        enabled=True,
+        credential_source=LLMCredentialSource.STORED,
+        environment_key_name=None,
+        credential_key=SecretStr(key),
+        data_policy_approved=False,
+    )
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(
+            update_provider(
+                None,  # type: ignore[arg-type]
+                row=provider,  # type: ignore[arg-type]
+                body=body,
+                expected_revision=1,
+                actor_user_id=uuid.uuid4(),
+            )
+        )
+    assert caught.value.status_code == status_code
 
 
 def test_job_route_snapshot_takes_a_shared_row_lock() -> None:
