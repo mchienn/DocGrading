@@ -324,6 +324,14 @@ async def update_provider(
         and old_source is not LLMCredentialSource.STORED
     ):
         raise HTTPException(status_code=422, detail="Credential key is required")
+    keyring: dict[str, bytes] = {}
+    if body.credential_source is LLMCredentialSource.STORED and credential_value:
+        try:
+            keyring = _keyring()
+        except CredentialError as exc:
+            raise HTTPException(
+                status_code=503, detail="Credential encryption keyring is unavailable"
+            ) from exc
     old = {
         "enabled": old_enabled,
         "credential_source": old_source.value,
@@ -361,7 +369,7 @@ async def update_provider(
                     credential_value,
                     credential_id=row.id,
                     provider=row.provider,
-                    keyring=_keyring(),
+                    keyring=keyring,
                     active_key_id=get_settings().llm_credential_active_key_id,
                 )
             except CredentialError as exc:

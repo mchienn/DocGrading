@@ -51,8 +51,12 @@ router = APIRouter(
 )
 
 
-def _revision(if_match: str) -> int:
-    if not if_match.startswith('"rev-') or not if_match.endswith('"'):
+def _revision(if_match: str | None) -> int:
+    if (
+        if_match is None
+        or not if_match.startswith('"rev-')
+        or not if_match.endswith('"')
+    ):
         raise HTTPException(status_code=428, detail="If-Match is required")
     try:
         value = int(if_match[5:-1])
@@ -83,7 +87,7 @@ async def _provider(db: AsyncSession, provider: LLMProvider) -> LLMProviderConfi
 async def update_provider(
     provider: LLMProvider,
     body: LLMProviderUpdateRequest,
-    if_match: str = Header(alias="If-Match"),
+    if_match: str | None = Header(default=None, alias="If-Match"),
     admin: User = Depends(_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> LLMProviderResponse:
@@ -102,7 +106,7 @@ async def update_provider(
 @router.delete("/providers/{provider}/credential", response_model=LLMProviderResponse)
 async def remove_credential(
     provider: LLMProvider,
-    if_match: str = Header(alias="If-Match"),
+    if_match: str | None = Header(default=None, alias="If-Match"),
     admin: User = Depends(_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> LLMProviderResponse:
@@ -117,7 +121,7 @@ async def remove_credential(
 @router.post("/providers/{provider}/test", response_model=LLMCatalogTestResponse)
 async def test_provider(
     provider: LLMProvider,
-    if_match: str = Header(alias="If-Match"),
+    if_match: str | None = Header(default=None, alias="If-Match"),
     admin: User = Depends(_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> LLMCatalogTestResponse:
@@ -139,7 +143,7 @@ async def get_semantic_route(
 @router.put("/routes/CITATION_SEMANTIC", response_model=LLMRouteResponse)
 async def update_semantic_route(
     body: LLMRouteUpdateRequest,
-    if_match: str = Header(alias="If-Match"),
+    if_match: str | None = Header(default=None, alias="If-Match"),
     admin: User = Depends(_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> LLMRouteResponse:
@@ -153,7 +157,7 @@ async def update_semantic_route(
 @router.post("/routes/CITATION_SEMANTIC/activate", response_model=LLMRouteResponse)
 async def activate_semantic_route(
     body: LLMRouteActivationRequest,
-    if_match: str = Header(alias="If-Match"),
+    if_match: str | None = Header(default=None, alias="If-Match"),
     admin: User = Depends(_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> LLMRouteResponse:
@@ -170,7 +174,7 @@ async def activate_semantic_route(
 
 @router.post("/routes/CITATION_SEMANTIC/deactivate", response_model=LLMRouteResponse)
 async def deactivate_semantic_route(
-    if_match: str = Header(alias="If-Match"),
+    if_match: str | None = Header(default=None, alias="If-Match"),
     admin: User = Depends(_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> LLMRouteResponse:

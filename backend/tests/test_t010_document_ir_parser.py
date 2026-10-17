@@ -2520,6 +2520,27 @@ def test_narrow_gutter_columns_on_different_baselines_are_column_major() -> None
     ]
 
 
+def test_gutter_split_ignores_pathological_page_width() -> None:
+    # The gutter scan sizes arrays by page width; a hostile MediaBox must not
+    # allocate gigabytes. Columns are left in row order rather than split.
+    names = ("one", "two", "three", "four", "five", "six", "seven")
+    words = [
+        word
+        for index in range(12)
+        for side, (left, right) in (("L", (72, 294)), ("R", (307, 529)))
+        for word in _justified_row(
+            [f"{side}{index}{name}" for name in names],
+            left=left,
+            right=right,
+            top=100 + index * 12,
+        )
+    ]
+
+    lines = _group_lines(words, page_width=1e12)
+
+    assert len(lines) == 12
+
+
 def test_table_of_contents_leaders_keep_row_order() -> None:
     # Dot leaders leave the same central gap as a gutter but are not prose.
     words = [

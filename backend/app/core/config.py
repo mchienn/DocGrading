@@ -104,6 +104,11 @@ class Settings(BaseSettings):
         if self.app_env == "development" and not recovery_dir:
             recovery_dir = "storage"
         self.storage_recovery_dir = recovery_dir
+        if self.app_env != "development" and recovery_dir:
+            # A local copy re-uploads objects that were deleted from the bucket.
+            raise ValueError(
+                "Local storage recovery is only allowed in development environment"
+            )
         if self.app_env != "development" and (
             self.storage_access_key_id.strip().lower() in KNOWN_STORAGE_PLACEHOLDERS
             or self.storage_secret_access_key.strip().lower()

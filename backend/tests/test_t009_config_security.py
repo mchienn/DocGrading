@@ -166,6 +166,21 @@ def test_settings_rejects_cleartext_public_storage_outside_development(
         )
 
 
+def test_settings_rejects_local_storage_recovery_outside_development() -> None:
+    with pytest.raises(ValidationError, match="only allowed in development"):
+        Settings(
+            app_env="production",
+            postgres_db="docgrading",
+            postgres_user="docgrading",
+            postgres_password="pw",
+            storage_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            storage_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            join_rate_limit_hash_secret="test-rate-limit-hash-secret-32-bytes",
+            storage_public_endpoint_url="https://storage.example.test",
+            storage_recovery_dir="/var/lib/docgrading/storage",
+        )
+
+
 def test_settings_accepts_valid_custom_credentials_outside_development() -> None:
     settings = Settings(
         app_env="production",

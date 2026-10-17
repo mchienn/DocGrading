@@ -568,6 +568,9 @@ def _split_columns(words: Sequence[_Word], *, page_width: float) -> list[list[_W
     ]
 
 
+_MAX_PAGE_WIDTH = 14400.0
+
+
 _PROSE_WORD = re.compile(r"[^\W\d_]{2,}")
 
 
@@ -590,7 +593,9 @@ def _prose_gutter_split(
     nothing in it covers the gutter. Both sides must be justified prose, so
     tables, tables of contents and equation blocks keep their row order.
     """
-    if len(rows) < 12:
+    # PDF user space tops out at 14400 units; the counting arrays below scale
+    # with page width, so a hostile MediaBox must not size them.
+    if len(rows) < 12 or not 0 < page_width <= _MAX_PAGE_WIDTH:
         return None
     minimum_gutter = _minimum_prose_gutter(page_width)
     width = math.ceil(page_width) + 2
