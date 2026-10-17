@@ -96,7 +96,9 @@ services:
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}
       STORAGE_PRESIGN_EXPIRY_SECONDS: ${STORAGE_PRESIGN_EXPIRY_SECONDS:-300}
-      STORAGE_RECOVERY_DIR: /var/lib/docgrading/storage
+      # Development only: Settings rejects a recovery dir outside APP_ENV=development
+      # because a local copy re-uploads PDFs deleted from the bucket. Set it empty there.
+      STORAGE_RECOVERY_DIR: ${STORAGE_RECOVERY_DIR-/var/lib/docgrading/storage}
       PDF_MAX_SIZE_BYTES: ${PDF_MAX_SIZE_BYTES:-100000000}
       PDF_MAX_DECODED_BYTES: ${PDF_MAX_DECODED_BYTES:-50000000}
       PDF_MAX_PAGE_COUNT: ${PDF_MAX_PAGE_COUNT:-100}
@@ -136,7 +138,7 @@ services:
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}
       STORAGE_PRESIGN_EXPIRY_SECONDS: ${STORAGE_PRESIGN_EXPIRY_SECONDS:-300}
-      STORAGE_RECOVERY_DIR: /var/lib/docgrading/storage
+      STORAGE_RECOVERY_DIR: ${STORAGE_RECOVERY_DIR-/var/lib/docgrading/storage}
       PDF_MAX_SIZE_BYTES: ${PDF_MAX_SIZE_BYTES:-100000000}
       PDF_MAX_DECODED_BYTES: ${PDF_MAX_DECODED_BYTES:-50000000}
       PDF_MAX_PAGE_COUNT: ${PDF_MAX_PAGE_COUNT:-100}

@@ -129,7 +129,7 @@ async def _llm_route_snapshot(db: AsyncSession) -> dict[str, object] | None:
         sa.select(LLMRoute)
         .where(LLMRoute.task == LLMTask.CITATION_SEMANTIC, LLMRoute.active)
         .options(selectinload(LLMRoute.provider_config))
-        .with_for_update()
+        .with_for_update(read=True)
     )
     if route is None or route.provider_config is None:
         return None

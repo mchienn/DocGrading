@@ -1,7 +1,8 @@
-"""Small, non-logging boundary around S3-compatible object storage."""
+"""Small boundary around S3-compatible object storage; never logs keys or content."""
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from collections.abc import Mapping
@@ -14,6 +15,8 @@ import boto3
 from botocore.client import BaseClient
 
 from app.core.config import Settings, get_settings
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -122,7 +125,11 @@ class S3Storage:
                 raise StorageObjectChanged from exc
             raise
         sealed = self.head(destination_key)
-        self._backup(destination_key)
+        try:
+            self._backup(destination_key)
+        except Exception as exc:
+            # The object is already sealed; the local copy is only a convenience.
+            _LOGGER.warning("Local recovery copy failed (%s)", type(exc).__name__)
         return sealed
 
     def _recovery_path(self, key: str) -> Path | None:
@@ -230,6 +237,8 @@ class S3Storage:
             }:
                 raise
             if not self._restore(key):
+                if error.get("Code") == "NoSuchBucket":
+                    raise
                 raise StorageObjectNotFound from exc
         return self._internal.head_object(Bucket=self.bucket, Key=key)
 
@@ -254,6 +263,8 @@ class S3Storage:
             }:
                 raise
             if not self._restore(key):
+                if error.get("Code") == "NoSuchBucket":
+                    raise
                 raise StorageObjectNotFound from exc
             result = self._internal.get_object(Bucket=self.bucket, Key=key)
         body = result["Body"]
