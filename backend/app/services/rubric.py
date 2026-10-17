@@ -1,16 +1,19 @@
-"""Rubric service: CRUD, publish validation, and version management."""
+"""Rubric CRUD and criteria management."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from decimal import Decimal
 
+import sqlalchemy as sa
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.analysis import AnalysisJob
+from app.models.assignment import Assignment
 from app.models.enums import RubricStatus
 from app.models.rubric import CriterionVersion, RubricVersion
 from app.services.audit import record_audit
@@ -100,6 +103,54 @@ async def list_rubric_versions(
     return list(result.scalars().all())
 
 
+def _rubric_mutation_conflict(exc: IntegrityError) -> HTTPException | None:
+    if "after first submission" not in str(exc.orig):
+        return None
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Rubric is immutable after first assignment submission",
+    )
+
+
+async def _flush_rubric_mutation(db: AsyncSession) -> None:
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        conflict = _rubric_mutation_conflict(exc)
+        if conflict is None:
+            raise
+        raise conflict from exc
+
+
+async def _assert_rubric_mutable(db: AsyncSession, rv: RubricVersion) -> None:
+    """Reject rubric changes after any assignment receives a submission."""
+    try:
+        await db.execute(
+            sa.text("SELECT public.fn_assert_criterion_parent_mutable(:parent_id)"),
+            {"parent_id": rv.id},
+        )
+    except IntegrityError as exc:
+        conflict = _rubric_mutation_conflict(exc)
+        if conflict is None:
+            raise
+        raise conflict from exc
+    stmt = (
+        select(Assignment.id)
+        .where(
+            Assignment.rubric_version_id == rv.id,
+            Assignment.first_submission_at.is_not(None),
+        )
+        .order_by(Assignment.id)
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Rubric is immutable after first assignment submission",
+        )
+
+
 async def update_rubric_version(
     db: AsyncSession,
     rv: RubricVersion,
@@ -107,14 +158,11 @@ async def update_rubric_version(
     actor_user_id: uuid.UUID,
     name: str | None = None,
     description: str | None = None,
+    description_set: bool = False,
     calculation_method: str | None = None,
 ) -> RubricVersion:
-    """Update mutable fields on a DRAFT rubric version."""
-    if rv.status != RubricStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Published rubric is immutable; create a new version to edit",
-        )
+    """Update a rubric version before assignment submission freeze."""
+    await _assert_rubric_mutable(db, rv)
 
     before: dict[str, object] = {}
     after: dict[str, object] = {}
@@ -124,7 +172,7 @@ async def update_rubric_version(
         rv.name = name
         after["name"] = name
 
-    if description is not None and description != rv.description:
+    if description_set and description != rv.description:
         before["description"] = rv.description
         rv.description = description
         after["description"] = description
@@ -146,9 +194,62 @@ async def update_rubric_version(
             after=after,
             reason="Rubric version updated",
         )
-        await db.flush()
+        await _flush_rubric_mutation(db)
 
     return rv
+
+
+async def delete_rubric_version(
+    db: AsyncSession,
+    rv: RubricVersion,
+    *,
+    actor_user_id: uuid.UUID,
+) -> None:
+    """Delete a rubric version with no references or derived versions."""
+
+    references = (
+        (
+            select(Assignment.id)
+            .where(Assignment.rubric_version_id == rv.id)
+            .order_by(Assignment.id)
+            .limit(1),
+            "assignment",
+        ),
+        (
+            select(AnalysisJob.id)
+            .where(AnalysisJob.rubric_version_id == rv.id)
+            .order_by(AnalysisJob.id)
+            .limit(1),
+            "analysis job",
+        ),
+        (
+            select(RubricVersion.id)
+            .where(RubricVersion.source_version_id == rv.id)
+            .order_by(RubricVersion.id)
+            .limit(1),
+            "derived rubric version",
+        ),
+    )
+    for stmt, reference_name in references:
+        result = await db.execute(stmt)
+        if result.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot delete rubric referenced by {reference_name}",
+            )
+    await _assert_rubric_mutable(db, rv)
+
+    await record_audit(
+        db,
+        actor_user_id=actor_user_id,
+        resource_type="RubricVersion",
+        resource_id=rv.id,
+        action="DELETE",
+        before={"name": rv.name, "rubric_id": str(rv.rubric_id)},
+        reason="Rubric version deleted",
+    )
+    await db.delete(rv)
+    await _flush_rubric_mutation(db)
 
 
 def _check_rubric_ownership(
@@ -162,159 +263,6 @@ def _check_rubric_ownership(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not own this rubric",
         )
-
-
-async def publish_rubric_version(
-    db: AsyncSession,
-    rv: RubricVersion,
-    *,
-    actor_user_id: uuid.UUID,
-) -> RubricVersion:
-    """Publish a DRAFT rubric version.
-
-    Validates that the sum of weights of enabled criteria equals 100.
-    """
-    if rv.status != RubricStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Only DRAFT rubric versions can be published",
-        )
-
-    # Load criteria to validate weights
-    stmt = select(CriterionVersion).where(
-        CriterionVersion.rubric_version_id == rv.id,
-        CriterionVersion.is_enabled.is_(True),
-    )
-    result = await db.execute(stmt)
-    criteria = list(result.scalars().all())
-
-    total_weight = sum(c.weight for c in criteria)
-    if total_weight != Decimal("100.00"):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"Total weight of enabled criteria must be 100.00, "
-                f"got {total_weight}"
-            ),
-        )
-
-    now = datetime.now(UTC)
-    before_status = rv.status.value
-    rv.status = RubricStatus.PUBLISHED
-    rv.published_at = now
-    rv.total_weight = total_weight
-    rv.revision += 1
-
-    await record_audit(
-        db,
-        actor_user_id=actor_user_id,
-        resource_type="RubricVersion",
-        resource_id=rv.id,
-        action="PUBLISH",
-        before={"status": before_status},
-        after={
-            "status": RubricStatus.PUBLISHED.value,
-            "published_at": now.isoformat(),
-            "total_weight": str(total_weight),
-        },
-        reason="Rubric version published",
-    )
-    await db.flush()
-    return rv
-
-
-async def create_new_version_from(
-    db: AsyncSession,
-    source_rv: RubricVersion,
-    *,
-    actor_user_id: uuid.UUID,
-) -> RubricVersion:
-    """Create a new DRAFT version by cloning a published rubric version.
-
-    Copies all criteria from the source version.
-    """
-    if source_rv.status == RubricStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Source rubric is still DRAFT; edit it directly",
-        )
-
-    # Find the next version number
-    stmt = (
-        select(RubricVersion.version_number)
-        .where(RubricVersion.rubric_id == source_rv.rubric_id)
-        .order_by(RubricVersion.version_number.desc())
-        .limit(1)
-    )
-    result = await db.execute(stmt)
-    max_version = result.scalar_one_or_none() or 0
-    new_version_number = max_version + 1
-
-    new_rv = RubricVersion(
-        id=uuid.uuid4(),
-        rubric_id=source_rv.rubric_id,
-        version_number=new_version_number,
-        name=source_rv.name,
-        description=source_rv.description,
-        status=RubricStatus.DRAFT,
-        calculation_method=source_rv.calculation_method,
-        total_weight=Decimal("0.00"),
-        owner_user_id=source_rv.owner_user_id,
-        created_by_user_id=actor_user_id,
-        source_version_id=source_rv.id,
-    )
-    db.add(new_rv)
-    await db.flush()
-
-    # Clone criteria
-    stmt = select(CriterionVersion).where(
-        CriterionVersion.rubric_version_id == source_rv.id,
-    )
-    result = await db.execute(stmt)
-    source_criteria = list(result.scalars().all())
-
-    cloned_weight = Decimal("0.00")
-    for sc in source_criteria:
-        new_cv = CriterionVersion(
-            id=uuid.uuid4(),
-            criterion_id=sc.criterion_id,
-            rubric_version_id=new_rv.id,
-            code=sc.code,
-            title=sc.title,
-            description=sc.description,
-            scope=sc.scope,
-            weight=sc.weight,
-            position=sc.position,
-            is_enabled=sc.is_enabled,
-            evaluation_method=sc.evaluation_method,
-            levels=sc.levels,
-            evaluator_config=sc.evaluator_config,
-            evidence_requirements=sc.evidence_requirements,
-        )
-        db.add(new_cv)
-        if sc.is_enabled:
-            cloned_weight += sc.weight
-
-    new_rv.total_weight = cloned_weight
-    await db.flush()
-
-    await record_audit(
-        db,
-        actor_user_id=actor_user_id,
-        resource_type="RubricVersion",
-        resource_id=new_rv.id,
-        action="CREATE_VERSION",
-        before={"source_version_id": str(source_rv.id)},
-        after={
-            "id": str(new_rv.id),
-            "version_number": new_version_number,
-            "criteria_count": len(source_criteria),
-        },
-        reason=f"New version created from v{source_rv.version_number}",
-    )
-    await db.flush()
-
-    return new_rv
 
 
 # ---------------------------------------------------------------------------
@@ -339,12 +287,8 @@ async def add_criterion(
     evaluator_config: dict | None = None,
     evidence_requirements: dict | None = None,
 ) -> CriterionVersion:
-    """Add a criterion to a DRAFT rubric version."""
-    if rv.status != RubricStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot add criteria to a published rubric; create a new version",
-        )
+    """Add a criterion before assignment submission freeze."""
+    await _assert_rubric_mutable(db, rv)
 
     cv = CriterionVersion(
         id=uuid.uuid4(),
@@ -382,7 +326,7 @@ async def add_criterion(
         },
         reason="Criterion added to rubric",
     )
-    await db.flush()
+    await _flush_rubric_mutation(db)
     return cv
 
 
@@ -403,16 +347,11 @@ async def update_criterion(
     evaluator_config: dict | None = None,
     evidence_requirements: dict | None = None,
 ) -> CriterionVersion:
-    """Update a criterion on a DRAFT rubric version."""
-    if rv.status != RubricStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot edit criteria of a published rubric; create a new version",
-        )
+    """Update a criterion before assignment submission freeze."""
+    await _assert_rubric_mutable(db, rv)
 
     before: dict[str, object] = {}
     after: dict[str, object] = {}
-
     if title is not None and title != cv.title:
         before["title"] = cv.title
         cv.title = title
@@ -482,7 +421,7 @@ async def update_criterion(
             after=after,
             reason="Criterion updated",
         )
-        await db.flush()
+        await _flush_rubric_mutation(db)
 
     return cv
 
@@ -494,12 +433,8 @@ async def delete_criterion(
     *,
     actor_user_id: uuid.UUID,
 ) -> None:
-    """Delete a criterion from a DRAFT rubric version."""
-    if rv.status != RubricStatus.DRAFT:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot delete criteria of a published rubric; create a new version",
-        )
+    """Delete a criterion before assignment submission freeze."""
+    await _assert_rubric_mutable(db, rv)
 
     if cv.is_enabled:
         rv.total_weight -= cv.weight
@@ -519,7 +454,7 @@ async def delete_criterion(
         reason="Criterion deleted from rubric",
     )
     await db.delete(cv)
-    await db.flush()
+    await _flush_rubric_mutation(db)
 
 
 async def list_criteria(

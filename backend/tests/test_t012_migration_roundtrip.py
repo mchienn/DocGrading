@@ -82,6 +82,7 @@ async def _append_only_guards(engine: AsyncEngine) -> None:
 
 
 async def _downgrade_guards(engine: AsyncEngine, config: Config) -> None:
+    await asyncio.to_thread(command.downgrade, config, "20260911_0010")
     ids = _ids()
     async with engine.begin() as connection:
         await _seed_graph(connection, ids)
@@ -94,15 +95,22 @@ async def _downgrade_guards(engine: AsyncEngine, config: Config) -> None:
             ),
             {"id": ids["document_4"], "actor": ids["teacher"]},
         )
-    with pytest.raises(RuntimeError, match="review_commands"):
-        await asyncio.to_thread(command.downgrade, config, "20260910_0009")
-    async with engine.begin() as connection:
-        await connection.execute(text("SET LOCAL session_replication_role = 'replica'"))
-        await connection.execute(
-            text("DELETE FROM public.review_commands WHERE id = :id"),
-            {"id": ids["document_4"]},
-        )
-        await _cleanup_graph(connection, ids)
+    try:
+        with pytest.raises(RuntimeError, match="review_commands"):
+            await asyncio.to_thread(command.downgrade, config, "20260910_0009")
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("SET LOCAL session_replication_role = 'replica'")
+            )
+            if await connection.scalar(
+                text("SELECT to_regclass('public.review_commands') IS NOT NULL")
+            ):
+                await connection.execute(
+                    text("DELETE FROM public.review_commands WHERE id = :id"),
+                    {"id": ids["document_4"]},
+                )
+            await _cleanup_graph(connection, ids)
 
     async with engine.begin() as connection:
         await _seed_graph(connection, ids)
@@ -114,11 +122,15 @@ async def _downgrade_guards(engine: AsyncEngine, config: Config) -> None:
             ),
             {"teacher": ids["teacher"], "document": ids["document_1"]},
         )
-    with pytest.raises(RuntimeError, match="document_versions approval data"):
-        await asyncio.to_thread(command.downgrade, config, "20260910_0009")
-    async with engine.begin() as connection:
-        await connection.execute(text("SET LOCAL session_replication_role = 'replica'"))
-        await _cleanup_graph(connection, ids)
+    try:
+        with pytest.raises(RuntimeError, match="document_versions approval data"):
+            await asyncio.to_thread(command.downgrade, config, "20260910_0009")
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("SET LOCAL session_replication_role = 'replica'")
+            )
+            await _cleanup_graph(connection, ids)
 
 
 async def _seed_at_0009(engine: AsyncEngine, ids: dict[str, object]) -> None:
@@ -131,6 +143,7 @@ async def _cleanup_at_0009(engine: AsyncEngine, ids: dict[str, object]) -> None:
         await _cleanup_graph(connection, ids)
 
 
+@pytest.mark.usefixtures("isolated_postgres_database")
 def test_t012_migration_real_postgresql_roundtrip_and_guards() -> None:
     config = _config()
     engine = create_async_engine(get_settings().database_url, poolclass=NullPool)

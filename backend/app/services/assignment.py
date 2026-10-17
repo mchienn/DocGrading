@@ -4,15 +4,28 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
+import sqlalchemy as sa
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.assignment import Assignment
 from app.models.course import Course
-from app.models.enums import AssignmentStatus, CourseStatus, RubricStatus
-from app.models.rubric import RubricVersion
+from app.models.enums import AssignmentStatus, CourseStatus
+from app.models.rubric import CriterionVersion, RubricVersion
+from app.models.submission import Submission
 from app.services.audit import record_audit
+
+
+def _has_complete_level_scale(criterion: CriterionVersion) -> bool:
+    levels = {
+        item.get("level")
+        for item in criterion.levels
+        if isinstance(item, dict) and type(item.get("level")) is int
+    }
+    return levels == {0, 1, 2, 3, 4}
 
 
 async def create_assignment(
@@ -45,7 +58,7 @@ async def create_assignment(
     if rv is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rubric version not found",
+            detail="Rubric not found",
         )
     from app.services.rubric import _check_rubric_ownership
 
@@ -141,7 +154,7 @@ async def update_assignment(
         if rv is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Rubric version not found",
+                detail="Rubric not found",
             )
         from app.services.rubric import _check_rubric_ownership
 
@@ -167,6 +180,38 @@ async def update_assignment(
     return assignment
 
 
+async def delete_assignment(
+    db: AsyncSession,
+    assignment: Assignment,
+    *,
+    actor_user_id: uuid.UUID,
+) -> None:
+    if assignment.status != AssignmentStatus.DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only DRAFT assignments can be deleted",
+        )
+    has_submission = await db.scalar(
+        select(sa.exists().where(Submission.assignment_id == assignment.id))
+    )
+    if has_submission:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Assignments with submissions cannot be deleted",
+        )
+    await record_audit(
+        db,
+        actor_user_id=actor_user_id,
+        resource_type="Assignment",
+        resource_id=assignment.id,
+        action="DELETE",
+        before={"course_id": str(assignment.course_id), "title": assignment.title},
+        reason="Assignment deleted",
+    )
+    await db.delete(assignment)
+    await db.flush()
+
+
 async def publish_assignment(
     db: AsyncSession,
     assignment: Assignment,
@@ -175,7 +220,7 @@ async def publish_assignment(
 ) -> Assignment:
     """Publish a DRAFT assignment (DRAFT → OPEN).
 
-    Requires the linked rubric version to be PUBLISHED.
+    Requires at least one enabled criterion with an exact total weight of 100.00.
     """
     if assignment.status != AssignmentStatus.DRAFT:
         raise HTTPException(
@@ -183,12 +228,33 @@ async def publish_assignment(
             detail="Only DRAFT assignments can be published",
         )
 
-    # Verify the rubric is published
-    rubric_version = await db.get(RubricVersion, assignment.rubric_version_id)
-    if rubric_version is None or rubric_version.status != RubricStatus.PUBLISHED:
+    stmt = select(CriterionVersion).where(
+        CriterionVersion.rubric_version_id == assignment.rubric_version_id,
+        CriterionVersion.is_enabled.is_(True),
+    )
+    result = await db.execute(stmt)
+    criteria = list(result.scalars().all())
+    total_weight = sum((criterion.weight for criterion in criteria), Decimal("0.00"))
+    if not criteria or total_weight != Decimal("100.00"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Assignment's rubric must be PUBLISHED before publishing",
+            detail=(
+                "Assignment's rubric must have at least one enabled criterion "
+                f"totaling 100.00, got {total_weight}"
+            ),
+        )
+    incomplete_scale = next(
+        (
+            criterion.code
+            for criterion in criteria
+            if not _has_complete_level_scale(criterion)
+        ),
+        None,
+    )
+    if incomplete_scale is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Criterion {incomplete_scale} must define score levels 0 through 4",
         )
 
     now = datetime.now(UTC)

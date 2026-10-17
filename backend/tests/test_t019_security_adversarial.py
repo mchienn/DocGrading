@@ -7,10 +7,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from fastapi import HTTPException, Request
 from httpx2 import ASGITransport, AsyncClient
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ArrayObject, DictionaryObject, NameObject
@@ -55,6 +58,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _client_request() -> Request:
+    return Request(
+        {"type": "http", "client": (f"t019-{uuid.uuid4()}", 0), "headers": []}
+    )
+
+
 async def _run_brute_force_lockout(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
@@ -80,6 +89,7 @@ async def _run_brute_force_lockout(monkeypatch: pytest.MonkeyPatch) -> None:
         with pytest.raises(HTTPException) as rejected:
             await auth_router.login(
                 LoginRequest(email=candidate_email, password=candidate_password),
+                _client_request(),
                 database,
             )
         assert rejected.value.status_code == 401
@@ -183,7 +193,9 @@ async def _run_expired_failure_window() -> None:
 
             with pytest.raises(HTTPException) as rejected:
                 await auth_router.login(
-                    LoginRequest(email=email, password="wrong-password"), db
+                    LoginRequest(email=email, password="wrong-password"),
+                    _client_request(),
+                    db,
                 )
             assert rejected.value.status_code == 401
             await db.refresh(user)
@@ -228,7 +240,9 @@ async def _run_concurrent_lockout_threshold() -> None:
                 await barrier.wait()
                 with pytest.raises(HTTPException) as rejected:
                     await auth_router.login(
-                        LoginRequest(email=email, password="wrong-password"), db
+                        LoginRequest(email=email, password="wrong-password"),
+                        _client_request(),
+                        db,
                     )
                 assert rejected.value.status_code == 401
 
@@ -361,6 +375,7 @@ def test_login_cookies_are_secure_outside_development(
     monkeypatch.setenv(
         "JOIN_RATE_LIMIT_HASH_SECRET", "test-rate-limit-hash-secret-32-bytes"
     )
+    monkeypatch.setenv("STORAGE_PUBLIC_ENDPOINT_URL", "https://storage.example.test")
     get_settings.cache_clear()
     try:
         asyncio.run(_run_secure_cookie_login())
@@ -538,14 +553,12 @@ async def _run_teacher_idor_matrix() -> None:
                 ),
                 (
                     "GET",
-                    f"/api/v1/courses/{ids['course']}/assignments/"
-                    f"{ids['assignment']}",
+                    f"/api/v1/courses/{ids['course']}/assignments/{ids['assignment']}",
                     None,
                 ),
                 (
                     "PUT",
-                    f"/api/v1/courses/{ids['course']}/assignments/"
-                    f"{ids['assignment']}",
+                    f"/api/v1/courses/{ids['course']}/assignments/{ids['assignment']}",
                     {"title": "IDOR"},
                 ),
                 (
@@ -579,8 +592,7 @@ async def _run_teacher_idor_matrix() -> None:
                 ),
                 (
                     "PUT",
-                    f"/api/v1/submissions/{ids['submission_1']}/"
-                    "review-lock/heartbeat",
+                    f"/api/v1/submissions/{ids['submission_1']}/review-lock/heartbeat",
                     None,
                 ),
                 (
@@ -667,9 +679,26 @@ async def _run_teacher_idor_matrix() -> None:
 
         async with _authenticated_client(connection, ids["student_2"]) as student:
             assert (await student.get("/api/v1/users")).status_code == 403
+            course_detail = await student.get(f"/api/v1/courses/{ids['course']}")
+            assert course_detail.status_code == 200
+            course_body = course_detail.json()
+            assert course_body["owner"] == {
+                "id": str(ids["teacher"]),
+                "display_name": "Teacher A",
+                "email": f"{ids['teacher']}@test.local",
+            }
+            assert course_body["created_at"]
+            assert course_body["updated_at"]
+        await connection.execute(
+            text("DELETE FROM public.memberships WHERE user_id = :user_id"),
+            {"user_id": ids["student_3"]},
+        )
+        async with _authenticated_client(
+            connection, ids["student_3"]
+        ) as nonmember_student:
             assert (
-                await student.get(f"/api/v1/courses/{ids['course']}")
-            ).status_code == 403
+                await nonmember_student.get(f"/api/v1/courses/{ids['course']}")
+            ).status_code == 404
         async with _authenticated_client(connection, ids["other_teacher"]) as teacher:
             assert (await teacher.get("/api/v1/users")).status_code == 403
     finally:
@@ -834,7 +863,12 @@ async def _run_head_truncate_guards() -> None:
                 revision = await connection.scalar(
                     text("SELECT version_num FROM public.alembic_version")
                 )
-                assert revision == "20260918_0016"
+                backend_dir = Path(__file__).resolve().parents[1]
+                config = Config(str(backend_dir / "alembic.ini"))
+                config.set_main_option("script_location", str(backend_dir / "alembic"))
+                assert (
+                    revision == ScriptDirectory.from_config(config).get_current_head()
+                )
                 for table in ("audit_events", "published_result_versions"):
                     with pytest.raises(exc.DBAPIError, match="append-only"):
                         async with connection.begin_nested():

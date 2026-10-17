@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 import json
 import uuid
@@ -17,13 +19,21 @@ from sqlalchemy.orm import aliased, selectinload
 from app.api.deps import check_course_ownership
 from app.api.schemas_submission import (
     ApprovalResponse,
+    AssignmentSubmissionItem,
+    AssignmentSubmissionListResponse,
     BBox,
     BulkPublishResponse,
     CitationReportResponse,
     DocumentDownloadResponse,
+    DocumentGradingResultResponse,
     EvidenceResponse,
     EvidenceWorkspaceResponse,
     FindingResponse,
+    GradingActionResponse,
+    GradingAnalysisJobResponse,
+    GradingReviewDecisionResponse,
+    GradingReviewResponse,
+    GradingStatusEventResponse,
     PublishedResultResponse,
     QueueStatus,
     ReviewDecisionRequest,
@@ -31,6 +41,7 @@ from app.api.schemas_submission import (
     ReviewDraftRequest,
     ReviewDraftResponse,
     ReviewLockResponse,
+    SemanticCitationReportResponse,
     SubmissionQueueItem,
     SubmissionQueueResponse,
     SubmissionVersionListResponse,
@@ -44,6 +55,7 @@ from app.api.schemas_submission import (
 )
 from app.models.analysis import AnalysisJob, DocumentIR
 from app.models.assignment import Assignment
+from app.models.audit import AuditEvent
 from app.models.course import Course, Membership
 from app.models.enums import (
     CourseStatus,
@@ -64,11 +76,16 @@ from app.models.review import (
     ReviewDraft,
     ReviewLock,
 )
-from app.models.submission import DocumentVersion, Submission
+from app.models.rubric import CriterionVersion
+from app.models.submission import (
+    DocumentStatusEvent,
+    DocumentVersion,
+    Submission,
+)
 from app.services import course as course_svc
 from app.services import notification as notification_svc
 from app.services.audit import record_audit
-from app.services.storage import S3Storage
+from app.services.storage import S3Storage, StorageObjectNotFound
 
 LOCK_TTL = timedelta(minutes=10)
 _REVIEWED_STATUSES = (DocumentStatus.APPROVED, DocumentStatus.PUBLISHED)
@@ -159,9 +176,19 @@ async def list_submission_queue(
     submitted_at = sa.func.coalesce(
         DocumentVersion.created_at, Submission.created_at
     ).label("submitted_at")
+    student_user = aliased(User)
+    review_holder = aliased(User)
     statement = (
-        sa.select(Submission, DocumentVersion, ReviewLock, User, submitted_at)
+        sa.select(
+            Submission,
+            DocumentVersion,
+            ReviewLock,
+            review_holder,
+            student_user,
+            submitted_at,
+        )
         .join(Assignment, Assignment.id == Submission.assignment_id)
+        .join(student_user, student_user.id == Submission.student_id)
         .outerjoin(latest, latest.c.submission_id == Submission.id)
         .outerjoin(
             DocumentVersion,
@@ -177,7 +204,7 @@ async def list_submission_queue(
                 ReviewLock.expires_at > now,
             ),
         )
-        .outerjoin(User, User.id == ReviewLock.reviewer_user_id)
+        .outerjoin(review_holder, review_holder.id == ReviewLock.reviewer_user_id)
         .where(Assignment.course_id == course_id)
     )
     if status_filter is QueueStatus.REVIEWED:
@@ -207,6 +234,8 @@ async def list_submission_queue(
             submission_id=submission.id,
             document_version_id=document.id if document else None,
             student_id=submission.student_id,
+            student_display_name=student.display_name,
+            student_email=student.email,
             document_status=document.status.value if document else None,
             queue_status=_queue_status(document.status if document else None),
             submitted_at=row_submitted_at,
@@ -220,11 +249,110 @@ async def list_submission_queue(
                 else None
             ),
         )
-        for submission, document, review_lock, holder, row_submitted_at in (
+        for submission, document, review_lock, holder, student, row_submitted_at in (
             await db.execute(statement)
         ).all()
     ]
     return SubmissionQueueResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
+
+
+async def list_assignment_submissions(
+    db: AsyncSession,
+    *,
+    assignment_id: uuid.UUID,
+    user: User,
+    page: int = 1,
+    page_size: int = 50,
+) -> AssignmentSubmissionListResponse:
+    row = (
+        await db.execute(
+            sa.select(Assignment, Course)
+            .join(Course, Course.id == Assignment.course_id)
+            .where(Assignment.id == assignment_id)
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    assignment, course = row
+    _authorize_course(user, course)
+
+    latest = (
+        sa.select(
+            DocumentVersion.submission_id,
+            sa.func.max(DocumentVersion.version_number).label("version_number"),
+        )
+        .join(Submission, Submission.id == DocumentVersion.submission_id)
+        .where(Submission.assignment_id == assignment.id)
+        .group_by(DocumentVersion.submission_id)
+        .subquery()
+    )
+    attempts = (
+        sa.select(
+            DocumentVersion.submission_id,
+            sa.func.count(DocumentVersion.id).label("attempt_count"),
+        )
+        .join(Submission, Submission.id == DocumentVersion.submission_id)
+        .where(Submission.assignment_id == assignment.id)
+        .group_by(DocumentVersion.submission_id)
+        .subquery()
+    )
+    total = int(
+        await db.scalar(
+            sa.select(sa.func.count(Submission.id)).where(
+                Submission.assignment_id == assignment.id
+            )
+        )
+        or 0
+    )
+    statement = (
+        sa.select(
+            Submission,
+            User,
+            DocumentVersion,
+            sa.func.coalesce(attempts.c.attempt_count, 0),
+        )
+        .join(User, User.id == Submission.student_id)
+        .outerjoin(latest, latest.c.submission_id == Submission.id)
+        .outerjoin(
+            DocumentVersion,
+            sa.and_(
+                DocumentVersion.submission_id == Submission.id,
+                DocumentVersion.version_number == latest.c.version_number,
+            ),
+        )
+        .outerjoin(attempts, attempts.c.submission_id == Submission.id)
+        .where(Submission.assignment_id == assignment.id)
+        .order_by(
+            DocumentVersion.created_at.desc().nullslast(),
+            User.display_name,
+            Submission.id,
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    items = [
+        AssignmentSubmissionItem(
+            submission_id=submission.id,
+            student_id=student.id,
+            student_display_name=student.display_name,
+            student_email=student.email,
+            attempt_count=int(attempt_count),
+            document_version_id=document.id if document else None,
+            filename=document.original_filename if document else None,
+            file_size_bytes=document.size_bytes if document else None,
+            document_status=document.status.value if document else None,
+            submitted_at=document.created_at if document else None,
+        )
+        for submission, student, document, attempt_count in (
+            await db.execute(statement)
+        ).all()
+    ]
+    return AssignmentSubmissionListResponse(
         items=items,
         page=page,
         page_size=page_size,
@@ -311,6 +439,112 @@ def _anchor_index(
     return index
 
 
+async def _evidence_for_document(
+    db: AsyncSession,
+    *,
+    submission_id: uuid.UUID,
+    document: DocumentVersion,
+    require_ir: bool,
+) -> EvidenceWorkspaceResponse:
+    document_ir = (
+        await db.execute(
+            sa.select(DocumentIR).where(DocumentIR.document_version_id == document.id)
+        )
+    ).scalar_one_or_none()
+    if document_ir is None and require_ir:
+        raise HTTPException(status_code=409, detail="Document IR is not available")
+
+    grouped: dict[uuid.UUID, FindingResponse] = {}
+    if document_ir is not None:
+        rows = (
+            await db.execute(
+                sa.select(Finding, EvidenceAnchor, CriterionVersion)
+                .join(AnalysisJob, AnalysisJob.id == Finding.analysis_job_id)
+                .join(
+                    CriterionVersion,
+                    CriterionVersion.id == Finding.criterion_version_id,
+                )
+                .join(EvidenceAnchor, EvidenceAnchor.finding_id == Finding.id)
+                .where(
+                    AnalysisJob.document_version_id == document.id,
+                    EvidenceAnchor.document_ir_id == document_ir.id,
+                )
+                .order_by(
+                    Finding.created_at,
+                    Finding.id,
+                    EvidenceAnchor.page_number,
+                    EvidenceAnchor.element_id,
+                )
+            )
+        ).all()
+        anchors = _anchor_index(
+            document_ir.content,
+            {(anchor.element_id, anchor.page_number) for _, anchor, _ in rows},
+        )
+        for finding, anchor, criterion in rows:
+            bbox = anchors.get((anchor.element_id, anchor.page_number))
+            if bbox is None:
+                raise _evidence_error()
+            response = grouped.get(finding.id)
+            if response is None:
+                response = FindingResponse(
+                    id=finding.id,
+                    criterion_version_id=finding.criterion_version_id,
+                    criterion_code=criterion.code,
+                    criterion_title=criterion.title,
+                    severity=finding.severity,
+                    description=finding.description,
+                    suggestion=finding.suggestion,
+                    proposed_score=finding.proposed_score,
+                    evidence=[],
+                )
+                grouped[finding.id] = response
+            response.evidence.append(
+                EvidenceResponse(
+                    document_ir_id=document_ir.id,
+                    element_id=anchor.element_id,
+                    page_number=anchor.page_number,
+                    bbox=bbox,
+                )
+            )
+
+    snapshots = (
+        (
+            await db.execute(
+                sa.select(AnalysisJob.snapshot).where(
+                    AnalysisJob.document_version_id == document.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    citation = None
+    semantic_citation = None
+    for snapshot in snapshots:
+        if not isinstance(snapshot, Mapping):
+            continue
+        raw_citation = snapshot.get("citation")
+        if citation is None and isinstance(raw_citation, Mapping):
+            with contextlib.suppress(ValidationError):
+                citation = CitationReportResponse.model_validate(raw_citation)
+        raw_semantic = snapshot.get("semantic_citation")
+        if semantic_citation is None and isinstance(raw_semantic, Mapping):
+            with contextlib.suppress(ValidationError):
+                semantic_citation = SemanticCitationReportResponse.model_validate(
+                    raw_semantic
+                )
+        if citation is not None and semantic_citation is not None:
+            break
+    return EvidenceWorkspaceResponse(
+        submission_id=submission_id,
+        document_version_id=document.id,
+        findings=list(grouped.values()),
+        citation=citation,
+        semantic_citation=semantic_citation,
+    )
+
+
 async def get_evidence(
     db: AsyncSession, *, submission_id: uuid.UUID, user: User
 ) -> EvidenceWorkspaceResponse:
@@ -325,88 +559,341 @@ async def get_evidence(
     ).scalar_one_or_none()
     if document is None:
         raise HTTPException(status_code=404, detail="Document version not found")
-    document_ir = (
+    return await _evidence_for_document(
+        db,
+        submission_id=submission.id,
+        document=document,
+        require_ir=True,
+    )
+
+
+_GRADING_ACTION_FIELDS = {
+    "status",
+    "decision",
+    "score",
+    "semantic_verdict",
+    "analysis_job_id",
+    "published_result_id",
+}
+
+
+def _grading_action_state(raw: Mapping[str, Any] | None) -> dict[str, str | None]:
+    if raw is None:
+        return {}
+    return {
+        key: None if raw[key] is None else str(raw[key])
+        for key in _GRADING_ACTION_FIELDS
+        if key in raw
+    }
+
+
+def _fallback_status_history(
+    document: DocumentVersion,
+    jobs: list[AnalysisJob],
+    actions: list[tuple[AuditEvent, User | None]],
+) -> list[GradingStatusEventResponse]:
+    status_actions: list[GradingStatusEventResponse] = []
+    for event, _ in actions:
+        if event.resource_type != "DocumentVersion" or not event.after:
+            continue
+        status = event.after.get("status")
+        if not isinstance(status, str):
+            continue
+        before = event.before.get("status") if event.before else None
+        status_actions.append(
+            GradingStatusEventResponse(
+                from_status=before if isinstance(before, str) else None,
+                to_status=status,
+                changed_at=event.occurred_at,
+                recorded=False,
+            )
+        )
+    audited_statuses = {event.to_status for event in status_actions}
+    events = [
+        GradingStatusEventResponse(
+            from_status=None,
+            to_status=DocumentStatus.UPLOADING.value,
+            changed_at=document.created_at,
+            recorded=False,
+        )
+    ]
+    for job in jobs:
+        events.append(
+            GradingStatusEventResponse(
+                from_status=None,
+                to_status=DocumentStatus.QUEUED.value,
+                changed_at=job.queued_at,
+                recorded=False,
+            )
+        )
+        if (
+            job.started_at is not None
+            and DocumentStatus.PROCESSING.value not in audited_statuses
+        ):
+            events.append(
+                GradingStatusEventResponse(
+                    from_status=DocumentStatus.QUEUED.value,
+                    to_status=DocumentStatus.PROCESSING.value,
+                    changed_at=job.started_at,
+                    recorded=False,
+                )
+            )
+        if (
+            job.finished_at is not None
+            and job.status.value == "DONE"
+            and DocumentStatus.AWAITING_REVIEW.value not in audited_statuses
+        ):
+            events.append(
+                GradingStatusEventResponse(
+                    from_status=DocumentStatus.PROCESSING.value,
+                    to_status=DocumentStatus.AWAITING_REVIEW.value,
+                    changed_at=job.finished_at,
+                    recorded=False,
+                )
+            )
+    events.extend(status_actions)
+    events.sort(key=lambda item: item.changed_at)
+    if not events or events[-1].to_status != document.status.value:
+        events.append(
+            GradingStatusEventResponse(
+                from_status=events[-1].to_status if events else None,
+                to_status=document.status.value,
+                changed_at=document.updated_at,
+                recorded=False,
+            )
+        )
+    deduplicated: list[GradingStatusEventResponse] = []
+    for event in events:
+        if (
+            deduplicated
+            and deduplicated[-1].to_status == event.to_status
+            and deduplicated[-1].changed_at == event.changed_at
+        ):
+            continue
+        deduplicated.append(event)
+    return deduplicated
+
+
+def _status_history(
+    document: DocumentVersion,
+    jobs: list[AnalysisJob],
+    actions: list[tuple[AuditEvent, User | None]],
+    status_events: list[DocumentStatusEvent],
+) -> list[GradingStatusEventResponse]:
+    recorded = [
+        GradingStatusEventResponse(
+            from_status=event.from_status.value if event.from_status else None,
+            to_status=event.to_status.value,
+            changed_at=event.changed_at,
+            recorded=True,
+        )
+        for event in status_events
+    ]
+    if not status_events:
+        return _fallback_status_history(document, jobs, actions)
+    if status_events[0].from_status is None:
+        return recorded
+    first_recorded_at = status_events[0].changed_at
+    prefix = [
+        event
+        for event in _fallback_status_history(document, jobs, actions)
+        if event.changed_at < first_recorded_at
+    ]
+    merged: list[GradingStatusEventResponse] = []
+    for event in [*prefix, *recorded]:
+        if (
+            merged
+            and merged[-1].to_status == event.to_status
+            and merged[-1].changed_at == event.changed_at
+        ):
+            continue
+        merged.append(event)
+    return merged
+
+
+async def get_document_grading_result(
+    db: AsyncSession,
+    *,
+    document_version_id: uuid.UUID,
+    user: User,
+) -> DocumentGradingResultResponse:
+    row = (
         await db.execute(
-            sa.select(DocumentIR).where(DocumentIR.document_version_id == document.id)
+            sa.select(DocumentVersion, Submission, Assignment, Course, User)
+            .join(Submission, Submission.id == DocumentVersion.submission_id)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(Course, Course.id == Assignment.course_id)
+            .join(User, User.id == Submission.student_id)
+            .where(DocumentVersion.id == document_version_id)
         )
-    ).scalar_one_or_none()
-    if document_ir is None:
-        raise HTTPException(status_code=409, detail="Document IR is not available")
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document version not found")
+    document, submission, assignment, course, student = row
+    _authorize_course(user, course)
 
-    statement = (
-        sa.select(Finding, EvidenceAnchor)
-        .join(AnalysisJob, AnalysisJob.id == Finding.analysis_job_id)
-        .join(EvidenceAnchor, EvidenceAnchor.finding_id == Finding.id)
-        .where(
-            AnalysisJob.document_version_id == document.id,
-            EvidenceAnchor.document_ir_id == document_ir.id,
-        )
-        .order_by(
-            Finding.created_at,
-            Finding.id,
-            EvidenceAnchor.page_number,
-            EvidenceAnchor.element_id,
-        )
+    evidence = await _evidence_for_document(
+        db,
+        submission_id=submission.id,
+        document=document,
+        require_ir=False,
     )
-    rows = (await db.execute(statement)).all()
-    anchors = _anchor_index(
-        document_ir.content,
-        {(anchor.element_id, anchor.page_number) for _, anchor in rows},
-    )
-    grouped: dict[uuid.UUID, FindingResponse] = {}
-    for finding, anchor in rows:
-        bbox = anchors.get((anchor.element_id, anchor.page_number))
-        if bbox is None:
-            raise _evidence_error()
-        response = grouped.get(finding.id)
-        if response is None:
-            response = FindingResponse(
-                id=finding.id,
-                criterion_version_id=finding.criterion_version_id,
-                severity=finding.severity,
-                description=finding.description,
-                suggestion=finding.suggestion,
-                proposed_score=finding.proposed_score,
-                evidence=[],
-            )
-            grouped[finding.id] = response
-        response.evidence.append(
-            EvidenceResponse(
-                document_ir_id=document_ir.id,
-                element_id=anchor.element_id,
-                page_number=anchor.page_number,
-                bbox=bbox,
-            )
-        )
-
-    snapshots = (
+    jobs = list(
         (
             await db.execute(
-                sa.select(AnalysisJob.snapshot).where(
-                    AnalysisJob.document_version_id == document.id,
+                sa.select(AnalysisJob)
+                .where(AnalysisJob.document_version_id == document.id)
+                .order_by(AnalysisJob.queued_at, AnalysisJob.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    review_rows = (
+        await db.execute(
+            sa.select(ReviewDraft, User)
+            .join(User, User.id == ReviewDraft.reviewer_user_id)
+            .where(ReviewDraft.document_version_id == document.id)
+            .options(selectinload(ReviewDraft.decisions))
+            .order_by(ReviewDraft.updated_at, ReviewDraft.id)
+        )
+    ).all()
+    published_results = list(
+        (
+            await db.execute(
+                sa.select(PublishedResultVersion)
+                .where(PublishedResultVersion.document_version_id == document.id)
+                .order_by(
+                    PublishedResultVersion.version_number,
+                    PublishedResultVersion.id,
                 )
             )
         )
         .scalars()
         .all()
     )
-    citation = None
-    for snapshot in snapshots:
-        if not isinstance(snapshot, Mapping):
-            continue
-        raw_citation = snapshot.get("citation")
-        if not isinstance(raw_citation, Mapping):
-            continue
-        try:
-            citation = CitationReportResponse.model_validate(raw_citation)
-        except ValidationError:
-            continue
-        break
-    return EvidenceWorkspaceResponse(
+
+    finding_ids = {finding.id for finding in evidence.findings}
+    action_filters = [
+        sa.and_(
+            AuditEvent.resource_type == "DocumentVersion",
+            AuditEvent.resource_id == document.id,
+        )
+    ]
+    if finding_ids:
+        action_filters.append(
+            sa.and_(
+                AuditEvent.resource_type == "Finding",
+                AuditEvent.resource_id.in_(finding_ids),
+            )
+        )
+    action_rows = (
+        await db.execute(
+            sa.select(AuditEvent, User)
+            .outerjoin(User, User.id == AuditEvent.actor_user_id)
+            .where(sa.or_(*action_filters))
+            .order_by(AuditEvent.occurred_at, AuditEvent.id)
+        )
+    ).all()
+    status_events = list(
+        (
+            await db.execute(
+                sa.select(DocumentStatusEvent)
+                .where(DocumentStatusEvent.document_version_id == document.id)
+                .order_by(
+                    DocumentStatusEvent.changed_at,
+                    DocumentStatusEvent.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    status_history = _status_history(document, jobs, action_rows, status_events)
+
+    published_labels = await _criterion_labels_for_results(db, published_results)
+    return DocumentGradingResultResponse(
         submission_id=submission.id,
         document_version_id=document.id,
-        findings=list(grouped.values()),
-        citation=citation,
+        version_number=document.version_number,
+        filename=document.original_filename,
+        file_size_bytes=document.size_bytes,
+        submitted_at=document.created_at,
+        current_status=document.status.value,
+        failure_code=document.failure_code,
+        assignment_title=assignment.title,
+        student_id=student.id,
+        student_display_name=student.display_name,
+        student_email=student.email,
+        analysis_jobs=[
+            GradingAnalysisJobResponse(
+                id=job.id,
+                status=job.status,
+                attempt_count=job.attempt_count,
+                max_attempts=job.max_attempts,
+                queued_at=job.queued_at,
+                started_at=job.started_at,
+                finished_at=job.finished_at,
+                error_code=job.error_code,
+            )
+            for job in jobs
+        ],
+        findings=evidence.findings,
+        citation=evidence.citation,
+        semantic_citation=evidence.semantic_citation,
+        reviews=[
+            GradingReviewResponse(
+                id=draft.id,
+                reviewer_user_id=reviewer.id,
+                reviewer_display_name=reviewer.display_name,
+                revision=draft.revision,
+                comment=draft.comment,
+                created_at=draft.created_at,
+                updated_at=draft.updated_at,
+                decisions=[
+                    GradingReviewDecisionResponse(
+                        finding_id=decision.finding_id,
+                        decision=decision.decision,
+                        edited_description=decision.edited_description,
+                        final_score=decision.final_score,
+                        edited_semantic_verdict=decision.edited_semantic_verdict,
+                        reason=decision.reason,
+                        created_at=decision.created_at,
+                        updated_at=decision.updated_at,
+                    )
+                    for decision in sorted(
+                        draft.decisions,
+                        key=lambda item: (item.created_at, item.id),
+                    )
+                ],
+            )
+            for draft, reviewer in review_rows
+        ],
+        published_results=[
+            PublishedResultResponse.model_validate(
+                _published_response(
+                    result,
+                    submission.id,
+                    criterion_labels=published_labels,
+                )
+            )
+            for result in published_results
+        ],
+        status_history=status_history,
+        actions=[
+            GradingActionResponse(
+                id=event.id,
+                resource_type=event.resource_type,
+                resource_id=event.resource_id,
+                action=event.action,
+                actor_display_name=actor.display_name if actor else "System",
+                reason=event.reason,
+                occurred_at=event.occurred_at,
+                before=_grading_action_state(event.before),
+                after=_grading_action_state(event.after),
+            )
+            for event, actor in action_rows
+        ],
     )
 
 
@@ -536,15 +1023,17 @@ async def release_review_lock(
 
 async def _review_draft(
     db: AsyncSession,
-    submission_id: uuid.UUID,
+    document_version_id: uuid.UUID | None,
     user_id: uuid.UUID,
     *,
     lock: bool = False,
 ) -> ReviewDraft | None:
+    if document_version_id is None:
+        return None
     statement = (
         sa.select(ReviewDraft)
         .where(
-            ReviewDraft.submission_id == submission_id,
+            ReviewDraft.document_version_id == document_version_id,
             ReviewDraft.reviewer_user_id == user_id,
         )
         .options(selectinload(ReviewDraft.decisions))
@@ -560,9 +1049,8 @@ def _draft_response(
     reviewer_user_id: uuid.UUID,
     document_version_id: uuid.UUID | None,
 ) -> ReviewDraftResponse:
-    is_current = draft is not None and draft.document_version_id == document_version_id
     decisions = sorted(
-        draft.decisions if is_current else [],
+        draft.decisions if draft is not None else [],
         key=lambda decision: decision.finding_id,
     )
     return ReviewDraftResponse(
@@ -571,13 +1059,14 @@ def _draft_response(
         document_version_id=document_version_id,
         reviewer_user_id=reviewer_user_id,
         revision=draft.revision if draft else 1,
-        comment=draft.comment if is_current else "",
+        comment=draft.comment if draft else "",
         decisions=[
             ReviewDecisionResponse(
                 finding_id=decision.finding_id,
                 decision=decision.decision,
                 edited_description=decision.edited_description,
                 final_score=decision.final_score,
+                edited_semantic_verdict=decision.edited_semantic_verdict,
                 reason=decision.reason,
             )
             for decision in decisions
@@ -592,6 +1081,7 @@ def _same_payload(draft: ReviewDraft, body: ReviewDraftRequest) -> bool:
             item.decision,
             item.edited_description,
             item.final_score,
+            item.edited_semantic_verdict,
             item.reason,
         )
         for item in body.decisions
@@ -602,6 +1092,7 @@ def _same_payload(draft: ReviewDraft, body: ReviewDraftRequest) -> bool:
             item.decision,
             item.edited_description,
             item.final_score,
+            item.edited_semantic_verdict,
             item.reason,
         )
         for item in draft.decisions
@@ -614,7 +1105,7 @@ async def get_review_draft(
 ) -> ReviewDraftResponse:
     await _submission_for_review(db, submission_id, user)
     document_version_id = await _latest_document_id(db, submission_id)
-    draft = await _review_draft(db, submission_id, user.id)
+    draft = await _review_draft(db, document_version_id, user.id)
     return _draft_response(
         draft,
         submission_id,
@@ -663,6 +1154,31 @@ async def _findings_for_draft(
     return findings
 
 
+def _is_semantic_finding(job: AnalysisJob, finding_id: uuid.UUID) -> bool:
+    snapshot = job.snapshot
+    if not isinstance(snapshot, Mapping):
+        return False
+    semantic = snapshot.get("semantic_citation")
+    if not isinstance(semantic, Mapping):
+        return False
+    results = semantic.get("results")
+    if not isinstance(results, list):
+        return False
+    target = str(finding_id)
+    for result in results:
+        if not isinstance(result, Mapping):
+            continue
+        links = result.get("finding_links")
+        if not isinstance(links, list):
+            continue
+        if any(
+            isinstance(link, Mapping) and str(link.get("finding_id")) == target
+            for link in links
+        ):
+            return True
+    return False
+
+
 def _effective_score(
     finding: Finding,
     decision: ReviewDecision | ReviewDecisionRequest | None,
@@ -683,12 +1199,20 @@ def _audit_snapshot(
     score: Decimal | None,
     analysis_job_id: uuid.UUID,
 ) -> dict[str, str | None]:
+    semantic_verdict = (
+        getattr(decision, "edited_semantic_verdict", None) if decision else None
+    )
     return {
         "decision": decision.decision.value if decision else "PROPOSED",
         "score": (
             format(Decimal(0) if score == 0 else score, ".2f")
             if score is not None
             else None
+        ),
+        "semantic_verdict": (
+            semantic_verdict.value
+            if hasattr(semantic_verdict, "value")
+            else semantic_verdict
         ),
         "analysis_job_id": str(analysis_job_id),
     }
@@ -708,9 +1232,8 @@ async def save_review_draft(
 
     if body.document_version_id != document_version_id:
         raise HTTPException(status_code=409, detail="Document version changed")
-    draft = await _review_draft(db, submission_id, user.id, lock=True)
-    is_current = draft is not None and draft.document_version_id == document_version_id
-    if is_current and draft is not None and _same_payload(draft, body):
+    draft = await _review_draft(db, document_version_id, user.id, lock=True)
+    if draft is not None and _same_payload(draft, body):
         review_lock.expires_at = _now() + LOCK_TTL
         await db.flush()
         return _draft_response(
@@ -728,11 +1251,7 @@ async def save_review_draft(
         raise HTTPException(status_code=409, detail="Review draft revision conflict")
 
     stored_decisions = list(draft.decisions if draft else [])
-    old_decisions = (
-        {decision.finding_id: decision for decision in stored_decisions}
-        if is_current
-        else {}
-    )
+    old_decisions = {decision.finding_id: decision for decision in stored_decisions}
     new_decisions = {decision.finding_id: decision for decision in body.decisions}
     finding_ids = old_decisions.keys() | new_decisions.keys()
     findings = await _findings_for_draft(
@@ -747,12 +1266,25 @@ async def save_review_draft(
         after_decision = new_decisions.get(finding_id)
         before_score = _effective_score(finding, before_decision)
         after_score = _effective_score(finding, after_decision)
-        if before_score == after_score:
+        before_verdict = (
+            before_decision.edited_semantic_verdict if before_decision else None
+        )
+        after_verdict = (
+            after_decision.edited_semantic_verdict if after_decision else None
+        )
+        if after_verdict is not None and not _is_semantic_finding(job, finding_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Semantic verdict override requires a semantic finding",
+            )
+        score_changed = before_score != after_score
+        verdict_changed = before_verdict != after_verdict
+        if not score_changed and not verdict_changed:
             continue
         if after_decision is None:
             raise HTTPException(
                 status_code=422,
-                detail="Use ACCEPT with a reason to restore a scored proposal",
+                detail="Use ACCEPT with a reason to restore a proposal",
             )
         if after_decision.reason is None:
             raise HTTPException(status_code=422, detail="Override reason is required")
@@ -779,10 +1311,6 @@ async def save_review_draft(
         db.add(draft)
         await db.flush()
     else:
-        if not is_current:
-            for decision in stored_decisions:
-                await db.delete(decision)
-            draft.document_version_id = document_version_id
         draft.comment = body.comment
         draft.revision += 1
 
@@ -802,6 +1330,11 @@ async def save_review_draft(
         decision.decision = request.decision
         decision.edited_description = request.edited_description
         decision.final_score = request.final_score
+        decision.edited_semantic_verdict = (
+            request.edited_semantic_verdict.value
+            if request.edited_semantic_verdict is not None
+            else None
+        )
         decision.reason = request.reason
 
     review_lock.expires_at = _now() + LOCK_TTL
@@ -957,14 +1490,19 @@ async def _approval_snapshot(
     findings = list(
         (
             await db.execute(
-                sa.select(Finding)
+                sa.select(Finding, CriterionVersion)
                 .join(AnalysisJob, AnalysisJob.id == Finding.analysis_job_id)
+                .join(
+                    CriterionVersion,
+                    CriterionVersion.id == Finding.criterion_version_id,
+                )
                 .where(AnalysisJob.document_version_id == version.id)
                 .order_by(Finding.id)
             )
-        ).scalars()
+        ).all()
     )
-    missing = [finding.id for finding in findings if finding.id not in decisions]
+    finding_models = [finding for finding, _ in findings]
+    missing = [finding.id for finding in finding_models if finding.id not in decisions]
     if missing:
         raise HTTPException(
             status_code=422,
@@ -973,7 +1511,7 @@ async def _approval_snapshot(
 
     published_finding_ids = {
         finding.id
-        for finding in findings
+        for finding in finding_models
         if decisions[finding.id].decision is not ReviewDecisionType.REJECT
     }
     all_anchors = list(
@@ -981,7 +1519,9 @@ async def _approval_snapshot(
             await db.execute(
                 sa.select(EvidenceAnchor)
                 .where(
-                    EvidenceAnchor.finding_id.in_([finding.id for finding in findings])
+                    EvidenceAnchor.finding_id.in_(
+                        [finding.id for finding in finding_models]
+                    )
                 )
                 .order_by(
                     EvidenceAnchor.finding_id,
@@ -1025,7 +1565,7 @@ async def _approval_snapshot(
 
     output_findings: list[dict[str, Any]] = []
     rejected_findings: list[dict[str, Any]] = []
-    for finding in findings:
+    for finding, criterion in findings:
         decision = decisions[finding.id]
         description = (
             decision.edited_description
@@ -1053,11 +1593,14 @@ async def _approval_snapshot(
         target.append(
             {
                 "criterion_version_id": str(finding.criterion_version_id),
+                "criterion_code": criterion.code,
+                "criterion_title": criterion.title,
                 "finding_id": str(finding.id),
                 "score": format(score, "f") if score is not None else None,
                 "description": description,
                 "suggestion": finding.suggestion,
                 "evidence": evidence,
+                "semantic_verdict_override": decision.edited_semantic_verdict,
                 "decision": decision.decision.value,
                 "evidence_count": evidence_counts.get(finding.id, 0),
             }
@@ -1070,9 +1613,35 @@ async def _approval_snapshot(
 
 
 def _published_response(
-    result: PublishedResultVersion, submission_id: uuid.UUID
+    result: PublishedResultVersion,
+    submission_id: uuid.UUID,
+    *,
+    criterion_labels: dict[uuid.UUID, tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     snapshot = result.snapshot
+    findings = snapshot.get("findings", [])
+    if criterion_labels and isinstance(findings, list):
+        enriched_findings = []
+        for finding in findings:
+            if not isinstance(finding, Mapping):
+                enriched_findings.append(finding)
+                continue
+            try:
+                criterion_version_id = uuid.UUID(str(finding["criterion_version_id"]))
+            except (KeyError, TypeError, ValueError):
+                enriched_findings.append(finding)
+                continue
+            labels = criterion_labels.get(criterion_version_id)
+            if labels is None or (
+                finding.get("criterion_code") is not None
+                and finding.get("criterion_title") is not None
+            ):
+                enriched_findings.append(finding)
+                continue
+            enriched = dict(finding)
+            enriched["criterion_code"], enriched["criterion_title"] = labels
+            enriched_findings.append(enriched)
+        findings = enriched_findings
     return {
         "published_result_id": str(result.id),
         "submission_id": str(submission_id),
@@ -1080,8 +1649,35 @@ def _published_response(
         "version_number": result.version_number,
         "published_at": result.published_at.isoformat(),
         "comment": snapshot.get("comment", ""),
-        "findings": snapshot.get("findings", []),
+        "findings": findings,
     }
+
+
+async def _criterion_labels_for_results(
+    db: AsyncSession, results: list[PublishedResultVersion]
+) -> dict[uuid.UUID, tuple[str, str]]:
+    criterion_ids: set[uuid.UUID] = set()
+    for result in results:
+        findings = result.snapshot.get("findings", [])
+        if not isinstance(findings, list):
+            continue
+        for finding in findings:
+            if not isinstance(finding, Mapping):
+                continue
+            try:
+                criterion_ids.add(uuid.UUID(str(finding["criterion_version_id"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+    if not criterion_ids:
+        return {}
+    rows = await db.execute(
+        sa.select(
+            CriterionVersion.id,
+            CriterionVersion.code,
+            CriterionVersion.title,
+        ).where(CriterionVersion.id.in_(criterion_ids))
+    )
+    return {criterion_id: (code, title) for criterion_id, code, title in rows.all()}
 
 
 async def _bulk_published_response(
@@ -1104,12 +1700,16 @@ async def _bulk_published_response(
         raise HTTPException(
             status_code=500, detail="Persisted bulk publish response is invalid"
         )
+    labels = await _criterion_labels_for_results(
+        db, [result_by_id[result_id][0] for result_id in result_ids]
+    )
     return BulkPublishResponse(
         results=[
             PublishedResultResponse.model_validate(
                 _published_response(
                     result_by_id[result_id][0],
                     result_by_id[result_id][1],
+                    criterion_labels=labels,
                 )
             )
             for result_id in result_ids
@@ -1261,7 +1861,18 @@ async def publish_document_version(
         payload=payload,
     )
     if replay is not None:
-        return PublishedResultResponse.model_validate(replay)
+        try:
+            return PublishedResultResponse.model_validate(replay)
+        except ValidationError:
+            raw_result_id = replay.get("published_result_id")
+            try:
+                result_id = uuid.UUID(str(raw_result_id))
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=500, detail="Persisted publish response is invalid"
+                ) from exc
+            response = await _bulk_published_response(db, [result_id])
+            return response.results[0]
     if not reason.strip():
         raise HTTPException(status_code=422, detail="Reason must not be blank")
     course, submission, version = await _locked_document_context(db, version_id, user)
@@ -1273,7 +1884,12 @@ async def publish_document_version(
         user=user,
         reason=reason,
     )
-    response = _published_response(result, submission.id)
+    labels = await _criterion_labels_for_results(db, [result])
+    response = _published_response(
+        result,
+        submission.id,
+        criterion_labels=labels,
+    )
     await _command_finish(
         db,
         actor_user_id=user.id,
@@ -1383,7 +1999,7 @@ async def bulk_publish_document_versions(
         raise HTTPException(
             status_code=409, detail="All versions must be approved in assignment"
         )
-    results: list[PublishedResultResponse] = []
+    published_results: list[tuple[PublishedResultVersion, uuid.UUID]] = []
     for version in versions:
         result = await _publish_locked(
             db,
@@ -1393,11 +2009,21 @@ async def bulk_publish_document_versions(
             user=user,
             reason=reason,
         )
-        results.append(
-            PublishedResultResponse.model_validate(
-                _published_response(result, version.submission_id)
+        published_results.append((result, version.submission_id))
+    labels = await _criterion_labels_for_results(
+        db,
+        [result for result, _ in published_results],
+    )
+    results = [
+        PublishedResultResponse.model_validate(
+            _published_response(
+                result,
+                submission_id,
+                criterion_labels=labels,
             )
         )
+        for result, submission_id in published_results
+    ]
     response = {
         "published_result_ids": [str(result.published_result_id) for result in results]
     }
@@ -1570,7 +2196,24 @@ async def get_document_download(
     if version is None:
         raise HTTPException(status_code=404, detail="Document version not found")
     await _submission_for_read(db, version.submission_id, user)
+    if version.status == DocumentStatus.UPLOADING:
+        raise HTTPException(
+            status_code=409,
+            detail="Document upload is not complete",
+        )
     storage = storage or S3Storage()
+    try:
+        await asyncio.to_thread(storage.head, version.storage_key)
+    except StorageObjectNotFound as exc:
+        raise HTTPException(
+            status_code=410,
+            detail="Document file is missing from storage. Re-upload the PDF.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Object storage is temporarily unavailable",
+        ) from exc
     return DocumentDownloadResponse(
         url=storage.create_presigned_get(version.storage_key),
         expires_in=storage.expiry_seconds,
@@ -1674,6 +2317,8 @@ async def list_submission_versions(
                 document_version_id=version.id,
                 version_number=version.version_number,
                 created_at=version.created_at,
+                filename=version.original_filename,
+                file_size_bytes=version.size_bytes,
                 processing_status=_PROCESSING_STATUS[version.status],
                 publication_status=publication_status,
                 published_result_id=visible_result.id if visible_result else None,
@@ -1941,6 +2586,11 @@ async def get_student_published_result(
     if row is None:
         raise HTTPException(status_code=404, detail="Published result not found")
     result, owner_submission_id = row
+    labels = await _criterion_labels_for_results(db, [result])
     return PublishedResultResponse.model_validate(
-        _published_response(result, owner_submission_id)
+        _published_response(
+            result,
+            owner_submission_id,
+            criterion_labels=labels,
+        )
     )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,6 +17,7 @@ from sqlalchemy.pool import NullPool
 from app.api.deps import get_current_user
 from app.api.routers import operations as operations_router
 from app.api.routers import submissions as submissions_router
+from app.api.schemas_course import CourseResponse
 from app.api.schemas_operations import (
     AdminAnalysisJobDetailResponse,
     AdminAnalysisJobListItem,
@@ -28,10 +29,13 @@ from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.main import app, create_app
 from app.models.analysis import AnalysisJob
+from app.models.course import Course
 from app.models.enums import AnalysisJobStatus, UserRole, UserStatus
 from app.models.identity import User
 from app.services import analysis_job as job_svc
+from app.services import course as course_svc
 from app.services import operations as operations_svc
+from app.services import submission as submission_svc
 from app.services.auth import auth_cookie_names, csrf_token_for_session
 from tests.test_t011_review_workspace import _actor, _cleanup_graph, _ids, _seed_graph
 from tests.test_t016_workflow import _publish_seed
@@ -51,6 +55,25 @@ def test_storage_path_redaction_covers_staging_and_sealed_keys() -> None:
     )
 
 
+def test_dashboard_job_trend_zero_fills_seven_utc_days() -> None:
+    class EmptyResult:
+        def all(self) -> list[object]:
+            return []
+
+    class EmptyDb:
+        async def execute(self, _statement: object) -> EmptyResult:
+            return EmptyResult()
+
+    points = asyncio.run(operations_svc._jobs_last_7_days(EmptyDb()))
+    today = datetime.now(UTC).date()
+    assert [point.day for point in points] == [
+        today - timedelta(days=offset) for offset in range(6, -1, -1)
+    ]
+    assert all(point.total_jobs == 0 for point in points)
+    assert all(point.error_jobs == 0 for point in points)
+    assert all(point.average_processing_seconds == 0 for point in points)
+
+
 def test_admin_operation_contracts_are_explicit_and_admin_only() -> None:
     schema = app.openapi()
     methods = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
@@ -62,6 +85,13 @@ def test_admin_operation_contracts_are_explicit_and_admin_only() -> None:
         "/api/v1/operations/analysis-jobs/{job_id}/retry": {"post"},
         "/api/v1/operations/audit-events": {"get"},
         "/api/v1/operations/dashboard": {"get"},
+        "/api/v1/operations/llm/providers": {"get"},
+        "/api/v1/operations/llm/providers/{provider}": {"put"},
+        "/api/v1/operations/llm/providers/{provider}/credential": {"delete"},
+        "/api/v1/operations/llm/providers/{provider}/test": {"post"},
+        "/api/v1/operations/llm/routes/CITATION_SEMANTIC": {"get", "put"},
+        "/api/v1/operations/llm/routes/CITATION_SEMANTIC/activate": {"post"},
+        "/api/v1/operations/llm/routes/CITATION_SEMANTIC/deactivate": {"post"},
     }
     for path, allowed in expected.items():
         assert set(schema["paths"][path]) & methods == allowed
@@ -90,6 +120,8 @@ def test_admin_operation_contracts_are_explicit_and_admin_only() -> None:
         "action",
         "actor_type",
         "actor_user_id",
+        "actor_display_name",
+        "actor_email",
         "before",
         "after",
         "reason",
@@ -137,12 +169,86 @@ def test_non_admin_is_rejected_from_every_admin_endpoint(
         ),
         ("GET", "/api/v1/operations/audit-events", None),
         ("GET", "/api/v1/operations/dashboard", None),
+        ("GET", "/api/v1/operations/llm/providers", None),
+        (
+            "PUT",
+            "/api/v1/operations/llm/providers/OPENAI",
+            {
+                "enabled": True,
+                "credential_source": "ENVIRONMENT",
+                "environment_key_name": "OPENAI_API_KEY",
+                "data_policy_approved": True,
+            },
+        ),
+        (
+            "DELETE",
+            "/api/v1/operations/llm/providers/OPENAI/credential",
+            None,
+        ),
+        ("POST", "/api/v1/operations/llm/providers/OPENAI/test", None),
+        ("GET", "/api/v1/operations/llm/routes/CITATION_SEMANTIC", None),
+        (
+            "PUT",
+            "/api/v1/operations/llm/routes/CITATION_SEMANTIC",
+            {
+                "provider": "OPENAI",
+                "model_id": "gpt-5-mini",
+                "protocol": "OPENAI_RESPONSES",
+                "max_tokens": 512,
+                "call_budget": 32,
+                "quality_approved": True,
+            },
+        ),
+        (
+            "POST",
+            "/api/v1/operations/llm/routes/CITATION_SEMANTIC/activate",
+            {"acknowledge_provider_fees": True},
+        ),
+        (
+            "POST",
+            "/api/v1/operations/llm/routes/CITATION_SEMANTIC/deactivate",
+            None,
+        ),
     )
     try:
         client = TestClient(application)
         for method, path, body in requests:
             response = client.request(method, path, json=body, headers=headers)
             assert response.status_code == 403, (method, path, response.text)
+    finally:
+        application.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("if_match", [None, "rev-1", '"rev-x"', '"rev-0"'])
+def test_llm_mutation_without_valid_if_match_is_428(
+    if_match: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("POSTGRES_DB", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_USER", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "test-only")
+    get_settings.cache_clear()
+    application = create_app()
+    admin = _actor(uuid.uuid4(), "Admin", UserRole.ADMIN)
+    application.dependency_overrides[get_current_user] = lambda: admin
+    application.dependency_overrides[get_db_session] = lambda: object()
+    session_id = uuid.uuid4()
+    token = csrf_token_for_session(session_id)
+    session_cookie, csrf_cookie = auth_cookie_names(
+        get_settings().session_cookie_secure
+    )
+    headers = {
+        "Cookie": f"{session_cookie}={session_id}; {csrf_cookie}={token}",
+        "X-CSRF-Token": token,
+    }
+    if if_match is not None:
+        headers["If-Match"] = if_match
+    try:
+        response = TestClient(application).post(
+            "/api/v1/operations/llm/routes/CITATION_SEMANTIC/deactivate",
+            headers=headers,
+        )
+        assert response.status_code == 428, response.text
     finally:
         application.dependency_overrides.clear()
         get_settings.cache_clear()
@@ -392,9 +498,122 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
                 },
             )
 
+            pristine_course = await course_svc.create_course(
+                session,
+                code=f"T018-PRISTINE-{uuid.uuid4()}",
+                name="Pristine Admin Course",
+                term="2026C",
+                owner_teacher_id=ids["other_teacher"],
+                actor_user_id=ids["admin"],
+            )
+            assert pristine_course.owner_teacher_id == ids["other_teacher"]
+            # Route responses serialize server-updated columns; they must be
+            # loaded already, since async lazy loads raise MissingGreenlet.
+            renamed = await course_svc.update_course(
+                session,
+                pristine_course,
+                actor_user_id=ids["admin"],
+                expected_revision=1,
+                name="Renamed Admin Course",
+            )
+            assert CourseResponse.model_validate(renamed).revision == 2
+            to_archive = await course_svc.create_course(
+                session,
+                code=f"T018-ARCHIVE-{uuid.uuid4()}",
+                name="Archived Admin Course",
+                term="2026C",
+                owner_teacher_id=ids["other_teacher"],
+                actor_user_id=ids["admin"],
+            )
+            archived = await course_svc.archive_course(
+                session,
+                to_archive,
+                actor_user_id=ids["admin"],
+                expected_revision=1,
+            )
+            assert CourseResponse.model_validate(archived).revision == 2
+            await course_svc.delete_course(
+                session,
+                pristine_course,
+                actor_user_id=ids["admin"],
+                expected_revision=2,
+            )
+            assert await session.get(Course, pristine_course.id) is None
+
+            extra_course = await session.get(Course, extra["course"])
+            assert extra_course is not None
+            with pytest.raises(HTTPException) as stale_course:
+                await course_svc.update_course(
+                    session,
+                    extra_course,
+                    actor_user_id=ids["admin"],
+                    expected_revision=99,
+                    name="Stale update",
+                )
+            assert stale_course.value.status_code == 412
+            with pytest.raises(HTTPException) as dependent_course:
+                await course_svc.delete_course(
+                    session,
+                    extra_course,
+                    actor_user_id=ids["admin"],
+                    expected_revision=1,
+                )
+            assert dependent_course.value.status_code == 409
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM public.memberships "
+                        "WHERE course_id = :course_id"
+                    ),
+                    {"course_id": extra["course"]},
+                )
+                == 1
+            )
+
             admin = _actor(ids["admin"], "Admin", UserRole.ADMIN)
             teacher = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER)
             other_teacher = _actor(ids["other_teacher"], "Teacher B", UserRole.TEACHER)
+            student = _actor(ids["student_2"], "Student B", UserRole.STUDENT)
+            student_files = await submission_svc.list_document_versions(
+                session, user=student, page=1, page_size=100
+            )
+            teacher_files = await submission_svc.list_document_versions(
+                session, user=teacher, page=1, page_size=100
+            )
+            other_teacher_files = await submission_svc.list_document_versions(
+                session, user=other_teacher, page=1, page_size=100
+            )
+            admin_files = await submission_svc.list_document_versions(
+                session, user=admin, page=1, page_size=100
+            )
+            student_file_ids = {
+                item.document_version_id for item in student_files.items
+            }
+            teacher_file_ids = {
+                item.document_version_id for item in teacher_files.items
+            }
+            other_teacher_file_ids = {
+                item.document_version_id for item in other_teacher_files.items
+            }
+            admin_file_ids = {item.document_version_id for item in admin_files.items}
+            assert student_file_ids == {ids["document_2"]}
+            assert ids["document_1"] in teacher_file_ids
+            assert extra["document"] not in teacher_file_ids
+            assert extra["document"] in other_teacher_file_ids
+            assert ids["document_1"] not in other_teacher_file_ids
+            assert {ids["document_1"], extra["document"]} <= admin_file_ids
+            await connection.execute(
+                text(
+                    "UPDATE public.memberships "
+                    "SET status = 'REMOVED'::public.membership_status "
+                    "WHERE course_id = :course_id AND user_id = :user_id"
+                ),
+                {"course_id": ids["course"], "user_id": ids["student_2"]},
+            )
+            removed_student_files = await submission_svc.list_document_versions(
+                session, user=student, page=1, page_size=100
+            )
+            assert removed_student_files.total == 0
             cached_admin = await session.get(User, admin.id)
             assert cached_admin is not None
             assert UserRole.STUDENT not in cached_admin.roles
@@ -588,11 +807,34 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
             await job_svc.authorize_job(session, foreign_job, other_teacher)
             await job_svc.authorize_job(session, foreign_job, admin)
 
+            # 00:30 UTC is the previous day in Pago Pago: the trend must still
+            # bucket by UTC day under a non-UTC connection time zone.
+            await connection.execute(text("SET LOCAL TIME ZONE 'Pacific/Pago_Pago'"))
+            await connection.execute(
+                text(
+                    "UPDATE public.analysis_jobs SET queued_at = :at, "
+                    "finished_at = :at WHERE id IN (:first, :second)"
+                ),
+                {
+                    "at": datetime.combine(datetime.now(UTC).date(), time(0, 30), UTC),
+                    "first": ids["job"],
+                    "second": extra["job"],
+                },
+            )
             dashboard = await operations_svc.get_dashboard(session)
+            await connection.execute(text("RESET TIME ZONE"))
             expected_job_counts = dict(baseline_dashboard.jobs_by_status)
             expected_job_counts[AnalysisJobStatus.DONE] += 1
             expected_job_counts[AnalysisJobStatus.ERROR] += 1
             assert dashboard.jobs_by_status == expected_job_counts
+            assert (
+                dashboard.jobs_last_7_days[-1].total_jobs
+                == baseline_dashboard.jobs_last_7_days[-1].total_jobs + 2
+            )
+            assert (
+                dashboard.jobs_last_7_days[-1].error_jobs
+                == baseline_dashboard.jobs_last_7_days[-1].error_jobs + 1
+            )
             course_counts = {
                 item.course_id: item.submission_count
                 for item in dashboard.submissions_by_course

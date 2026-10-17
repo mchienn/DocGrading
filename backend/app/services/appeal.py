@@ -8,7 +8,7 @@ from typing import Any
 import sqlalchemy as sa
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased
 
 from app.api.schemas_submission import (
     ReviewRequestCreate,
@@ -42,23 +42,62 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _response(request: ReviewRequest) -> ReviewRequestResponse:
+def _published_finding_description(
+    result: PublishedResultVersion,
+    finding_id: uuid.UUID | None,
+) -> str | None:
+    if finding_id is None:
+        return None
+    findings = result.snapshot.get("findings", [])
+    if not isinstance(findings, list):
+        return None
+    for finding in findings:
+        if not isinstance(finding, Mapping):
+            continue
+        try:
+            candidate = uuid.UUID(str(finding["finding_id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        description = finding.get("description")
+        if candidate == finding_id and isinstance(description, str):
+            return description
+    return None
+
+
+def _response(
+    request: ReviewRequest,
+    *,
+    assignment: Assignment,
+    course: Course,
+    student: User,
+    criterion: CriterionVersion,
+    published_result: PublishedResultVersion,
+    responder: User | None,
+) -> ReviewRequestResponse:
     return ReviewRequestResponse(
         id=request.id,
         published_result_id=request.published_result_id,
         submission_id=request.submission_id,
         student_id=request.student_id,
-        criterion_id=(
-            request.criterion_version.criterion_id
-            if request.finding_id is None
-            else None
-        ),
+        student_display_name=student.display_name,
+        student_email=student.email,
+        criterion_id=criterion.criterion_id if request.finding_id is None else None,
+        criterion_code=criterion.code,
+        criterion_title=criterion.title,
         finding_id=request.finding_id,
+        finding_description=_published_finding_description(
+            published_result,
+            request.finding_id,
+        ),
         status=request.status,
         reason=request.reason,
         response=request.response,
         responded_by_user_id=request.responded_by_user_id,
+        responded_by_display_name=responder.display_name if responder else None,
         responded_at=request.responded_at,
+        assignment_title=assignment.title,
+        course_code=course.code,
+        course_name=course.name,
         created_at=request.created_at,
         updated_at=request.updated_at,
     )
@@ -363,7 +402,24 @@ async def create_review_request(
         after=_state_snapshot(request),
         reason=request.reason,
     )
-    return _response(request)
+    (
+        response_request,
+        response_assignment,
+        response_course,
+        response_student,
+        response_criterion,
+        response_result,
+        response_responder,
+    ) = await _get_request_with_course(db, request.id)
+    return _response(
+        response_request,
+        assignment=response_assignment,
+        course=response_course,
+        student=response_student,
+        criterion=response_criterion,
+        published_result=response_result,
+        responder=response_responder,
+    )
 
 
 async def _get_request_with_course(
@@ -373,13 +429,40 @@ async def _get_request_with_course(
     owner_teacher_id: uuid.UUID | None = None,
     active_student_id: uuid.UUID | None = None,
     lock_course: bool = False,
-) -> tuple[ReviewRequest, Assignment, Course]:
+) -> tuple[
+    ReviewRequest,
+    Assignment,
+    Course,
+    User,
+    CriterionVersion,
+    PublishedResultVersion,
+    User | None,
+]:
+    student = aliased(User)
+    responder = aliased(User)
     statement = (
-        sa.select(ReviewRequest, Assignment, Course)
-        .options(selectinload(ReviewRequest.criterion_version))
+        sa.select(
+            ReviewRequest,
+            Assignment,
+            Course,
+            student,
+            CriterionVersion,
+            PublishedResultVersion,
+            responder,
+        )
         .join(Submission, Submission.id == ReviewRequest.submission_id)
         .join(Assignment, Assignment.id == Submission.assignment_id)
         .join(Course, Course.id == Assignment.course_id)
+        .join(student, student.id == ReviewRequest.student_id)
+        .join(
+            CriterionVersion,
+            CriterionVersion.id == ReviewRequest.criterion_version_id,
+        )
+        .join(
+            PublishedResultVersion,
+            PublishedResultVersion.id == ReviewRequest.published_result_id,
+        )
+        .outerjoin(responder, responder.id == ReviewRequest.responded_by_user_id)
         .where(ReviewRequest.id == request_id)
     )
     if owner_teacher_id is not None:
@@ -406,7 +489,6 @@ async def _locked_request(db: AsyncSession, request_id: uuid.UUID) -> ReviewRequ
     request = (
         await db.execute(
             sa.select(ReviewRequest)
-            .options(selectinload(ReviewRequest.criterion_version))
             .where(ReviewRequest.id == request_id)
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -444,13 +526,29 @@ async def get_review_request(
         and UserRole.TEACHER not in user.roles
         else None
     )
-    request, _, course = await _get_request_with_course(
+    (
+        request,
+        assignment,
+        course,
+        student,
+        criterion,
+        published_result,
+        responder,
+    ) = await _get_request_with_course(
         db,
         request_id,
         active_student_id=active_student_id,
     )
     _authorize_read(user, request, course)
-    return _response(request)
+    return _response(
+        request,
+        assignment=assignment,
+        course=course,
+        student=student,
+        criterion=criterion,
+        published_result=published_result,
+        responder=responder,
+    )
 
 
 async def list_review_requests(
@@ -466,11 +564,31 @@ async def list_review_requests(
     if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
     _authorize_course_actor(user, course)
+    student = aliased(User)
+    responder = aliased(User)
     base = (
-        sa.select(ReviewRequest)
-        .options(selectinload(ReviewRequest.criterion_version))
+        sa.select(
+            ReviewRequest,
+            Assignment,
+            Course,
+            student,
+            CriterionVersion,
+            PublishedResultVersion,
+            responder,
+        )
         .join(Submission, Submission.id == ReviewRequest.submission_id)
         .join(Assignment, Assignment.id == Submission.assignment_id)
+        .join(Course, Course.id == Assignment.course_id)
+        .join(student, student.id == ReviewRequest.student_id)
+        .join(
+            CriterionVersion,
+            CriterionVersion.id == ReviewRequest.criterion_version_id,
+        )
+        .join(
+            PublishedResultVersion,
+            PublishedResultVersion.id == ReviewRequest.published_result_id,
+        )
+        .outerjoin(responder, responder.id == ReviewRequest.responded_by_user_id)
         .where(Assignment.course_id == course_id)
     )
     count_query = (
@@ -484,17 +602,36 @@ async def list_review_requests(
         base = base.where(ReviewRequest.status == status_filter)
         count_query = count_query.where(ReviewRequest.status == status_filter)
     total = (await db.execute(count_query)).scalar_one()
-    requests = list(
+    rows = list(
         (
             await db.execute(
                 base.order_by(ReviewRequest.created_at.desc(), ReviewRequest.id)
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )
-        ).scalars()
+        ).all()
     )
     return ReviewRequestListResponse(
-        items=[_response(request) for request in requests],
+        items=[
+            _response(
+                request,
+                assignment=assignment,
+                course=row_course,
+                student=student_user,
+                criterion=criterion,
+                published_result=published_result,
+                responder=responder_user,
+            )
+            for (
+                request,
+                assignment,
+                row_course,
+                student_user,
+                criterion,
+                published_result,
+                responder_user,
+            ) in rows
+        ],
         page=page,
         page_size=page_size,
         total=total,
@@ -514,7 +651,15 @@ async def respond_review_request(
         owner_teacher_id = user.id
     else:
         raise HTTPException(status_code=403, detail="Review request access denied")
-    request, assignment, course = await _get_request_with_course(
+    (
+        request,
+        assignment,
+        course,
+        student,
+        criterion,
+        published_result,
+        responder,
+    ) = await _get_request_with_course(
         db,
         request_id,
         owner_teacher_id=owner_teacher_id,
@@ -579,4 +724,25 @@ async def respond_review_request(
         after=_state_snapshot(request),
         reason=payload.response,
     )
-    return _response(request)
+    (
+        response_request,
+        response_assignment,
+        response_course,
+        response_student,
+        response_criterion,
+        response_result,
+        response_responder,
+    ) = await _get_request_with_course(
+        db,
+        request_id,
+        owner_teacher_id=owner_teacher_id,
+    )
+    return _response(
+        response_request,
+        assignment=response_assignment,
+        course=response_course,
+        student=response_student,
+        criterion=response_criterion,
+        published_result=response_result,
+        responder=response_responder,
+    )

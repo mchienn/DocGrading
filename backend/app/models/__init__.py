@@ -2,6 +2,7 @@ from app.models.analysis import AnalysisJob, AnalysisJobDispatch, DocumentIR
 from app.models.assignment import Assignment, AssignmentRequirement
 from app.models.audit import AuditEvent
 from app.models.course import (
+    Announcement,
     Course,
     CourseInvite,
     CourseJoinCode,
@@ -15,6 +16,12 @@ from app.models.enums import (
     CourseJoinOutcome,
     CourseStatus,
     DocumentStatus,
+    LLMCatalogStatus,
+    LLMCredentialSource,
+    LLMProtocol,
+    LLMProvider,
+    LLMRouteState,
+    LLMTask,
     MembershipAddOutcome,
     MembershipJoinedVia,
     MembershipRole,
@@ -27,6 +34,7 @@ from app.models.enums import (
     UserStatus,
 )
 from app.models.identity import User
+from app.models.llm import LLMProviderConfig, LLMRoute
 from app.models.notification import Notification
 from app.models.review import (
     EvidenceAnchor,
@@ -40,9 +48,10 @@ from app.models.review import (
 )
 from app.models.rubric import CriterionVersion, RubricVersion, TemplateVersion
 from app.models.session import Session
-from app.models.submission import DocumentVersion, Submission
+from app.models.submission import DocumentStatusEvent, DocumentVersion, Submission
 
 __all__ = [
+    "Announcement",
     "Notification",
     "NotificationType",
     "AnalysisJob",
@@ -62,6 +71,7 @@ __all__ = [
     "CourseStatus",
     "DocumentIR",
     "DocumentStatus",
+    "DocumentStatusEvent",
     "DocumentVersion",
     "EvidenceAnchor",
     "Finding",
@@ -86,4 +96,12 @@ __all__ = [
     "User",
     "UserRole",
     "UserStatus",
+    "LLMCatalogStatus",
+    "LLMCredentialSource",
+    "LLMProtocol",
+    "LLMProvider",
+    "LLMProviderConfig",
+    "LLMRoute",
+    "LLMRouteState",
+    "LLMTask",
 ]

@@ -26,6 +26,8 @@ from app.models.enums import MembershipRole, MembershipStatus, UserRole, UserSta
 from app.models.identity import User
 from app.services.auth import auth_cookie_names, hash_password
 
+SCORE_LEVELS = [{"level": level} for level in range(5)]
+
 
 @dataclass
 class Sample:
@@ -254,9 +256,9 @@ async def _setup_course(
             "weight": 100,
             "position": 1,
             "evaluation_method": "AI",
+            "levels": SCORE_LEVELS,
         },
     )
-    await _request(teacher, "POST", f"/api/v1/rubrics/{rubric_id}/publish", 200)
     assignment = (
         await _request(
             teacher,

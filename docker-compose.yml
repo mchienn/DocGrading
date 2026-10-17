@@ -3,7 +3,10 @@ name: docgrading
 services:
   postgres:
     image: postgres:17-bookworm
-    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-docgrading}
+      POSTGRES_USER: ${POSTGRES_USER:-docgrading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-development}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -59,7 +62,7 @@ services:
         --bucket "$${STORAGE_BUCKET}") &&
         awslocal --endpoint-url http://storage:4566 s3api put-bucket-cors
         --bucket "$${STORAGE_BUCKET}"
-        --cors-configuration "{\"CORSRules\":[{\"AllowedHeaders\":[\"*\"],\"AllowedMethods\":[\"GET\",\"HEAD\",\"POST\"],\"AllowedOrigins\":[\"$${FRONTEND_ORIGIN}\"],\"ExposeHeaders\":[\"Accept-Ranges\",\"Content-Length\",\"Content-Range\",\"ETag\"],\"MaxAgeSeconds\":300}]}" &&
+        --cors-configuration "{\"CORSRules\":[{\"AllowedHeaders\":[\"*\"],\"AllowedMethods\":[\"GET\",\"HEAD\",\"POST\"],\"AllowedOrigins\":[\"$${FRONTEND_ORIGIN}\",\"http://127.0.0.1:5173\"],\"ExposeHeaders\":[\"Accept-Ranges\",\"Content-Length\",\"Content-Range\",\"ETag\"],\"MaxAgeSeconds\":300}]}" &&
         awslocal --endpoint-url http://storage:4566 s3api put-bucket-lifecycle-configuration
         --bucket "$${STORAGE_BUCKET}"
         --lifecycle-configuration "{\"Rules\":[{\"ID\":\"expire-staging-uploads\",\"Filter\":{\"Prefix\":\"uploads/\"},\"Status\":\"Enabled\",\"Expiration\":{\"Days\":1}}]}"
@@ -93,6 +96,9 @@ services:
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}
       STORAGE_PRESIGN_EXPIRY_SECONDS: ${STORAGE_PRESIGN_EXPIRY_SECONDS:-300}
+      # Development only: Settings rejects a recovery dir outside APP_ENV=development
+      # because a local copy re-uploads PDFs deleted from the bucket. Set it empty there.
+      STORAGE_RECOVERY_DIR: ${STORAGE_RECOVERY_DIR-/var/lib/docgrading/storage}
       PDF_MAX_SIZE_BYTES: ${PDF_MAX_SIZE_BYTES:-100000000}
       PDF_MAX_DECODED_BYTES: ${PDF_MAX_DECODED_BYTES:-50000000}
       PDF_MAX_PAGE_COUNT: ${PDF_MAX_PAGE_COUNT:-100}
@@ -103,6 +109,8 @@ services:
       exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - storage_recovery:/var/lib/docgrading/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,6 +138,7 @@ services:
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-test}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-test}
       STORAGE_PRESIGN_EXPIRY_SECONDS: ${STORAGE_PRESIGN_EXPIRY_SECONDS:-300}
+      STORAGE_RECOVERY_DIR: ${STORAGE_RECOVERY_DIR-/var/lib/docgrading/storage}
       PDF_MAX_SIZE_BYTES: ${PDF_MAX_SIZE_BYTES:-100000000}
       PDF_MAX_DECODED_BYTES: ${PDF_MAX_DECODED_BYTES:-50000000}
       PDF_MAX_PAGE_COUNT: ${PDF_MAX_PAGE_COUNT:-100}
@@ -139,6 +148,8 @@ services:
       celery -A app.workers.celery_app:celery_app worker
       --loglevel=INFO --concurrency=2 --prefetch-multiplier=1
       --max-tasks-per-child=10
+    volumes:
+      - storage_recovery:/var/lib/docgrading/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,6 +171,35 @@ services:
       retries: 5
     networks: [backend]
 
+  # Optional self-hosted text encoder for semantic retrieval (`--profile encoder`).
+  # Point the worker at it with SEMANTIC_ENCODER_URL=http://encoder/v1,
+  # SEMANTIC_ENCODER_MODEL=BAAI/bge-m3 and SEMANTIC_RERANKER_URL=http://reranker.
+  encoder:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    profiles: [encoder]
+    command:
+      [
+        "--model-id", "BAAI/bge-m3",
+        "--revision", "5617a9f61b028005a4858fdac845db406aefb181",
+        "--auto-truncate",
+      ]
+    volumes:
+      - encoder_models:/data
+    networks: [backend]
+
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    profiles: [encoder]
+    command:
+      [
+        "--model-id", "BAAI/bge-reranker-v2-m3",
+        "--revision", "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+        "--auto-truncate",
+      ]
+    volumes:
+      - encoder_models:/data
+    networks: [backend]
+
   frontend:
     build:
       context: frontend
@@ -177,10 +217,12 @@ services:
   load-smoke:
     image: ghcr.io/astral-sh/uv:0.11.19-python3.13-trixie-slim
     profiles: [smoke]
-    env_file: .env
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-docgrading}
+      POSTGRES_USER: ${POSTGRES_USER:-docgrading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-development}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       STORAGE_ENDPOINT_URL: http://storage:4566
@@ -217,10 +259,13 @@ services:
   backup:
     image: postgres:17-bookworm
     profiles: [ops]
-    env_file: .env
     environment:
+      APP_ENV: ${APP_ENV:-development}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-docgrading}
+      POSTGRES_USER: ${POSTGRES_USER:-docgrading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-development}
     volumes:
       - ./backups:/backups
       - ./backend/scripts:/scripts:ro
@@ -233,9 +278,10 @@ services:
   restore-postgres:
     image: postgres:17-bookworm
     profiles: [ops]
-    env_file: .env
     environment:
       POSTGRES_DB: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-docgrading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-development}
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
@@ -248,10 +294,12 @@ services:
   restore-smoke:
     image: postgres:17-bookworm
     profiles: [ops]
-    env_file: .env
     environment:
+      APP_ENV: ${APP_ENV:-development}
       POSTGRES_HOST: restore-postgres
       POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-docgrading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-development}
       RESTORE_DB: docgrading_restore
     volumes:
       - ./backups:/backups:ro
@@ -266,6 +314,8 @@ volumes:
   postgres_data:
   redis_data:
   localstack_data:
+  storage_recovery:
+  encoder_models:
 
 networks:
   backend:
