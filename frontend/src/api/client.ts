@@ -88,13 +88,16 @@ function notifyAuthExpired(): void {
   broadcastAuthChange('signed-out');
 }
 
-export async function apiData<T>(request: Promise<ApiResult<T>>): Promise<T> {
+export async function apiData<T>(
+  request: Promise<ApiResult<T>>,
+  options: { sessionProbe?: boolean } = {},
+): Promise<T> {
   const { data, error, response } = await request;
   if (!response.ok || data === undefined) {
     if (
       response.status === 401
+      && !options.sessionProbe
       && !response.url.endsWith('/auth/login')
-      && !response.url.endsWith('/auth/me')
     ) {
       notifyAuthExpired();
     }

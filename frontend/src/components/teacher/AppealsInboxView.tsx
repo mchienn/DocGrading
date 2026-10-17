@@ -677,6 +677,12 @@ export const AppealsInboxView: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3.5">
+                      <div className="mb-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 block uppercase">Assignment</span>
+                        <span className="text-[11px] text-slate-800 font-medium max-w-[180px] truncate block" title={request.assignment_title}>
+                          {request.assignment_title}
+                        </span>
+                      </div>
                       <div>
                         <span className="text-[10px] font-bold text-slate-400 block uppercase">Criterion</span>
                         <span className="text-[11px] text-slate-800 font-medium max-w-[180px] truncate block" title={`${request.criterion_code} — ${request.criterion_title}`}>

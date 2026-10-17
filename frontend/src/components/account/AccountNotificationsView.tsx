@@ -54,7 +54,7 @@ export const AccountNotificationsView: React.FC<AccountNotificationsViewProps> =
   });
 
   const unreadCountQuery = useQuery({
-    queryKey: ['notifications', 'unread-count'],
+    queryKey: ['notifications', 'unread'],
     queryFn: () =>
       apiData(
         api.GET('/api/v1/notifications', {
@@ -74,7 +74,6 @@ export const AccountNotificationsView: React.FC<AccountNotificationsViewProps> =
     setActionError(null);
     try {
       await markSingleNotificationRead(notificationId, queryClient);
-      void unreadCountQuery.refetch();
     } catch (err) {
       setActionError(getErrorMessage(err));
     } finally {
@@ -88,7 +87,6 @@ export const AccountNotificationsView: React.FC<AccountNotificationsViewProps> =
     setActionError(null);
     try {
       await markAllNotificationsRead(queryClient);
-      void unreadCountQuery.refetch();
     } catch (err) {
       setActionError(getErrorMessage(err));
     } finally {
@@ -108,7 +106,6 @@ export const AccountNotificationsView: React.FC<AccountNotificationsViewProps> =
         (err) => setActionError(err),
         queryClient,
       );
-      void unreadCountQuery.refetch();
     } catch (err) {
       setActionError(getErrorMessage(err));
     } finally {
@@ -210,6 +207,7 @@ export const AccountNotificationsView: React.FC<AccountNotificationsViewProps> =
             <button
               type="button"
               onClick={() => setActionError(null)}
+              aria-label="Dismiss error"
               className="text-rose-700 font-bold ml-2"
             >
               ×
