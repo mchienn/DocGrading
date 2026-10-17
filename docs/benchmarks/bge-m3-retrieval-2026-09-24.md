@@ -72,6 +72,27 @@ Earlier on the same claims, before the two-column fix: BM25+`bge-m3` RRF 7/14 an
 
 Dense retrieval mainly helps cross-lingual matching; for same-language in-document matching it adds 4–7 points over BM25. `multilingual-e5-large-instruct` and Qwen3 ship fp16/bf16 weights, which run several times slower on CPU unless upcast to fp32; the e5 row is fp32. All local models above have MIT or Apache-2.0 licenses. The Gemini row ran through the production client against Gemini's OpenAI-compatible endpoint; unpaced free-tier requests answered 429, so a hosted encoder needs paid quota or a low-volume deployment.
 
+## Real TEI on a GPU (Kaggle T4, 2026-10-17)
+
+The same 16 claims and 904 production passages ran through the unchanged production `TextEncoder` and `EncoderRanker` against Text Embeddings Inference 1.9.4 (`text-embeddings-router` extracted from `ghcr.io/huggingface/text-embeddings-inference:turing-1.9`, pinned model revisions above, `--auto-truncate`) on a Tesla T4 (15 GB).
+
+| Retrieval | Hit@1 | Hit@3 | MRR@10 |
+|---|---:|---:|---:|
+| BM25 | 3/16 | 5/16 | 0.267 |
+| `bge-m3` dense | 11/16 | 13/16 | 0.769 |
+| `bge-m3` + reranker top 20 | 14/16 | 15/16 | 0.906 |
+
+| Cost on T4 | fp16, `USE_FLASH_ATTENTION=False` | fp32 |
+|---|---:|---:|
+| Passage encoding | 94.7 passages/s | 24.0 passages/s |
+| Query encoding p50 / p95 | 36 / 42 ms | 42 / 49 ms |
+| Rerank 20 candidates p50 / p95 | 318 / 397 ms | 1,233 / 1,504 ms |
+| Whole `EncoderRanker` call p50 / p95 | 357 / 454 ms | 1,310 / 1,567 ms |
+| Peak VRAM (both servers, bench running) | 6.9 GB | 10.9 GB per GPU |
+| Start with cached weights | 9.0 / 7.5 s | 11.5 / 10.0 s |
+
+Against CPU, passage encoding is about 19× faster and reranking about 24× faster; quality is identical in fp16 and fp32. TEI's default fp16 flash-attention path on T4 intermittently returned NaN (embedding `null`, reranker HTTP 424 "score is NaN") while logging success, so a T4 deployment must set `USE_FLASH_ATTENTION=False` or `--dtype float32`. The CPU image used by Compose is not affected. Stopping the reranker mid-run produced no exception; since then a reranker failure keeps the dense order instead of dropping the claim to BM25. MRR@10 for BM25 needed a local override of the production three-passage cap.
+
 ## Reproduce
 
 The script emits model ID/revision and runtime versions for each run.

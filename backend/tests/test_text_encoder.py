@@ -222,6 +222,18 @@ def test_encoder_ranker_redacts_claim_reranks_and_caches_source_vectors() -> Non
     assert plain.document_batches == 0
 
 
+def test_reranker_failure_keeps_dense_order() -> None:
+    # TEI answers a NaN score with HTTP 424; the dense order is still valid.
+    class BrokenReranker(_FakeEncoder):
+        def rerank(self, _query: str, texts: Sequence[str]) -> list[float] | None:
+            raise TextEncoderError("reranker returned an invalid response")
+
+    ranker = semantic.EncoderRanker(BrokenReranker(rerank_url="http://reranker"))
+
+    assert ranker("Claim", _passages()) == ["p-0", "p-1", "p-2", "p-3", "p-4"]
+    assert ranker.failures == 1
+
+
 def test_encoder_failure_falls_back_to_bm25_passages() -> None:
     passages = [
         _passage(passage_id="p-1", text="Transformer achieves 28.4 BLEU."),
