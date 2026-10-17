@@ -31,7 +31,6 @@ export const AccountProfileView: React.FC<AccountProfileViewProps> = ({
 }) => {
   const queryClient = useQueryClient();
   const [displayNameInput, setDisplayNameInput] = useState(user.display_name);
-  const [capturedRevision, setCapturedRevision] = useState(user.revision);
   const [savedDisplayName, setSavedDisplayName] = useState(user.display_name);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -62,7 +61,7 @@ export const AccountProfileView: React.FC<AccountProfileViewProps> = ({
         api.PATCH('/api/v1/auth/me', {
           params: {
             header: {
-              'If-Match': `"rev-${capturedRevision}"`,
+              'If-Match': `"rev-${user.revision}"`,
             },
           },
           body: {
@@ -74,7 +73,6 @@ export const AccountProfileView: React.FC<AccountProfileViewProps> = ({
       queryClient.setQueryData(['session'], updatedUser);
       setDisplayNameInput(updatedUser.display_name);
       setSavedDisplayName(updatedUser.display_name);
-      setCapturedRevision(updatedUser.revision);
       setSaveSuccess(true);
     } catch (err) {
       setSaveError(getErrorMessage(err));
