@@ -1,5 +1,5 @@
-import React, { useDeferredValue, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useEffect, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api, apiData, getErrorMessage } from '../../api/client';
 
 export const AuditLogView: React.FC = () => {
@@ -8,22 +8,27 @@ export const AuditLogView: React.FC = () => {
   const [filterError, setFilterError] = useState<string>();
   const [actorSearch, setActorSearch] = useState('');
   const [actorUserId, setActorUserId] = useState('');
-  const deferredActorSearch = useDeferredValue(actorSearch.trim());
+  const [debouncedActorSearch, setDebouncedActorSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedActorSearch(actorSearch.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [actorSearch]);
   const logs = useQuery({
     queryKey: ['admin-audit', filters, page],
     queryFn: () => apiData(api.GET('/api/v1/operations/audit-events', { params: { query: { ...filters, page, page_size: 25 } } })),
   });
   const usersQuery = useQuery({
-    queryKey: ['admin-audit-users', deferredActorSearch],
+    queryKey: ['admin-audit-users', debouncedActorSearch],
     queryFn: () => apiData(api.GET('/api/v1/users', {
       params: {
         query: {
-          search: deferredActorSearch || undefined,
+          search: debouncedActorSearch || undefined,
           page: 1,
           page_size: 100,
         },
       },
     })),
+    placeholderData: keepPreviousData,
   });
   const applyFilters = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -73,7 +78,7 @@ export const AuditLogView: React.FC = () => {
       </label>
       <label className="text-sm">From (local time)<input name="from_time" type="datetime-local" className="block mt-1 px-3 py-2 border border-slate-200 rounded-lg" /></label>
       <label className="text-sm">To (local time)<input name="to_time" type="datetime-local" className="block mt-1 px-3 py-2 border border-slate-200 rounded-lg" /></label>
-      <button className="self-end px-3 py-2 bg-[#1F4B7A] text-white rounded-lg">Apply filters</button>
+      <button type="submit" className="self-end px-3 py-2 bg-[#1F4B7A] text-white rounded-lg">Apply filters</button>
       <button type="reset" onClick={() => {
         setFilters({});
         setActorSearch('');
