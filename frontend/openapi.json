@@ -2163,9 +2163,16 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "If-Match"
             }
           }
@@ -2223,9 +2230,16 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "If-Match"
             }
           }
@@ -2273,9 +2287,16 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "If-Match"
             }
           }
@@ -2334,9 +2355,16 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "If-Match"
             }
           }
@@ -2386,9 +2414,16 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "If-Match"
             }
           }
@@ -2438,9 +2473,16 @@
           {
             "name": "If-Match",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "If-Match"
             }
           }

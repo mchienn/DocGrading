@@ -224,7 +224,13 @@ class HostedSemanticModel:
                     {"role": "user", "content": user},
                 ],
                 "temperature": 0,
-                "max_tokens": self.max_tokens,
+                # OpenAI reasoning models reject max_tokens; DeepSeek and OpenCode
+                # Zen chat-compatible endpoints still expect it.
+                (
+                    "max_completion_tokens"
+                    if self.provider is LLMProvider.OPENAI
+                    else "max_tokens"
+                ): self.max_tokens,
                 "tools": [],
             }
         elif self.protocol is LLMProtocol.OPENAI_RESPONSES:

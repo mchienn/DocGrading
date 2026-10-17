@@ -698,9 +698,12 @@ async def _jobs_last_7_days(db: AsyncSession) -> list[AdminJobTrendPoint]:
     today = datetime.now(UTC).date()
     start = datetime.combine(today - timedelta(days=6), datetime.min.time(), UTC)
     end = start + timedelta(days=7)
-    day = sa.cast(sa.func.date_trunc("day", AnalysisJob.finished_at), sa.Date).label(
-        "day"
-    )
+    # The window and the response days are UTC, so bucket in UTC whatever the
+    # connection time zone is.
+    day = sa.cast(
+        sa.func.date_trunc("day", sa.func.timezone("UTC", AnalysisJob.finished_at)),
+        sa.Date,
+    ).label("day")
     processing_seconds = sa.case(
         (
             sa.and_(

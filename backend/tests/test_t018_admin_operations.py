@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,6 +17,7 @@ from sqlalchemy.pool import NullPool
 from app.api.deps import get_current_user
 from app.api.routers import operations as operations_router
 from app.api.routers import submissions as submissions_router
+from app.api.schemas_course import CourseResponse
 from app.api.schemas_operations import (
     AdminAnalysisJobDetailResponse,
     AdminAnalysisJobListItem,
@@ -214,6 +215,40 @@ def test_non_admin_is_rejected_from_every_admin_endpoint(
         for method, path, body in requests:
             response = client.request(method, path, json=body, headers=headers)
             assert response.status_code == 403, (method, path, response.text)
+    finally:
+        application.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("if_match", [None, "rev-1", '"rev-x"', '"rev-0"'])
+def test_llm_mutation_without_valid_if_match_is_428(
+    if_match: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("POSTGRES_DB", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_USER", "docgrading_test")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "test-only")
+    get_settings.cache_clear()
+    application = create_app()
+    admin = _actor(uuid.uuid4(), "Admin", UserRole.ADMIN)
+    application.dependency_overrides[get_current_user] = lambda: admin
+    application.dependency_overrides[get_db_session] = lambda: object()
+    session_id = uuid.uuid4()
+    token = csrf_token_for_session(session_id)
+    session_cookie, csrf_cookie = auth_cookie_names(
+        get_settings().session_cookie_secure
+    )
+    headers = {
+        "Cookie": f"{session_cookie}={session_id}; {csrf_cookie}={token}",
+        "X-CSRF-Token": token,
+    }
+    if if_match is not None:
+        headers["If-Match"] = if_match
+    try:
+        response = TestClient(application).post(
+            "/api/v1/operations/llm/routes/CITATION_SEMANTIC/deactivate",
+            headers=headers,
+        )
+        assert response.status_code == 428, response.text
     finally:
         application.dependency_overrides.clear()
         get_settings.cache_clear()
@@ -472,11 +507,36 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
                 actor_user_id=ids["admin"],
             )
             assert pristine_course.owner_teacher_id == ids["other_teacher"]
-            await course_svc.delete_course(
+            # Route responses serialize server-updated columns; they must be
+            # loaded already, since async lazy loads raise MissingGreenlet.
+            renamed = await course_svc.update_course(
                 session,
                 pristine_course,
                 actor_user_id=ids["admin"],
                 expected_revision=1,
+                name="Renamed Admin Course",
+            )
+            assert CourseResponse.model_validate(renamed).revision == 2
+            to_archive = await course_svc.create_course(
+                session,
+                code=f"T018-ARCHIVE-{uuid.uuid4()}",
+                name="Archived Admin Course",
+                term="2026C",
+                owner_teacher_id=ids["other_teacher"],
+                actor_user_id=ids["admin"],
+            )
+            archived = await course_svc.archive_course(
+                session,
+                to_archive,
+                actor_user_id=ids["admin"],
+                expected_revision=1,
+            )
+            assert CourseResponse.model_validate(archived).revision == 2
+            await course_svc.delete_course(
+                session,
+                pristine_course,
+                actor_user_id=ids["admin"],
+                expected_revision=2,
             )
             assert await session.get(Course, pristine_course.id) is None
 
@@ -747,7 +807,22 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
             await job_svc.authorize_job(session, foreign_job, other_teacher)
             await job_svc.authorize_job(session, foreign_job, admin)
 
+            # 00:30 UTC is the previous day in Pago Pago: the trend must still
+            # bucket by UTC day under a non-UTC connection time zone.
+            await connection.execute(text("SET LOCAL TIME ZONE 'Pacific/Pago_Pago'"))
+            await connection.execute(
+                text(
+                    "UPDATE public.analysis_jobs SET queued_at = :at, "
+                    "finished_at = :at WHERE id IN (:first, :second)"
+                ),
+                {
+                    "at": datetime.combine(datetime.now(UTC).date(), time(0, 30), UTC),
+                    "first": ids["job"],
+                    "second": extra["job"],
+                },
+            )
             dashboard = await operations_svc.get_dashboard(session)
+            await connection.execute(text("RESET TIME ZONE"))
             expected_job_counts = dict(baseline_dashboard.jobs_by_status)
             expected_job_counts[AnalysisJobStatus.DONE] += 1
             expected_job_counts[AnalysisJobStatus.ERROR] += 1

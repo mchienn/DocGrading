@@ -41,6 +41,12 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         sock = socket.create_connection((self._address, 443), self.timeout)
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
+    def set_timeout(self, seconds: float) -> None:
+        """Bound every following socket operation, including a connect to come."""
+        self.timeout = seconds
+        if self.sock is not None:
+            self.sock.settimeout(seconds)
+
 
 def _is_public(address: str) -> bool:
     ip = ipaddress.ip_address(address.split("%", 1)[0])
@@ -89,7 +95,10 @@ def fetch_public_https(
         address = _public_address(parts.hostname)
         if address is None:
             return None
-        connection = _PinnedHTTPSConnection(parts.hostname, address, timeout)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return None
+        connection = _PinnedHTTPSConnection(parts.hostname, address, min(timeout, left))
         try:
             path = parts.path or "/"
             if parts.query:
@@ -98,6 +107,9 @@ def fetch_public_https(
                 "GET",
                 path,
                 headers={"Accept": accept, "User-Agent": "DocGrading/1.0"},
+            )
+            connection.set_timeout(
+                min(timeout, max(deadline - time.monotonic(), 0.001))
             )
             response = connection.getresponse()
             if response.status in _REDIRECTS:
@@ -116,9 +128,13 @@ def fetch_public_https(
                 return None
             body = bytearray()
             while len(body) <= max_bytes:
-                if time.monotonic() > deadline:
+                left = deadline - time.monotonic()
+                if left <= 0:
                     return None
-                chunk = response.read(min(_READ_CHUNK, max_bytes + 1 - len(body)))
+                # Each recv waits at most the time left; read1 returns after one
+                # recv, where read(n) would loop until n bytes arrive.
+                connection.set_timeout(min(timeout, left))
+                chunk = response.read1(min(_READ_CHUNK, max_bytes + 1 - len(body)))
                 if not chunk:
                     return bytes(body)
                 body += chunk

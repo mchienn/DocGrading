@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 import sqlalchemy as sa
 from fastapi import HTTPException
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -264,6 +265,82 @@ def test_job_snapshot_resolves_only_current_verified_credential(
 
     monkeypatch.setenv("OPENAI_API_KEY", "rotated-secret")
     assert asyncio.run(_snapshot_model(Database(), job)) is None
+
+
+@pytest.mark.parametrize(
+    ("keyring", "key", "status_code"),
+    [
+        pytest.param(
+            CredentialError("credential keyring is empty"),
+            "sk-valid",
+            503,
+            id="server-keyring-unavailable",
+        ),
+        pytest.param({"key-id": b"k" * 32}, "x" * 4097, 422, id="entered-key-too-long"),
+    ],
+)
+def test_stored_credential_separates_keyring_and_entered_key_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    keyring: object,
+    key: str,
+    status_code: int,
+) -> None:
+    provider = SimpleNamespace(
+        id=uuid.uuid4(),
+        provider=LLMProvider.OPENAI,
+        credential_source=LLMCredentialSource.NONE,
+        environment_key_name=None,
+        enabled=True,
+        data_policy_approved=False,
+        credential_revision=1,
+        revision=1,
+    )
+
+    async def lock(_db: object, row: object) -> object:
+        return row
+
+    def resolve() -> dict[str, bytes]:
+        if isinstance(keyring, Exception):
+            raise keyring
+        return keyring  # type: ignore[return-value]
+
+    monkeypatch.setattr("app.services.llm_providers._lock_provider", lock)
+    monkeypatch.setattr("app.services.llm_providers._keyring", resolve)
+    body = LLMProviderUpdateRequest.model_construct(
+        enabled=True,
+        credential_source=LLMCredentialSource.STORED,
+        environment_key_name=None,
+        credential_key=SecretStr(key),
+        data_policy_approved=False,
+    )
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(
+            update_provider(
+                None,  # type: ignore[arg-type]
+                row=provider,  # type: ignore[arg-type]
+                body=body,
+                expected_revision=1,
+                actor_user_id=uuid.uuid4(),
+            )
+        )
+    assert caught.value.status_code == status_code
+
+
+def test_job_route_snapshot_takes_a_shared_row_lock() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.analysis_job import _llm_route_snapshot
+
+    captured: list[object] = []
+
+    class Database:
+        async def scalar(self, query: object) -> None:
+            captured.append(query)
+
+    assert asyncio.run(_llm_route_snapshot(Database())) is None  # type: ignore[arg-type]
+    sql = str(captured[0].compile(dialect=postgresql.dialect()))  # type: ignore[attr-defined]
+    # FOR SHARE blocks route mutation but lets concurrent job creation proceed.
+    assert sql.rstrip().endswith("FOR SHARE")
 
 
 def test_provider_payload_removes_known_identity_and_extra_metadata() -> None:
@@ -542,6 +619,39 @@ def test_hosted_request_builder_has_fixed_endpoint_and_auth(
     assert header.lower() in {key.lower() for key in request.headers}
     assert "secret" not in request.full_url
     assert request.get_header("User-agent") == "DocGrading/1.0"
+
+
+@pytest.mark.parametrize(
+    ("provider", "field", "other"),
+    [
+        (LLMProvider.OPENAI, "max_completion_tokens", "max_tokens"),
+        (LLMProvider.DEEPSEEK, "max_tokens", "max_completion_tokens"),
+        (LLMProvider.OPENCODE_ZEN, "max_tokens", "max_completion_tokens"),
+    ],
+)
+def test_openai_chat_token_limit_field_matches_provider(
+    provider: LLMProvider, field: str, other: str
+) -> None:
+    sent: list[dict[str, object]] = []
+
+    def transport(*args: object) -> tuple[int, dict[str, object]]:
+        sent.append(json.loads(args[-1]))  # type: ignore[arg-type]
+        return 200, {}
+
+    model = HostedSemanticModel(
+        {
+            "provider": provider.value,
+            "protocol": LLMProtocol.OPENAI_CHAT.value,
+            "model_id": "model-id",
+            "max_tokens": 321,
+            "credential": "secret",
+        },
+        transport=transport,  # type: ignore[arg-type]
+    )
+    model._request("user text")
+
+    assert sent[0][field] == 321
+    assert other not in sent[0]
 
 
 def test_catalog_request_sends_explicit_user_agent(
