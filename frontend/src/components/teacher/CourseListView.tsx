@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Archive, BookOpen, Pencil, Plus, X } from 'lucide-react';
+import { Archive, BookOpen, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { ApiCourse } from '../../types/api';
 import { getErrorMessage } from '../../api/client';
 
@@ -7,26 +7,35 @@ interface CourseInput {
   code: string;
   name: string;
   term: string;
+  ownerTeacherId?: string;
 }
 
 interface CourseListViewProps {
+  role: 'teacher' | 'admin';
+  ownerOptions?: Array<{ id: string; display_name: string; email: string }>;
   courses: ApiCourse[];
   canCreate: boolean;
+  canDelete: boolean;
   loading: boolean;
   error?: string;
   onSelectCourse: (course: ApiCourse) => void;
-  onSave: (input: CourseInput, courseId?: string) => Promise<void>;
-  onArchive: (courseId: string) => Promise<void>;
+  onSave: (input: CourseInput, course?: ApiCourse) => Promise<void>;
+  onArchive: (course: ApiCourse) => Promise<void>;
+  onDelete: (course: ApiCourse) => Promise<void>;
 }
 
 export const CourseListView: React.FC<CourseListViewProps> = ({
+  role,
   courses,
   canCreate,
+  canDelete,
   loading,
+  ownerOptions,
   error,
   onSelectCourse,
   onSave,
   onArchive,
+  onDelete,
 }) => {
   const [editing, setEditing] = useState<ApiCourse | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -35,12 +44,14 @@ export const CourseListView: React.FC<CourseListViewProps> = ({
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [term, setTerm] = useState('');
+  const [ownerTeacherId, setOwnerTeacherId] = useState('');
 
   const openForm = (course?: ApiCourse) => {
     setEditing(course ?? null);
     setCode(course?.code ?? '');
     setName(course?.name ?? '');
     setTerm(course?.term ?? '');
+    setOwnerTeacherId(course?.owner_teacher_id ?? ownerOptions?.[0]?.id ?? '');
     setFormError(undefined);
     setShowForm(true);
   };
@@ -50,7 +61,15 @@ export const CourseListView: React.FC<CourseListViewProps> = ({
     setSaving(true);
     setFormError(undefined);
     try {
-      await onSave({ code: code.trim(), name: name.trim(), term: term.trim() }, editing?.id);
+      await onSave(
+        {
+          code: code.trim(),
+          name: name.trim(),
+          term: term.trim(),
+          ownerTeacherId: ownerTeacherId || undefined,
+        },
+        editing ?? undefined,
+      );
       setShowForm(false);
     } catch (requestError) {
       setFormError(getErrorMessage(requestError));
@@ -62,7 +81,16 @@ export const CourseListView: React.FC<CourseListViewProps> = ({
   const archive = async (course: ApiCourse) => {
     if (!window.confirm(`Archive ${course.code}? Archived courses become read-only.`)) return;
     try {
-      await onArchive(course.id);
+      await onArchive(course);
+    } catch (requestError) {
+      setFormError(getErrorMessage(requestError));
+    }
+  };
+
+  const remove = async (course: ApiCourse) => {
+    if (!window.confirm(`Delete ${course.code}? Only courses without dependent academic records can be deleted.`)) return;
+    try {
+      await onDelete(course);
     } catch (requestError) {
       setFormError(getErrorMessage(requestError));
     }
@@ -73,7 +101,9 @@ export const CourseListView: React.FC<CourseListViewProps> = ({
       <div className="flex items-center justify-between border-b border-slate-200 pb-5">
         <div>
           <h1 className="text-2xl font-bold text-[#172033]">Courses</h1>
-          <p className="text-sm text-[#596579] mt-1">Courses returned by DocGrading API.</p>
+          <p className="text-sm text-[#596579] mt-1">
+            {role === 'admin' ? 'All courses and assigned owners.' : 'Courses you own and manage.'}
+          </p>
         </div>
         {canCreate && (
           <button
@@ -108,6 +138,11 @@ export const CourseListView: React.FC<CourseListViewProps> = ({
                   <span className="font-mono text-xs font-bold text-sky-700">{course.code}</span>
                   <h2 className="font-bold text-slate-900 mt-1">{course.name}</h2>
                   <p className="text-xs text-slate-500 mt-1">{course.term}</p>
+                  {role === 'admin' && (
+                    <p className="text-xs text-slate-600 mt-2">
+                      Owner <span className="font-semibold text-slate-800">{course.owner.display_name}</span>
+                    </p>
+                  )}
                 </div>
                 <span className={`text-[11px] font-semibold px-2 py-1 rounded border ${
                   course.status === 'ACTIVE'
@@ -143,6 +178,16 @@ export const CourseListView: React.FC<CourseListViewProps> = ({
                     >
                       <Archive className="w-4 h-4" />
                     </button>
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => remove(course)}
+                        className="p-2 border border-rose-200 rounded-lg text-rose-700"
+                        aria-label={`Delete ${course.code}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -179,6 +224,24 @@ export const CourseListView: React.FC<CourseListViewProps> = ({
               Term
               <input required value={term} onChange={(event) => setTerm(event.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg" />
             </label>
+            {!editing && ownerOptions && (
+              <label className="block text-sm text-slate-700">
+                Owner Teacher
+                <select
+                  required
+                  value={ownerTeacherId}
+                  onChange={(event) => setOwnerTeacherId(event.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
+                >
+                  <option value="" disabled>Select an active Teacher</option>
+                  {ownerOptions.map((owner) => (
+                    <option key={owner.id} value={owner.id}>
+                      {owner.display_name} — {owner.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button disabled={saving} className="w-full px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold disabled:opacity-50">
               {saving ? 'Saving...' : 'Save'}
             </button>

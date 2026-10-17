@@ -29,9 +29,13 @@ export interface RubricCriterion {
   code: string;
   name: string;
   description: string;
-  weight: number; // percentage (sum must be 100)
+  weight: number; // percentage; selected rubric total must be 100
   maxLevel: number; // standard 4
-  defaultEvaluator: 'Rule-Engine' | 'LLM-Evaluator' | 'Hybrid-IR';
+  defaultEvaluator:
+    | 'Rule-Engine'
+    | 'LLM-Evaluator'
+    | 'Hybrid-IR'
+    | 'Citation checks + Manual review';
   evidenceRequired: boolean;
 }
 

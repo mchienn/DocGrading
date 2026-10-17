@@ -103,6 +103,98 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Update Me",
+        "operationId": "update_me_api_v1_auth_me_patch",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"rev-[1-9]\\d*\"$",
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change Password",
+        "operationId": "change_password_api_v1_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/courses/{course_id}/members": {
@@ -367,13 +459,218 @@
         }
       }
     },
+    "/api/v1/courses/{course_id}/announcements": {
+      "get": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "List Course Announcements",
+        "operationId": "list_course_announcements_api_v1_courses__course_id__announcements_get",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AnnouncementResponse"
+                  },
+                  "title": "Response List Course Announcements Api V1 Courses  Course Id  Announcements Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Create Course Announcement",
+        "operationId": "create_course_announcement_api_v1_courses__course_id__announcements_post",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/courses/{course_id}/announcements/{announcement_id}": {
+      "put": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Update Course Announcement",
+        "operationId": "update_course_announcement_api_v1_courses__course_id__announcements__announcement_id__put",
+        "parameters": [
+          {
+            "name": "announcement_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Announcement Id"
+            }
+          },
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "Delete Course Announcement",
+        "operationId": "delete_course_announcement_api_v1_courses__course_id__announcements__announcement_id__delete",
+        "parameters": [
+          {
+            "name": "announcement_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Announcement Id"
+            }
+          },
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/courses/{course_id}": {
       "get": {
         "tags": [
           "courses"
         ],
         "summary": "Get Course",
-        "description": "Get a single course (owner or Admin).",
+        "description": "Get a single course.",
         "operationId": "get_course_api_v1_courses__course_id__get",
         "parameters": [
           {
@@ -427,6 +724,16 @@
               "format": "uuid",
               "title": "Course Id"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"rev-[1-9]\\d*\"$",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -467,7 +774,7 @@
           "courses"
         ],
         "summary": "Delete Course",
-        "description": "Delete a course (owner or Admin).",
+        "description": "Delete a dependency-free course (owner or Admin).",
         "operationId": "delete_course_api_v1_courses__course_id__delete",
         "parameters": [
           {
@@ -478,6 +785,16 @@
               "type": "string",
               "format": "uuid",
               "title": "Course Id"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"rev-[1-9]\\d*\"$",
+              "title": "If-Match"
             }
           }
         ],
@@ -515,6 +832,16 @@
               "type": "string",
               "format": "uuid",
               "title": "Course Id"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"rev-[1-9]\\d*\"$",
+              "title": "If-Match"
             }
           }
         ],
@@ -1079,6 +1406,51 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "assignments"
+        ],
+        "summary": "Delete Assignment",
+        "description": "Delete a DRAFT assignment without submissions.",
+        "operationId": "delete_assignment_api_v1_courses__course_id__assignments__assignment_id__delete",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          },
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/courses/{course_id}/assignments/{assignment_id}/publish": {
@@ -1195,7 +1567,7 @@
           "rubrics"
         ],
         "summary": "List Rubrics",
-        "description": "List rubric versions. Admin sees all; Teacher sees own.",
+        "description": "List rubrics. Admin sees all; Teacher sees own.",
         "operationId": "list_rubrics_api_v1_rubrics_get",
         "responses": {
           "200": {
@@ -1219,7 +1591,7 @@
           "rubrics"
         ],
         "summary": "Create Rubric",
-        "description": "Create a new rubric version (Teacher/Admin).",
+        "description": "Create a rubric (Teacher/Admin).",
         "operationId": "create_rubric_api_v1_rubrics_post",
         "requestBody": {
           "content": {
@@ -1261,7 +1633,7 @@
           "rubrics"
         ],
         "summary": "Get Rubric",
-        "description": "Get a single rubric version (owner/Admin).",
+        "description": "Get one rubric (owner/Admin).",
         "operationId": "get_rubric_api_v1_rubrics__rubric_id__get",
         "parameters": [
           {
@@ -1303,7 +1675,7 @@
           "rubrics"
         ],
         "summary": "Update Rubric",
-        "description": "Update a DRAFT rubric version (owner/Admin).",
+        "description": "Update a rubric (owner/Admin).",
         "operationId": "update_rubric_api_v1_rubrics__rubric_id__put",
         "parameters": [
           {
@@ -1349,16 +1721,14 @@
             }
           }
         }
-      }
-    },
-    "/api/v1/rubrics/{rubric_id}/publish": {
-      "post": {
+      },
+      "delete": {
         "tags": [
           "rubrics"
         ],
-        "summary": "Publish Rubric",
-        "description": "Publish a DRAFT rubric version.",
-        "operationId": "publish_rubric_api_v1_rubrics__rubric_id__publish_post",
+        "summary": "Delete Rubric",
+        "description": "Delete an unreferenced rubric (owner/Admin).",
+        "operationId": "delete_rubric_api_v1_rubrics__rubric_id__delete",
         "parameters": [
           {
             "name": "rubric_id",
@@ -1372,59 +1742,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RubricVersionResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/rubrics/{rubric_id}/new-version": {
-      "post": {
-        "tags": [
-          "rubrics"
-        ],
-        "summary": "Create New Version",
-        "description": "Create a new DRAFT version from a published rubric.",
-        "operationId": "create_new_version_api_v1_rubrics__rubric_id__new_version_post",
-        "parameters": [
-          {
-            "name": "rubric_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Rubric Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RubricVersionResponse"
-                }
-              }
-            }
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1445,7 +1764,7 @@
           "rubrics"
         ],
         "summary": "Add Criterion",
-        "description": "Add a criterion to a DRAFT rubric version.",
+        "description": "Add a criterion to a rubric.",
         "operationId": "add_criterion_api_v1_rubrics__rubric_id__criteria_post",
         "parameters": [
           {
@@ -1497,7 +1816,7 @@
           "rubrics"
         ],
         "summary": "List Criteria",
-        "description": "List criteria for a rubric version.",
+        "description": "List criteria for a rubric.",
         "operationId": "list_criteria_api_v1_rubrics__rubric_id__criteria_get",
         "parameters": [
           {
@@ -1545,7 +1864,7 @@
           "rubrics"
         ],
         "summary": "Update Criterion",
-        "description": "Update a criterion on a DRAFT rubric version.",
+        "description": "Update a criterion on a rubric.",
         "operationId": "update_criterion_api_v1_rubrics__rubric_id__criteria__criterion_id__put",
         "parameters": [
           {
@@ -1607,7 +1926,7 @@
           "rubrics"
         ],
         "summary": "Delete Criterion",
-        "description": "Delete a criterion from a DRAFT rubric version.",
+        "description": "Delete a criterion from a rubric.",
         "operationId": "delete_criterion_api_v1_rubrics__rubric_id__criteria__criterion_id__delete",
         "parameters": [
           {
@@ -1787,6 +2106,394 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/llm/providers": {
+      "get": {
+        "tags": [
+          "llm-operations"
+        ],
+        "summary": "List Providers",
+        "operationId": "list_providers_api_v1_operations_llm_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMProviderListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/llm/providers/{provider}": {
+      "put": {
+        "tags": [
+          "llm-operations"
+        ],
+        "summary": "Update Provider",
+        "operationId": "update_provider_api_v1_operations_llm_providers__provider__put",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/LLMProvider"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMProviderUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMProviderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/llm/providers/{provider}/credential": {
+      "delete": {
+        "tags": [
+          "llm-operations"
+        ],
+        "summary": "Remove Credential",
+        "operationId": "remove_credential_api_v1_operations_llm_providers__provider__credential_delete",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/LLMProvider"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMProviderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/llm/providers/{provider}/test": {
+      "post": {
+        "tags": [
+          "llm-operations"
+        ],
+        "summary": "Test Provider",
+        "operationId": "test_provider_api_v1_operations_llm_providers__provider__test_post",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/LLMProvider"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMCatalogTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/llm/routes/CITATION_SEMANTIC": {
+      "get": {
+        "tags": [
+          "llm-operations"
+        ],
+        "summary": "Get Semantic Route",
+        "operationId": "get_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMRouteResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "llm-operations"
+        ],
+        "summary": "Update Semantic Route",
+        "operationId": "update_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_put",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMRouteUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMRouteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/llm/routes/CITATION_SEMANTIC/activate": {
+      "post": {
+        "tags": [
+          "llm-operations"
+        ],
+        "summary": "Activate Semantic Route",
+        "operationId": "activate_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_activate_post",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMRouteActivationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMRouteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/llm/routes/CITATION_SEMANTIC/deactivate": {
+      "post": {
+        "tags": [
+          "llm-operations"
+        ],
+        "summary": "Deactivate Semantic Route",
+        "operationId": "deactivate_semantic_route_api_v1_operations_llm_routes_CITATION_SEMANTIC_deactivate_post",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMRouteResponse"
                 }
               }
             }
@@ -2451,6 +3158,161 @@
         }
       }
     },
+    "/api/v1/document-versions": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "List Document Versions",
+        "operationId": "list_document_versions_api_v1_document_versions_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DocumentStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentVersionListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assignments/{assignment_id}/submissions": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "List Assignment Submissions",
+        "operationId": "list_assignment_submissions_api_v1_assignments__assignment_id__submissions_get",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentSubmissionListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/document-versions/{version_id}/complete": {
       "post": {
         "tags": [
@@ -2740,6 +3602,49 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SubmissionQueueResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/document-versions/{version_id}/grading-result": {
+      "get": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "Document Version Grading Result",
+        "operationId": "document_version_grading_result_api_v1_document_versions__version_id__grading_result_get",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentGradingResultResponse"
                 }
               }
             }
@@ -3677,6 +4582,15 @@
   },
   "components": {
     "schemas": {
+      "AccessType": {
+        "type": "string",
+        "enum": [
+          "FULL_TEXT",
+          "ABSTRACT_ONLY",
+          "USER_PROVIDED"
+        ],
+        "title": "AccessType"
+      },
       "AdminAnalysisJobDetailResponse": {
         "properties": {
           "id": {
@@ -3702,10 +4616,26 @@
             "format": "uuid",
             "title": "Assignment Id"
           },
+          "assignment_title": {
+            "type": "string",
+            "title": "Assignment Title"
+          },
           "submission_id": {
             "type": "string",
             "format": "uuid",
             "title": "Submission Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "student_display_name": {
+            "type": "string",
+            "title": "Student Display Name"
+          },
+          "student_email": {
+            "type": "string",
+            "title": "Student Email"
           },
           "document_version_id": {
             "type": "string",
@@ -3798,7 +4728,11 @@
           "course_code",
           "course_name",
           "assignment_id",
+          "assignment_title",
           "submission_id",
+          "filename",
+          "student_display_name",
+          "student_email",
           "document_version_id",
           "rubric_version_id",
           "status",
@@ -3839,10 +4773,26 @@
             "format": "uuid",
             "title": "Assignment Id"
           },
+          "assignment_title": {
+            "type": "string",
+            "title": "Assignment Title"
+          },
           "submission_id": {
             "type": "string",
             "format": "uuid",
             "title": "Submission Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "student_display_name": {
+            "type": "string",
+            "title": "Student Display Name"
+          },
+          "student_email": {
+            "type": "string",
+            "title": "Student Email"
           },
           "document_version_id": {
             "type": "string",
@@ -3924,7 +4874,11 @@
           "course_code",
           "course_name",
           "assignment_id",
+          "assignment_title",
           "submission_id",
+          "filename",
+          "student_display_name",
+          "student_email",
           "document_version_id",
           "rubric_version_id",
           "status",
@@ -4038,6 +4992,28 @@
             ],
             "title": "Actor User Id"
           },
+          "actor_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Display Name"
+          },
+          "actor_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Email"
+          },
           "before": {
             "anyOf": [
               {
@@ -4110,6 +5086,35 @@
           "open_review_requests": {
             "type": "integer",
             "title": "Open Review Requests"
+          },
+          "total_users": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Users"
+          },
+          "average_active_job_age_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Average Active Job Age Seconds"
+          },
+          "jobs_last_7_days": {
+            "items": {
+              "$ref": "#/components/schemas/AdminJobTrendPoint"
+            },
+            "type": "array",
+            "maxItems": 7,
+            "minItems": 7,
+            "title": "Jobs Last 7 Days"
+          },
+          "review_requests_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ReviewRequestStatus"
+            },
+            "type": "object",
+            "title": "Review Requests By Status"
           }
         },
         "additionalProperties": false,
@@ -4117,9 +5122,46 @@
         "required": [
           "jobs_by_status",
           "submissions_by_course",
-          "open_review_requests"
+          "open_review_requests",
+          "total_users",
+          "average_active_job_age_seconds",
+          "jobs_last_7_days",
+          "review_requests_by_status"
         ],
         "title": "AdminDashboardResponse"
+      },
+      "AdminJobTrendPoint": {
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day"
+          },
+          "total_jobs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Jobs"
+          },
+          "error_jobs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Error Jobs"
+          },
+          "average_processing_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Average Processing Seconds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day",
+          "total_jobs",
+          "error_jobs",
+          "average_processing_seconds"
+        ],
+        "title": "AdminJobTrendPoint"
       },
       "AdminUserCreateRequest": {
         "properties": {
@@ -4395,6 +5437,101 @@
         ],
         "title": "AnalysisJobStatus"
       },
+      "AnnouncementCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Body"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "body"
+        ],
+        "title": "AnnouncementCreate"
+      },
+      "AnnouncementResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "course_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Course Id"
+          },
+          "created_by_user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By User Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "course_id",
+          "created_by_user_id",
+          "title",
+          "body",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AnnouncementResponse"
+      },
+      "AnnouncementUpdate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Body"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "body"
+        ],
+        "title": "AnnouncementUpdate"
+      },
       "ApprovalResponse": {
         "properties": {
           "document_version_id": {
@@ -4542,6 +5679,30 @@
           "revision": {
             "type": "integer",
             "title": "Revision"
+          },
+          "student_submission_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Submission Id"
+          },
+          "student_attempts_used": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Attempts Used"
           }
         },
         "type": "object",
@@ -4560,6 +5721,135 @@
           "revision"
         ],
         "title": "AssignmentResponse"
+      },
+      "AssignmentSubmissionItem": {
+        "properties": {
+          "submission_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Submission Id"
+          },
+          "student_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Student Id"
+          },
+          "student_display_name": {
+            "type": "string",
+            "title": "Student Display Name"
+          },
+          "student_email": {
+            "type": "string",
+            "title": "Student Email"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempt Count"
+          },
+          "document_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Version Id"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "file_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size Bytes"
+          },
+          "document_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Status"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submission_id",
+          "student_id",
+          "student_display_name",
+          "student_email",
+          "attempt_count",
+          "document_version_id",
+          "filename",
+          "document_status",
+          "submitted_at"
+        ],
+        "title": "AssignmentSubmissionItem"
+      },
+      "AssignmentSubmissionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentSubmissionItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "title": "AssignmentSubmissionListResponse"
       },
       "AssignmentUpdate": {
         "properties": {
@@ -4705,6 +5995,29 @@
           "results"
         ],
         "title": "BulkPublishResponse"
+      },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 12,
+            "title": "New Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest"
       },
       "CitationAnchorResponse": {
         "properties": {
@@ -5079,6 +6392,18 @@
             "maxLength": 128,
             "minLength": 1,
             "title": "Term"
+          },
+          "owner_teacher_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Teacher Id"
           }
         },
         "type": "object",
@@ -5433,6 +6758,31 @@
         ],
         "title": "CourseMemberResponse"
       },
+      "CourseOwnerSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "email"
+        ],
+        "title": "CourseOwnerSummary"
+      },
       "CourseResponse": {
         "properties": {
           "id": {
@@ -5460,6 +6810,19 @@
             "format": "uuid",
             "title": "Owner Teacher Id"
           },
+          "owner": {
+            "$ref": "#/components/schemas/CourseOwnerSummary"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
           "revision": {
             "type": "integer",
             "title": "Revision"
@@ -5473,6 +6836,9 @@
           "term",
           "status",
           "owner_teacher_id",
+          "owner",
+          "created_at",
+          "updated_at",
           "revision"
         ],
         "title": "CourseResponse"
@@ -5892,6 +7258,292 @@
         ],
         "title": "DocumentDownloadResponse"
       },
+      "DocumentGradingResultResponse": {
+        "properties": {
+          "submission_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Submission Id"
+          },
+          "document_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Version Id"
+          },
+          "version_number": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Version Number"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "file_size_bytes": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "File Size Bytes"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submitted At"
+          },
+          "current_status": {
+            "type": "string",
+            "title": "Current Status"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "assignment_title": {
+            "type": "string",
+            "title": "Assignment Title"
+          },
+          "student_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Student Id"
+          },
+          "student_display_name": {
+            "type": "string",
+            "title": "Student Display Name"
+          },
+          "student_email": {
+            "type": "string",
+            "title": "Student Email"
+          },
+          "analysis_jobs": {
+            "items": {
+              "$ref": "#/components/schemas/GradingAnalysisJobResponse"
+            },
+            "type": "array",
+            "title": "Analysis Jobs"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingResponse"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CitationReportResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "semantic_citation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticCitationReportResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/GradingReviewResponse"
+            },
+            "type": "array",
+            "title": "Reviews"
+          },
+          "published_results": {
+            "items": {
+              "$ref": "#/components/schemas/PublishedResultResponse"
+            },
+            "type": "array",
+            "title": "Published Results"
+          },
+          "status_history": {
+            "items": {
+              "$ref": "#/components/schemas/GradingStatusEventResponse"
+            },
+            "type": "array",
+            "title": "Status History"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/GradingActionResponse"
+            },
+            "type": "array",
+            "title": "Actions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submission_id",
+          "document_version_id",
+          "version_number",
+          "filename",
+          "file_size_bytes",
+          "submitted_at",
+          "current_status",
+          "failure_code",
+          "assignment_title",
+          "student_id",
+          "student_display_name",
+          "student_email",
+          "analysis_jobs",
+          "findings",
+          "reviews",
+          "published_results",
+          "status_history",
+          "actions"
+        ],
+        "title": "DocumentGradingResultResponse"
+      },
+      "DocumentStatus": {
+        "type": "string",
+        "enum": [
+          "UPLOADING",
+          "VALIDATING",
+          "INVALID",
+          "QUEUED",
+          "PROCESSING",
+          "AWAITING_REVIEW",
+          "APPROVED",
+          "PUBLISHED",
+          "PROCESSING_FAILED"
+        ],
+        "title": "DocumentStatus"
+      },
+      "DocumentVersionListItem": {
+        "properties": {
+          "document_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Version Id"
+          },
+          "submission_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Submission Id"
+          },
+          "version_number": {
+            "type": "integer",
+            "title": "Version Number"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "file_size_bytes": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "File Size Bytes"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "document_status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "course_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Course Id"
+          },
+          "course_code": {
+            "type": "string",
+            "title": "Course Code"
+          },
+          "course_name": {
+            "type": "string",
+            "title": "Course Name"
+          },
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment Id"
+          },
+          "assignment_title": {
+            "type": "string",
+            "title": "Assignment Title"
+          },
+          "student_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Student Id"
+          },
+          "student_display_name": {
+            "type": "string",
+            "title": "Student Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "document_version_id",
+          "submission_id",
+          "version_number",
+          "filename",
+          "file_size_bytes",
+          "sha256",
+          "document_status",
+          "created_at",
+          "course_id",
+          "course_code",
+          "course_name",
+          "assignment_id",
+          "assignment_title",
+          "student_id",
+          "student_display_name"
+        ],
+        "title": "DocumentVersionListItem"
+      },
+      "DocumentVersionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentVersionListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "title": "DocumentVersionListResponse"
+      },
       "EvidenceResponse": {
         "properties": {
           "document_ir_id": {
@@ -5949,6 +7601,16 @@
                 "type": "null"
               }
             ]
+          },
+          "semantic_citation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticCitationReportResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -5958,6 +7620,15 @@
           "findings"
         ],
         "title": "EvidenceWorkspaceResponse"
+      },
+      "ExtractionMethod": {
+        "type": "string",
+        "enum": [
+          "SENTENCE",
+          "CLAUSE",
+          "MODEL"
+        ],
+        "title": "ExtractionMethod"
       },
       "FindingResponse": {
         "properties": {
@@ -5970,6 +7641,14 @@
             "type": "string",
             "format": "uuid",
             "title": "Criterion Version Id"
+          },
+          "criterion_code": {
+            "type": "string",
+            "title": "Criterion Code"
+          },
+          "criterion_title": {
+            "type": "string",
+            "title": "Criterion Title"
           },
           "severity": {
             "type": "string",
@@ -6014,6 +7693,8 @@
         "required": [
           "id",
           "criterion_version_id",
+          "criterion_code",
+          "criterion_title",
           "severity",
           "description",
           "suggestion",
@@ -6021,6 +7702,330 @@
           "evidence"
         ],
         "title": "FindingResponse"
+      },
+      "GradingActionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "resource_type": {
+            "type": "string",
+            "enum": [
+              "DocumentVersion",
+              "Finding"
+            ],
+            "title": "Resource Type"
+          },
+          "resource_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Resource Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "actor_display_name": {
+            "type": "string",
+            "title": "Actor Display Name"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "before": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Before"
+          },
+          "after": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "After"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "resource_type",
+          "resource_id",
+          "action",
+          "actor_display_name",
+          "reason",
+          "occurred_at",
+          "before",
+          "after"
+        ],
+        "title": "GradingActionResponse"
+      },
+      "GradingAnalysisJobResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AnalysisJobStatus"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempt Count"
+          },
+          "max_attempts": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Attempts"
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "attempt_count",
+          "max_attempts",
+          "queued_at",
+          "started_at",
+          "finished_at",
+          "error_code"
+        ],
+        "title": "GradingAnalysisJobResponse"
+      },
+      "GradingReviewDecisionResponse": {
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Finding Id"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ReviewDecisionType"
+          },
+          "edited_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited Description"
+          },
+          "final_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Score"
+          },
+          "edited_semantic_verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticPipelineStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "finding_id",
+          "decision",
+          "edited_description",
+          "final_score",
+          "edited_semantic_verdict",
+          "reason",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "GradingReviewDecisionResponse"
+      },
+      "GradingReviewResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reviewer_user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reviewer User Id"
+          },
+          "reviewer_display_name": {
+            "type": "string",
+            "title": "Reviewer Display Name"
+          },
+          "revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Revision"
+          },
+          "comment": {
+            "type": "string",
+            "title": "Comment"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/GradingReviewDecisionResponse"
+            },
+            "type": "array",
+            "title": "Decisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reviewer_user_id",
+          "reviewer_display_name",
+          "revision",
+          "comment",
+          "created_at",
+          "updated_at",
+          "decisions"
+        ],
+        "title": "GradingReviewResponse"
+      },
+      "GradingStatusEventResponse": {
+        "properties": {
+          "from_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "to_status": {
+            "type": "string",
+            "title": "To Status"
+          },
+          "changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Changed At"
+          },
+          "recorded": {
+            "type": "boolean",
+            "title": "Recorded"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from_status",
+          "to_status",
+          "changed_at",
+          "recorded"
+        ],
+        "title": "GradingStatusEventResponse"
       },
       "HTTPValidationError": {
         "properties": {
@@ -6046,6 +8051,526 @@
         },
         "type": "object",
         "title": "HealthResponse"
+      },
+      "LLMCatalogStatus": {
+        "type": "string",
+        "enum": [
+          "UNTESTED",
+          "CATALOG_VERIFIED",
+          "INVALID_CREDENTIAL",
+          "RATE_LIMITED",
+          "UNAVAILABLE",
+          "TIMEOUT",
+          "INVALID_RESPONSE"
+        ],
+        "title": "LLMCatalogStatus"
+      },
+      "LLMCatalogTestResponse": {
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/LLMProvider"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LLMCatalogStatus"
+          },
+          "model_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Model Ids"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "credential_revision": {
+            "type": "integer",
+            "title": "Credential Revision"
+          },
+          "catalog_checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Catalog Checked At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "status",
+          "latency_ms",
+          "credential_revision",
+          "catalog_checked_at"
+        ],
+        "title": "LLMCatalogTestResponse"
+      },
+      "LLMCredentialSource": {
+        "type": "string",
+        "enum": [
+          "NONE",
+          "ENVIRONMENT",
+          "STORED"
+        ],
+        "title": "LLMCredentialSource"
+      },
+      "LLMProtocol": {
+        "type": "string",
+        "enum": [
+          "OPENAI_CHAT",
+          "OPENAI_RESPONSES",
+          "ANTHROPIC_MESSAGES",
+          "GEMINI_GENERATE_CONTENT",
+          "BEDROCK_CONVERSE"
+        ],
+        "title": "LLMProtocol"
+      },
+      "LLMProvider": {
+        "type": "string",
+        "enum": [
+          "OPENAI",
+          "ANTHROPIC",
+          "GEMINI",
+          "DEEPSEEK",
+          "OPENCODE_ZEN",
+          "BEDROCK"
+        ],
+        "title": "LLMProvider"
+      },
+      "LLMProviderListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LLMProviderResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "LLMProviderListResponse"
+      },
+      "LLMProviderResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/LLMProvider"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "docs_url": {
+            "type": "string",
+            "title": "Docs Url"
+          },
+          "supported_environment_keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supported Environment Keys"
+          },
+          "supported_protocols": {
+            "items": {
+              "$ref": "#/components/schemas/LLMProtocol"
+            },
+            "type": "array",
+            "title": "Supported Protocols"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "data_policy_approved": {
+            "type": "boolean",
+            "title": "Data Policy Approved"
+          },
+          "credential_source": {
+            "$ref": "#/components/schemas/LLMCredentialSource"
+          },
+          "environment_key_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environment Key Name"
+          },
+          "masked_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Hint"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "stored_credentials_available": {
+            "type": "boolean",
+            "title": "Stored Credentials Available"
+          },
+          "credential_revision": {
+            "type": "integer",
+            "title": "Credential Revision"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "catalog_status": {
+            "$ref": "#/components/schemas/LLMCatalogStatus"
+          },
+          "catalog_checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Checked At"
+          },
+          "catalog_latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Latency Ms"
+          },
+          "catalog_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Error Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "display_name",
+          "docs_url",
+          "supported_environment_keys",
+          "supported_protocols",
+          "enabled",
+          "data_policy_approved",
+          "credential_source",
+          "environment_key_name",
+          "masked_hint",
+          "configured",
+          "stored_credentials_available",
+          "credential_revision",
+          "revision",
+          "catalog_status",
+          "catalog_checked_at",
+          "catalog_latency_ms",
+          "catalog_error_code"
+        ],
+        "title": "LLMProviderResponse"
+      },
+      "LLMProviderUpdateRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "credential_source": {
+            "$ref": "#/components/schemas/LLMCredentialSource",
+            "default": "NONE"
+          },
+          "environment_key_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environment Key Name"
+          },
+          "credential_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "format": "password",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Key"
+          },
+          "data_policy_approved": {
+            "type": "boolean",
+            "title": "Data Policy Approved",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "LLMProviderUpdateRequest"
+      },
+      "LLMRouteActivationRequest": {
+        "properties": {
+          "acknowledge_provider_fees": {
+            "type": "boolean",
+            "title": "Acknowledge Provider Fees"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "acknowledge_provider_fees"
+        ],
+        "title": "LLMRouteActivationRequest"
+      },
+      "LLMRouteResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "task": {
+            "$ref": "#/components/schemas/LLMTask"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LLMRouteState"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/LLMProvider"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/LLMProtocol"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "geographic_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geographic Profile"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "title": "Max Tokens"
+          },
+          "call_budget": {
+            "type": "integer",
+            "title": "Call Budget"
+          },
+          "quality_approved": {
+            "type": "boolean",
+            "title": "Quality Approved"
+          },
+          "quality_not_approved": {
+            "type": "boolean",
+            "title": "Quality Not Approved"
+          },
+          "provider_credential_revision": {
+            "type": "integer",
+            "title": "Provider Credential Revision"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blockers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "task",
+          "state",
+          "active",
+          "provider",
+          "protocol",
+          "model_id",
+          "region",
+          "geographic_profile",
+          "max_tokens",
+          "call_budget",
+          "quality_approved",
+          "quality_not_approved",
+          "provider_credential_revision",
+          "revision",
+          "ready",
+          "blockers"
+        ],
+        "title": "LLMRouteResponse"
+      },
+      "LLMRouteState": {
+        "type": "string",
+        "enum": [
+          "DRAFT",
+          "ACTIVE",
+          "DISABLED"
+        ],
+        "title": "LLMRouteState"
+      },
+      "LLMRouteUpdateRequest": {
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/LLMProvider"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/LLMProtocol"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "geographic_profile": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geographic Profile"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "maximum": 1024.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "default": 512
+          },
+          "call_budget": {
+            "type": "integer",
+            "maximum": 256.0,
+            "minimum": 1.0,
+            "title": "Call Budget",
+            "default": 32
+          },
+          "quality_approved": {
+            "type": "boolean",
+            "title": "Quality Approved",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "protocol"
+        ],
+        "title": "LLMRouteUpdateRequest"
+      },
+      "LLMTask": {
+        "type": "string",
+        "enum": [
+          "CITATION_SEMANTIC"
+        ],
+        "title": "LLMTask"
       },
       "LoginRequest": {
         "properties": {
@@ -6220,6 +8745,14 @@
         ],
         "title": "NotificationType"
       },
+      "PassageKind": {
+        "type": "string",
+        "enum": [
+          "TEXT",
+          "TABLE"
+        ],
+        "title": "PassageKind"
+      },
       "PresignRequest": {
         "properties": {
           "filename": {
@@ -6339,6 +8872,22 @@
         ],
         "title": "PresignResponse"
       },
+      "ProfileUpdateRequest": {
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "display_name"
+        ],
+        "title": "ProfileUpdateRequest"
+      },
       "PublishRequest": {
         "properties": {
           "reason": {
@@ -6360,6 +8909,14 @@
             "type": "string",
             "format": "uuid",
             "title": "Criterion Version Id"
+          },
+          "criterion_code": {
+            "type": "string",
+            "title": "Criterion Code"
+          },
+          "criterion_title": {
+            "type": "string",
+            "title": "Criterion Title"
           },
           "finding_id": {
             "type": "string",
@@ -6404,6 +8961,8 @@
         "type": "object",
         "required": [
           "criterion_version_id",
+          "criterion_code",
+          "criterion_title",
           "finding_id",
           "score",
           "description",
@@ -6543,6 +9102,16 @@
             ],
             "title": "Final Score"
           },
+          "edited_semantic_verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticPipelineStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reason": {
             "anyOf": [
               {
@@ -6596,6 +9165,16 @@
             ],
             "title": "Final Score"
           },
+          "edited_semantic_verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticPipelineStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reason": {
             "anyOf": [
               {
@@ -6614,6 +9193,7 @@
           "decision",
           "edited_description",
           "final_score",
+          "edited_semantic_verdict",
           "reason"
         ],
         "title": "ReviewDecisionResponse"
@@ -6878,6 +9458,14 @@
             "format": "uuid",
             "title": "Student Id"
           },
+          "student_display_name": {
+            "type": "string",
+            "title": "Student Display Name"
+          },
+          "student_email": {
+            "type": "string",
+            "title": "Student Email"
+          },
           "criterion_id": {
             "anyOf": [
               {
@@ -6890,6 +9478,14 @@
             ],
             "title": "Criterion Id"
           },
+          "criterion_code": {
+            "type": "string",
+            "title": "Criterion Code"
+          },
+          "criterion_title": {
+            "type": "string",
+            "title": "Criterion Title"
+          },
           "finding_id": {
             "anyOf": [
               {
@@ -6901,6 +9497,17 @@
               }
             ],
             "title": "Finding Id"
+          },
+          "finding_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Description"
           },
           "status": {
             "$ref": "#/components/schemas/ReviewRequestStatus"
@@ -6932,6 +9539,17 @@
             ],
             "title": "Responded By User Id"
           },
+          "responded_by_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responded By Display Name"
+          },
           "responded_at": {
             "anyOf": [
               {
@@ -6943,6 +9561,18 @@
               }
             ],
             "title": "Responded At"
+          },
+          "assignment_title": {
+            "type": "string",
+            "title": "Assignment Title"
+          },
+          "course_code": {
+            "type": "string",
+            "title": "Course Code"
+          },
+          "course_name": {
+            "type": "string",
+            "title": "Course Name"
           },
           "created_at": {
             "type": "string",
@@ -6962,8 +9592,15 @@
           "published_result_id",
           "submission_id",
           "student_id",
+          "student_display_name",
+          "student_email",
+          "criterion_code",
+          "criterion_title",
           "status",
           "reason",
+          "assignment_title",
+          "course_code",
+          "course_name",
           "created_at",
           "updated_at"
         ],
@@ -7180,6 +9817,649 @@
         "type": "object",
         "title": "RubricVersionUpdate"
       },
+      "SemanticCitationReportResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Schema Version"
+          },
+          "eligible_linked_claim_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Eligible Linked Claim Count",
+            "default": 0
+          },
+          "evaluable_claim_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Evaluable Claim Count",
+            "default": 0
+          },
+          "semantic_support_score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Support Score"
+          },
+          "semantic_coverage": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Semantic Coverage",
+            "default": 0.0
+          },
+          "proposed_score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Score"
+          },
+          "quality_gate": {
+            "$ref": "#/components/schemas/SemanticQualityGateResponse"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticCitationResultResponse"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Results"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticSource"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Sources"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "quality_gate",
+          "results"
+        ],
+        "title": "SemanticCitationReportResponse"
+      },
+      "SemanticCitationResultResponse": {
+        "properties": {
+          "pair_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Pair Id"
+          },
+          "claim_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Claim Id"
+          },
+          "mention_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Mention Id"
+          },
+          "reference_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Reference Id"
+          },
+          "claim": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Claim"
+          },
+          "context": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Context",
+            "default": ""
+          },
+          "claim_anchor": {
+            "$ref": "#/components/schemas/SemanticClaimAnchor"
+          },
+          "extraction_method": {
+            "$ref": "#/components/schemas/ExtractionMethod"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SemanticPipelineStatus"
+          },
+          "reason_code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Reason Code"
+          },
+          "supported_parts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Supported Parts"
+          },
+          "unsupported_parts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Unsupported Parts"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_access_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_passages": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticSourcePassage"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Source Passages"
+          },
+          "evidence_passage_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Evidence Passage Ids"
+          },
+          "finding_links": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticFindingLink"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Finding Links"
+          },
+          "manual_review_required": {
+            "type": "boolean",
+            "title": "Manual Review Required",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pair_id",
+          "claim_id",
+          "mention_id",
+          "reference_id",
+          "claim",
+          "claim_anchor",
+          "extraction_method",
+          "status",
+          "reason_code"
+        ],
+        "title": "SemanticCitationResultResponse"
+      },
+      "SemanticClaimAnchor": {
+        "properties": {
+          "page_number": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Page Number"
+          },
+          "element_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Element Id"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "End"
+          },
+          "line_start": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Start"
+          },
+          "line_end": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line End"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "page_number",
+          "element_id",
+          "start",
+          "end"
+        ],
+        "title": "SemanticClaimAnchor"
+      },
+      "SemanticFindingLink": {
+        "properties": {
+          "criterion_version_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Criterion Version Id"
+          },
+          "finding_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Finding Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "criterion_version_id",
+          "finding_id"
+        ],
+        "title": "SemanticFindingLink"
+      },
+      "SemanticPipelineStatus": {
+        "type": "string",
+        "enum": [
+          "SUPPORTED",
+          "PARTIALLY_SUPPORTED",
+          "CONTRADICTED",
+          "IRRELEVANT",
+          "INSUFFICIENT_EVIDENCE",
+          "SOURCE_UNAVAILABLE",
+          "AMBIGUOUS_CLAIM",
+          "NEEDS_MANUAL_REVIEW"
+        ],
+        "title": "SemanticPipelineStatus"
+      },
+      "SemanticQualityGateResponse": {
+        "properties": {
+          "passed": {
+            "type": "boolean",
+            "title": "Passed",
+            "default": false
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "human_gold_pairs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Human Gold Pairs",
+            "default": 0
+          },
+          "double_annotated_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Double Annotated Fraction",
+            "default": 0.0
+          },
+          "anchor_completeness": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Anchor Completeness",
+            "default": 0.0
+          },
+          "structured_success_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Structured Success Rate",
+            "default": 0.0
+          },
+          "macro_f1": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Macro F1",
+            "default": 0.0
+          },
+          "false_accusation_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "False Accusation Rate",
+            "default": 0.0
+          },
+          "hit_at_3": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Hit At 3",
+            "default": 0.0
+          },
+          "domain_approved": {
+            "type": "boolean",
+            "title": "Domain Approved",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "SemanticQualityGateResponse"
+      },
+      "SemanticSource": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Source Id"
+          },
+          "identifier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identifier"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "arxiv_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arxiv Id"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Authors"
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Hash"
+          },
+          "retrieved_at": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Retrieved At"
+          },
+          "retrieval_provenance": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Retrieval Provenance"
+          },
+          "access_type": {
+            "$ref": "#/components/schemas/AccessType"
+          },
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticSourcePassage"
+            },
+            "type": "array",
+            "maxItems": 192,
+            "title": "Passages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_id",
+          "source_hash",
+          "retrieved_at",
+          "retrieval_provenance",
+          "access_type",
+          "passages"
+        ],
+        "title": "SemanticSource"
+      },
+      "SemanticSourcePassage": {
+        "properties": {
+          "passage_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Passage Id"
+          },
+          "source_id": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Source Id"
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Hash"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "element_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Element Id"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PassageKind",
+            "default": "TEXT"
+          },
+          "retrieval_provenance": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Retrieval Provenance"
+          },
+          "access_type": {
+            "$ref": "#/components/schemas/AccessType"
+          },
+          "retrieval_score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieval Score"
+          },
+          "retrieval_rank": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieval Rank"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "passage_id",
+          "source_id",
+          "source_hash",
+          "text",
+          "retrieval_provenance",
+          "access_type"
+        ],
+        "title": "SemanticSourcePassage"
+      },
       "SubmissionQueueItem": {
         "properties": {
           "submission_id": {
@@ -7203,6 +10483,14 @@
             "type": "string",
             "format": "uuid",
             "title": "Student Id"
+          },
+          "student_display_name": {
+            "type": "string",
+            "title": "Student Display Name"
+          },
+          "student_email": {
+            "type": "string",
+            "title": "Student Email"
           },
           "document_status": {
             "anyOf": [
@@ -7239,6 +10527,8 @@
           "submission_id",
           "document_version_id",
           "student_id",
+          "student_display_name",
+          "student_email",
           "document_status",
           "queue_status",
           "submitted_at"
@@ -7323,6 +10613,15 @@
             "format": "date-time",
             "title": "Created At"
           },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "file_size_bytes": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "File Size Bytes"
+          },
           "processing_status": {
             "$ref": "#/components/schemas/VersionProcessingStatus"
           },
@@ -7366,6 +10665,8 @@
           "document_version_id",
           "version_number",
           "created_at",
+          "filename",
+          "file_size_bytes",
           "processing_status"
         ],
         "title": "SubmissionVersionResponse"
@@ -7410,6 +10711,15 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
           }
         },
         "type": "object",
@@ -7418,7 +10728,9 @@
           "email",
           "display_name",
           "roles",
-          "status"
+          "status",
+          "created_at",
+          "revision"
         ],
         "title": "UserResponse"
       },

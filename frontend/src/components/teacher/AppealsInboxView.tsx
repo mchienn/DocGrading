@@ -142,8 +142,12 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
               <h2 id="appeal-dialog-title" className="font-bold text-sm text-slate-900">
                 Criterion Review Request
               </h2>
-              <p className="text-[11px] text-slate-500 font-mono">ID: {requestId}</p>
-            </div>
+              {request && (
+                <p className="text-[11px] text-slate-500">
+                  {request.course_code ? `${request.course_code} · ${request.assignment_title}` : 'Review Request'}
+                </p>
+              )}
+          </div>
           </div>
           <button
             type="button"
@@ -187,8 +191,9 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
             <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
               <div className="grid grid-cols-2 gap-2 text-slate-600 text-[11px]">
                 <div>
-                  <span className="text-slate-400 block font-medium">Student ID</span>
-                  <span className="font-mono text-slate-800 break-all">{request.student_id}</span>
+                  <span className="text-slate-400 block font-medium">Student</span>
+                  <span className="font-semibold text-slate-900 block">{request.student_display_name}</span>
+                  <span className="text-slate-500 text-[10px] block">{request.student_email}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 block font-medium">Status</span>
@@ -207,8 +212,8 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                   )}
                 </div>
                 <div>
-                  <span className="text-slate-400 block font-medium">Submission ID</span>
-                  <span className="font-mono text-slate-800 break-all">{request.submission_id}</span>
+                  <span className="text-slate-400 block font-medium">Assignment</span>
+                  <span className="text-slate-800 font-medium">{request.assignment_title}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 block font-medium">Submitted at</span>
@@ -216,24 +221,22 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                 </div>
               </div>
 
-              {request.criterion_id && (
-                <div className="pt-1 border-t border-slate-200/60">
-                  <span className="text-slate-400 text-[10px] block font-semibold uppercase tracking-wider">
-                    Target Criterion
-                  </span>
-                  <span className="font-mono text-slate-800 text-[11px] break-all">
-                    {request.criterion_id}
-                  </span>
-                </div>
-              )}
+              <div className="pt-1 border-t border-slate-200/60">
+                <span className="text-slate-400 text-[10px] block font-semibold uppercase tracking-wider">
+                  Target Criterion
+                </span>
+                <span className="text-slate-800 font-medium text-[11px]">
+                  {request.criterion_code} — {request.criterion_title}
+                </span>
+              </div>
 
-              {request.finding_id && (
+              {request.finding_description && (
                 <div className="pt-1 border-t border-slate-200/60">
                   <span className="text-slate-400 text-[10px] block font-semibold uppercase tracking-wider">
                     Target Finding
                   </span>
-                  <span className="font-mono text-slate-800 text-[11px] break-all">
-                    {request.finding_id}
+                  <span className="text-slate-800 text-[11px]">
+                    {request.finding_description}
                   </span>
                 </div>
               )}
@@ -360,9 +363,9 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({
                       </span>
                     )}
                   </div>
-                  {request.responded_by_user_id && (
-                    <p className="text-[11px] font-mono opacity-80">
-                      Responded by: {request.responded_by_user_id}
+                  {request.responded_by_display_name && (
+                    <p className="text-[11px] opacity-80">
+                      Responded by: {request.responded_by_display_name}
                     </p>
                   )}
                   <div className="mt-2 pt-2 border-t border-current/10">
@@ -654,7 +657,7 @@ export const AppealsInboxView: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-medium">
                 <tr>
-                  <th scope="col" className="px-4 py-3">Student / Request ID</th>
+                  <th scope="col" className="px-4 py-3">Student</th>
                   <th scope="col" className="px-4 py-3">Target</th>
                   <th scope="col" className="px-4 py-3">Appeal Reason</th>
                   <th scope="col" className="px-4 py-3">Submitted</th>
@@ -666,30 +669,33 @@ export const AppealsInboxView: React.FC = () => {
                 {requests.map((request) => (
                   <tr key={request.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="px-4 py-3.5">
-                      <div className="font-mono text-xs font-semibold text-slate-900 truncate max-w-[140px]" title={request.student_id}>
-                        {request.student_id}
+                      <div className="text-xs font-semibold text-slate-900 truncate max-w-[160px]" title={request.student_display_name}>
+                        {request.student_display_name}
                       </div>
-                      <div className="text-[10px] text-slate-400 font-mono truncate max-w-[140px]" title={request.id}>
-                        req: {request.id}
+                      <div className="text-[10px] text-slate-500 truncate max-w-[160px]" title={request.student_email}>
+                        {request.student_email}
                       </div>
                     </td>
                     <td className="px-4 py-3.5">
-                      {request.criterion_id ? (
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 block uppercase">Criterion</span>
-                          <span className="font-mono text-[11px] text-slate-800 break-all max-w-[160px] block" title={request.criterion_id}>
-                            {request.criterion_id}
-                          </span>
-                        </div>
-                      ) : request.finding_id ? (
-                        <div>
+                      <div className="mb-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 block uppercase">Assignment</span>
+                        <span className="text-[11px] text-slate-800 font-medium max-w-[180px] truncate block" title={request.assignment_title}>
+                          {request.assignment_title}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 block uppercase">Criterion</span>
+                        <span className="text-[11px] text-slate-800 font-medium max-w-[180px] truncate block" title={`${request.criterion_code} — ${request.criterion_title}`}>
+                          {request.criterion_code} — {request.criterion_title}
+                        </span>
+                      </div>
+                      {request.finding_description && (
+                        <div className="mt-0.5">
                           <span className="text-[10px] font-bold text-slate-400 block uppercase">Finding</span>
-                          <span className="font-mono text-[11px] text-slate-800 break-all max-w-[160px] block" title={request.finding_id}>
-                            {request.finding_id}
+                          <span className="text-[11px] text-slate-600 max-w-[180px] truncate block" title={request.finding_description}>
+                            {request.finding_description}
                           </span>
                         </div>
-                      ) : (
-                        <span className="text-slate-400">-</span>
                       )}
                     </td>
                     <td className="px-4 py-3.5 max-w-xs">
@@ -778,7 +784,7 @@ export const AppealsInboxView: React.FC = () => {
           requestId={requestIdParam}
           onClose={handleCloseModal}
           onResponded={() => {
-            setFeedbackBanner(`Review request ${requestIdParam} successfully updated.`);
+            setFeedbackBanner('Review request successfully updated.');
             void queryClient.invalidateQueries({ queryKey: ['review-requests'] });
           }}
         />
