@@ -29,14 +29,17 @@ class _Response:
     def getheader(self, name: str) -> str | None:
         return self._headers.get(name)
 
-    def read(self, limit: int) -> bytes:
+    def read1(self, limit: int) -> bytes:
         return self._body.read(limit)
 
 
 def _fake_connections(
-    monkeypatch: pytest.MonkeyPatch, responses: dict[str, _Response]
+    monkeypatch: pytest.MonkeyPatch,
+    responses: dict[str, _Response],
+    timeouts: list[float] | None = None,
 ) -> list[tuple[str, str, str]]:
     connected: list[tuple[str, str, str]] = []
+    timeouts = [] if timeouts is None else timeouts
 
     class Connection:
         def __init__(self, host: str, address: str, _timeout: float) -> None:
@@ -49,6 +52,9 @@ def _fake_connections(
 
         def getresponse(self) -> _Response:
             return responses[f"{self.host}{self.path}"]
+
+        def set_timeout(self, seconds: float) -> None:
+            timeouts.append(seconds)
 
         def close(self) -> None:
             return None
@@ -162,7 +168,7 @@ def test_trickled_body_is_abandoned_at_total_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class Trickle(_Response):
-        def read(self, _limit: int) -> bytes:
+        def read1(self, _limit: int) -> bytes:
             return self._body.read(1)
 
     monkeypatch.setattr(
@@ -185,3 +191,42 @@ def test_trickled_body_is_abandoned_at_total_deadline(
         )
         is None
     )
+
+
+def test_socket_timeout_shrinks_to_the_remaining_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # One blocked recv must not outlive the total deadline, so each socket
+    # operation gets min(per-read timeout, time left).
+    class Trickle(_Response):
+        def read1(self, _limit: int) -> bytes:
+            return self._body.read(1)
+
+    monkeypatch.setattr(
+        safe_fetch.socket, "getaddrinfo", _addresses({"repo.test": "93.184.216.34"})
+    )
+    timeouts: list[float] = []
+    _fake_connections(
+        monkeypatch,
+        {
+            "repo.test/a.pdf": Trickle(
+                200, {"Content-Type": "application/pdf"}, b"x" * 100
+            )
+        },
+        timeouts,
+    )
+    clock = iter(range(0, 1_000, 10))
+    monkeypatch.setattr(safe_fetch.time, "monotonic", lambda: next(clock))
+
+    assert (
+        fetch_public_https(
+            "https://repo.test/a.pdf",
+            accept="*/*",
+            content_types=_PDF,
+            max_bytes=1_000,
+            timeout=15.0,
+        )
+        is None
+    )
+    assert timeouts[:-1] == [15.0] * (len(timeouts) - 1)
+    assert timeouts[-1] == 10.0

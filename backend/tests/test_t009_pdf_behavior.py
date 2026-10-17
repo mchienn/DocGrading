@@ -954,3 +954,53 @@ def test_retry_reuses_same_job_row_and_preserves_attempt_count(
     assert result.error_code is None
     assert document.status is DocumentStatus.QUEUED
     assert added == []
+
+
+def test_seal_upload_survives_local_recovery_copy_failure(tmp_path) -> None:
+    class InternalClient:
+        def copy_object(self, **_kwargs: object) -> None:
+            return None
+
+        def head_object(self, **_kwargs: object) -> dict[str, object]:
+            return {
+                "ContentType": "application/pdf",
+                "ContentLength": 128,
+                "ETag": '"sealed-etag"',
+            }
+
+        def get_object(self, **_kwargs: object) -> dict[str, object]:
+            raise OSError("transient read failure")
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage._internal = InternalClient()
+    storage._recovery_dir = tmp_path
+
+    head = storage.seal_upload("uploads/staging.pdf", "documents/sealed.pdf", '"e"')
+
+    assert head.etag == '"sealed-etag"'
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [("NoSuchKey", StorageObjectNotFound), ("NoSuchBucket", ClientError)],
+)
+def test_unrestorable_missing_object_keeps_storage_failure_for_missing_bucket(
+    code: str, expected: type[Exception], tmp_path
+) -> None:
+    class InternalClient:
+        def head_object(self, **_kwargs: object) -> dict[str, object]:
+            raise ClientError({"Error": {"Code": code, "Message": "x"}}, "HeadObject")
+
+        def get_object(self, **_kwargs: object) -> dict[str, object]:
+            raise ClientError({"Error": {"Code": code, "Message": "x"}}, "GetObject")
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage._internal = InternalClient()
+    storage._recovery_dir = tmp_path  # no recovery copy exists
+
+    with pytest.raises(expected):
+        storage.head("documents/gone.pdf")
+    with pytest.raises(expected):
+        storage.get_bounded("documents/gone.pdf", 10)

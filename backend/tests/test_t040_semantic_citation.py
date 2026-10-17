@@ -1657,6 +1657,35 @@ def test_exact_textual_support_short_circuits_model_and_negation_does_not() -> N
     assert negation_model.calls == 1
 
 
+def test_non_exact_claim_without_routed_model_needs_manual_review() -> None:
+    ref = _reference()
+    source = _source(
+        passages=[_passage(text="Transformer achieves 28.4 BLEU on the test set.")]
+    )
+    claim = "Transformer beats every baseline on BLEU [1]."
+    pair = semantic.ClaimCitationPair(
+        pair_id="pair-unrouted",
+        claim_id="claim-unrouted",
+        mention_id="mention-unrouted",
+        reference_id=ref.id,
+        claim=claim,
+        context="",
+        claim_anchor=semantic.SemanticClaimAnchor(
+            page_number=1, element_id="p-1", start=0, end=len(claim)
+        ),
+        extraction_method=semantic.ExtractionMethod.SENTENCE,
+        linked_marker_span=_numeric_marker_span(claim),
+    )
+
+    result = semantic.evaluate_claim(pair, ref, source, None)
+
+    assert result.status is semantic.SemanticPipelineStatus.NEEDS_MANUAL_REVIEW
+    assert result.reason_code == semantic.SemanticReasonCode.MODEL_NOT_ROUTED
+    assert result.manual_review_required is True
+    description, _suggestion = semantic._feedback(result.status, claim)
+    assert "insufficient" not in description.lower()
+
+
 def test_bedrock_geographic_approval_and_profile_denials() -> None:
     with pytest.raises(ValueError):
         semantic.BedrockSemanticModel(
