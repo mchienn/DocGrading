@@ -37,7 +37,6 @@ interface CriterionTab {
   title: string;
   findings: Finding[];
   totalFindings: number;
-  decidedFindings: number;
 }
 
 const semanticVerdicts: SemanticPipelineStatus[] = [
@@ -292,29 +291,18 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
   }, [showPublish]);
 
   const hydrateDraft = useCallback((evidence: EvidenceWorkspace, stored: ReviewDraft) => {
-    const findings = new Map(evidence.findings.map((finding) => [finding.id, finding]));
     const loaded: DraftContent = {
-      document_version_id: evidence.document_version_id,
-      comment: stored.comment,
-      decisions: stored.decisions.map((decision) => {
-        const finding = findings.get(decision.finding_id);
-        if (!finding || decision.edited_description !== finding.description) return decision;
-        return { ...decision, edited_description: findingDescription(finding, evidence.citation) };
-      }),
-    };
-    const serverBaseline: DraftContent = {
       document_version_id: evidence.document_version_id,
       comment: stored.comment,
       decisions: stored.decisions,
     };
     hydratedDocumentRef.current = evidence.document_version_id;
     revisionRef.current = stored.revision;
-    lastSavedRef.current = serializeDraft(serverBaseline);
+    lastSavedRef.current = serializeDraft(loaded);
     queuedRef.current = undefined;
     draftRef.current = loaded;
     setDraft(loaded);
-    const isTransformed = serializeDraft(loaded) !== lastSavedRef.current;
-    setSaveStatus(isTransformed ? 'saving' : 'saved');
+    setSaveStatus('saved');
     setSaveError(undefined);
     setSelectedFindingId(evidence.findings[0]?.id);
     setActiveCriterionId(evidence.findings[0]?.criterion_version_id);
@@ -423,7 +411,8 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
     return savePromise;
   }, [submissionId]);
 
-  const editable = !leaving && reviewLock?.acquired === true && documentStatus === 'AWAITING_REVIEW';
+  const canEdit = reviewLock?.acquired === true && documentStatus === 'AWAITING_REVIEW';
+  const editable = !leaving && canEdit;
   useEffect(() => {
     if (!draft || !editable || serializeDraft(draft) === lastSavedRef.current) return;
     setSaveStatus('saving');
@@ -450,9 +439,6 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
       if (existing) {
         existing.findings.push(finding);
         existing.totalFindings += 1;
-        if (decisionByFinding.has(finding.id)) {
-          existing.decidedFindings += 1;
-        }
       } else {
         map.set(finding.criterion_version_id, {
           id: finding.criterion_version_id,
@@ -460,12 +446,15 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
           title: finding.criterion_title,
           findings: [finding],
           totalFindings: 1,
-          decidedFindings: decisionByFinding.has(finding.id) ? 1 : 0,
         });
       }
     }
     return Array.from(map.values());
-  }, [findings, decisionByFinding]);
+  }, [findings]);
+  // Decision counts live outside `criteria` so edits don't change finding-group identity
+  // (PdfEvidenceViewer receives activeFindings).
+  const decidedCount = (criterion?: CriterionTab) =>
+    criterion?.findings.filter((finding) => decisionByFinding.has(finding.id)).length ?? 0;
 
   useEffect(() => {
     if (!criteria.length) return;
@@ -626,7 +615,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
     const exitPromise = (async () => {
       setLeaving(true);
       const latest = draftRef.current;
-      if (latest && serializeDraft(latest) !== lastSavedRef.current) {
+      if (canEdit && latest && serializeDraft(latest) !== lastSavedRef.current) {
         queuedRef.current = latest;
         setSaveStatus('saving');
         await drainSaves();
@@ -652,7 +641,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
       if (exitPromiseRef.current === exitPromise) exitPromiseRef.current = undefined;
     });
     return exitPromise;
-  }, [drainSaves, reviewLock?.acquired, submissionId]);
+  }, [canEdit, drainSaves, reviewLock?.acquired, submissionId]);
 
   useEffect(() => {
     if (blocker.state !== 'blocked') return;
@@ -825,7 +814,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
               <div role="tablist" aria-label="Rubric criteria" className="flex flex-wrap gap-2 pb-2">
                 {criteria.map((criterion) => {
                   const isActive = criterion.id === activeCriterion?.id;
-                  const isComplete = criterion.totalFindings > 0 && criterion.decidedFindings === criterion.totalFindings;
+                  const isComplete = criterion.totalFindings > 0 && decidedCount(criterion) === criterion.totalFindings;
                   return (
                     <button
                       key={criterion.id}
@@ -867,7 +856,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
                         }`}
                       >
                         {isComplete && <Check className="w-2.5 h-2.5 inline" />}
-                        {criterion.decidedFindings}/{criterion.totalFindings}
+                        {decidedCount(criterion)}/{criterion.totalFindings}
                       </span>
                     </button>
                   );
@@ -903,7 +892,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
                     </div>
                   )}
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {activeFindings.length} finding{activeFindings.length === 1 ? '' : 's'} ({activeCriterion?.decidedFindings ?? 0} decided)
+                    {activeFindings.length} finding{activeFindings.length === 1 ? '' : 's'} ({decidedCount(activeCriterion)} decided)
                   </p>
                 </div>
 

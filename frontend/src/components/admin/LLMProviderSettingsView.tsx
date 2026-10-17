@@ -152,6 +152,9 @@ const ConfigureProviderModal: React.FC<ConfigureProviderModalProps> = ({
   const [saving, setSaving] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removing, setRemoving] = useState(false);
+  // A saved key exists only when the provider's current credential source is STORED;
+  // stored_credentials_available just says storage is possible.
+  const hasStoredKey = provider.credential_source === 'STORED';
 
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -160,6 +163,15 @@ const ConfigureProviderModal: React.FC<ConfigureProviderModalProps> = ({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(undefined);
+    if (
+      provider.provider !== 'BEDROCK'
+      && credentialSource === 'STORED'
+      && !hasStoredKey
+      && credentialKey.trim().length === 0
+    ) {
+      setError('Enter an API key to store for this provider.');
+      return;
+    }
     setSaving(true);
     try {
       const isBedrock = provider.provider === 'BEDROCK';
@@ -450,7 +462,7 @@ const ConfigureProviderModal: React.FC<ConfigureProviderModalProps> = ({
                 value={credentialKey}
                 onChange={(e) => setCredentialKey(e.target.value)}
                 placeholder={
-                  provider.stored_credentials_available
+                  hasStoredKey
                     ? `Current hint: ${provider.masked_hint ?? 'Configured'} (leave blank to keep)`
                     : 'Paste provider API key...'
                 }
@@ -816,6 +828,13 @@ export const LLMProviderSettingsView: React.FC = () => {
     }
   }, [selectedProvider, selectedProviderData, protocol]);
 
+  // After a mutation that already refreshed ['llm-route'], adopt its revision so the next
+  // draft save sends a current If-Match (form fields stay as the admin left them).
+  const syncRouteRevision = () => {
+    const route = queryClient.getQueryData<LLMRouteResponse>(['llm-route']);
+    if (route) setHydratedRevision(route.revision);
+  };
+
   // Handle Catalog Test Mutation
   const handleTestCatalog = async (provider: LLMProviderResponse) => {
     setTestPendingProvider(provider.provider);
@@ -847,6 +866,7 @@ export const LLMProviderSettingsView: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['llm-providers'] }),
         queryClient.invalidateQueries({ queryKey: ['llm-route'] }),
       ]);
+      syncRouteRevision();
     } catch (err) {
       setTestResultFeedback({
         provider: provider.provider,
@@ -929,6 +949,7 @@ export const LLMProviderSettingsView: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['llm-providers'] }),
         queryClient.invalidateQueries({ queryKey: ['admin-audit'] }),
       ]);
+      syncRouteRevision();
     } catch (err) {
       setDeactivateError(getErrorMessage(err));
     } finally {
@@ -1666,10 +1687,7 @@ export const LLMProviderSettingsView: React.FC = () => {
         <ConfigureProviderModal
           provider={editingProvider}
           onClose={() => setEditingProvider(null)}
-          onSuccess={() => {
-            void providersQuery.refetch();
-            void routeQuery.refetch();
-          }}
+          onSuccess={syncRouteRevision}
         />
       )}
 
@@ -1681,10 +1699,7 @@ export const LLMProviderSettingsView: React.FC = () => {
             providersByCode[activatingRoute.provider]?.display_name ?? activatingRoute.provider
           }
           onClose={() => setActivatingRoute(null)}
-          onSuccess={() => {
-            void routeQuery.refetch();
-            void providersQuery.refetch();
-          }}
+          onSuccess={syncRouteRevision}
         />
       )}
     </div>

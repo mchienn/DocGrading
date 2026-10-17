@@ -6,7 +6,8 @@ import {
 } from '../types/docgrading';
 import { DEFAULT_SRS_CATALOG } from './rubricCatalog';
 
-export const DEFAULT_SRS_CRITERIA: RubricCriterion[] = DEFAULT_SRS_CATALOG;
+// SRS-01..12 baseline totals 100%; ACC-01 is an optional catalog add-on (teacher rebalances weights when adding it).
+export const DEFAULT_SRS_CRITERIA: RubricCriterion[] = DEFAULT_SRS_CATALOG.filter((c) => c.code.startsWith('SRS-'));
 
 export const INITIAL_COURSES: Course[] = [
   {
