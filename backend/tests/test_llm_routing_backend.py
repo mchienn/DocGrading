@@ -266,6 +266,23 @@ def test_job_snapshot_resolves_only_current_verified_credential(
     assert asyncio.run(_snapshot_model(Database(), job)) is None
 
 
+def test_job_route_snapshot_takes_a_shared_row_lock() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.analysis_job import _llm_route_snapshot
+
+    captured: list[object] = []
+
+    class Database:
+        async def scalar(self, query: object) -> None:
+            captured.append(query)
+
+    assert asyncio.run(_llm_route_snapshot(Database())) is None  # type: ignore[arg-type]
+    sql = str(captured[0].compile(dialect=postgresql.dialect()))  # type: ignore[attr-defined]
+    # FOR SHARE blocks route mutation but lets concurrent job creation proceed.
+    assert sql.rstrip().endswith("FOR SHARE")
+
+
 def test_provider_payload_removes_known_identity_and_extra_metadata() -> None:
     source = SimpleNamespace(
         source_id="doi:10.1000/source",
