@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     # optional OpenAlex key raises the free search budget from $0.10 to $1 per day.
     citation_contact_email: str = ""
     openalex_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    # Wall-clock bound on Crossref/arXiv/OpenAlex identity resolution per analysis job.
+    citation_resolution_deadline_seconds: int = Field(default=180, gt=0)
     # Download verified sources (arXiv, OpenAlex open-access PDFs) into the cache.
     semantic_source_fetch_enabled: bool = False
     semantic_source_cache_prefix: str = ""
