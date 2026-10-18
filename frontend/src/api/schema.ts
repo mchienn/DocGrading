@@ -1459,6 +1459,7 @@ export interface components {
             review_requests_by_status: {
                 [key: string]: number;
             };
+            semantic_retrieval: components["schemas"]["AdminSemanticRetrievalStatus"];
         };
         /** AdminJobTrendPoint */
         AdminJobTrendPoint: {
@@ -1473,6 +1474,23 @@ export interface components {
             error_jobs: number;
             /** Average Processing Seconds */
             average_processing_seconds: number;
+        };
+        /**
+         * AdminSemanticRetrievalStatus
+         * @description Semantic-citation retrieval mode and encoder health over the last 7 days.
+         */
+        AdminSemanticRetrievalStatus: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "ENCODER_RERANKER" | "ENCODER" | "BM25_ONLY";
+            /** Semantic Jobs Last 7 Days */
+            semantic_jobs_last_7_days: number;
+            /** Encoder Failure Jobs Last 7 Days */
+            encoder_failure_jobs_last_7_days: number;
+            /** Last Encoder Failure At */
+            last_encoder_failure_at?: string | null;
         };
         /** AdminUserCreateRequest */
         AdminUserCreateRequest: {

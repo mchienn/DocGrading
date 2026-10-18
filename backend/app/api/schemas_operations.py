@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -186,6 +186,17 @@ class AdminJobTrendPoint(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class AdminSemanticRetrievalStatus(BaseModel):
+    """Semantic-citation retrieval mode and encoder health over the last 7 days."""
+
+    mode: Literal["ENCODER_RERANKER", "ENCODER", "BM25_ONLY"]
+    semantic_jobs_last_7_days: int = Field(ge=0)
+    encoder_failure_jobs_last_7_days: int = Field(ge=0)
+    last_encoder_failure_at: datetime | None = None
+
+    model_config = {"extra": "forbid"}
+
+
 class AdminDashboardResponse(BaseModel):
     jobs_by_status: dict[AnalysisJobStatus, int]
     submissions_by_course: list[CourseSubmissionCount]
@@ -194,5 +205,6 @@ class AdminDashboardResponse(BaseModel):
     average_active_job_age_seconds: float = Field(ge=0)
     jobs_last_7_days: list[AdminJobTrendPoint] = Field(min_length=7, max_length=7)
     review_requests_by_status: dict[ReviewRequestStatus, int]
+    semantic_retrieval: AdminSemanticRetrievalStatus
 
     model_config = {"extra": "forbid"}
