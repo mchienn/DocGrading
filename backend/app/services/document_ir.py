@@ -1182,7 +1182,7 @@ def _extract_tables(
     text_char_count = len(text_page.objects.get("char", ()))
     if text_char_count > _MAX_TABLE_TEXT_CHARS:
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
-    text_words = text_page.extract_words()
+    text_words = text_page.extract_words(x_tolerance_ratio=WORD_X_TOLERANCE_RATIO)
     if len(text_words) > _MAX_TABLE_TEXT_WORDS:
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
     budget.consume(len(text_words))
@@ -1205,6 +1205,7 @@ def _extract_tables(
                 "horizontal_strategy": "text",
                 "min_words_vertical": _TEXT_TABLE_MIN_WORDS_VERTICAL,
                 "min_words_horizontal": _TEXT_TABLE_MIN_WORDS_HORIZONTAL,
+                "text_x_tolerance_ratio": WORD_X_TOLERANCE_RATIO,
             }
         )
     )
@@ -1258,7 +1259,7 @@ def _extract_tables(
             cell_count += sum(len(row.cells) for row in table_rows)
             if cell_count > _MAX_TABLE_CELLS:
                 raise PDFValidationError("PDF_STRUCTURE_LIMIT")
-            extracted_rows = table.extract()
+            extracted_rows = table.extract(x_tolerance_ratio=WORD_X_TOLERANCE_RATIO)
             if is_text and not _text_table_rows_are_consistent(extracted_rows):
                 continue
         except PDFValidationError:
