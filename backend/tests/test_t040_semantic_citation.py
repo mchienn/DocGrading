@@ -192,6 +192,71 @@ def _report(
     return report, document
 
 
+def _two_marker_report(text: str) -> tuple[CitationReport, dict[str, object]]:
+    """Report with linked mentions and references for both [1] and [2]."""
+    report, document = _report(text)
+    ref2 = _reference("ref-2", doi="10.1000/183", title="Second Source")
+    start = text.index("[2]")
+    mention2 = replace(
+        report.mentions[0],
+        id="mention-2",
+        raw="[2]",
+        start=start,
+        end=start + 3,
+        marker_start=start,
+        marker_end=start + 3,
+        reference_ids=(ref2.id,),
+    )
+    return (
+        replace(
+            report,
+            references=[*report.references, ref2],
+            mentions=[*report.mentions, mention2],
+        ),
+        document,
+    )
+
+
+def _anchored_claims(text: str) -> list[str]:
+    report, document = _two_marker_report(text)
+    pairs = semantic.extract_claim_pairs(report, document)
+    for pair in pairs:
+        anchor = pair.claim_anchor
+        assert text[anchor.start : anchor.end] == pair.claim
+    return [pair.claim for pair in pairs]
+
+
+def test_claim_per_marker_splits_sentence_and_clause() -> None:
+    # Each marker owns the text since the previous one; the tail goes to the last.
+    text = "Method A is fast [1] and Method B is slow [2] in practice."
+    assert _anchored_claims(text) == [
+        "Method A is fast [1]",
+        "and Method B is slow [2] in practice.",
+    ]
+
+    # Markers inside one semicolon clause split that clause, not the sentence.
+    text = "Method A is fast [1] and Method B is slow [2]; further context."
+    assert _anchored_claims(text) == [
+        "Method A is fast [1]",
+        "and Method B is slow [2]",
+    ]
+
+    # A non-marker bracket token is plain text, not a citation boundary.
+    text = "The model uses a [CLS] token [1] to classify text and cites [2]."
+    assert _anchored_claims(text) == [
+        "The model uses a [CLS] token [1]",
+        "to classify text and cites [2].",
+    ]
+    text = "The model uses a [CLS] token [1] to classify text."
+    report, document = _report(text)
+    pairs = semantic.extract_claim_pairs(report, document)
+    assert [pair.claim for pair in pairs] == [text]
+
+    # Numeric lists and ranges (hyphen, en dash, semicolon) are inferred markers.
+    markers = ["[1, 3]", "[2\u20134]", "[5-7]", "[1;2]"]
+    assert semantic._BRACKET_MARKER.findall(" ".join(markers)) == markers
+
+
 class _MockModel:
     def __init__(self, responses: Sequence[Any]) -> None:
         self.responses = list(responses)
