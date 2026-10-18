@@ -738,7 +738,37 @@ def test_hosted_transport_waits_out_rate_limit_then_gives_up(
     with pytest.raises(SemanticProviderError):
         send()
     assert len(calls) == 5
-    assert waits == [7.0, 7.0, 7.0]
+    assert len(waits) == 3
+    assert all(7.0 <= wait <= 8.0 for wait in waits)  # retryDelay plus <=1 s jitter
+
+
+def test_retry_after_http_date_sets_the_wait() -> None:
+    import email.utils
+    import io
+    import urllib.error
+    from datetime import UTC, datetime, timedelta
+
+    from app.services import semantic_adapters
+
+    def error(retry_after: str) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            "https://example.test",
+            429,
+            "quota",
+            {"Retry-After": retry_after},
+            io.BytesIO(b""),
+        )
+
+    future = email.utils.format_datetime(
+        datetime.now(UTC) + timedelta(seconds=12), usegmt=True
+    )
+    past = email.utils.format_datetime(
+        datetime.now(UTC) - timedelta(seconds=12), usegmt=True
+    )
+    assert 10.0 <= semantic_adapters._retry_delay(error(future), 0) <= 12.0
+    # A past or invalid date is no explicit wait: exponential fallback.
+    assert semantic_adapters._retry_delay(error(past), 1) == 4.0
+    assert semantic_adapters._retry_delay(error("soon"), 0) == 2.0
 
 
 def test_hosted_request_builder_rejects_oversized_body() -> None:

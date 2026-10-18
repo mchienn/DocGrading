@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import re
 import threading
 import time
@@ -14,7 +15,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -117,6 +118,11 @@ _CROSSREF_POLITE_LIMITS = (3, 0.34)
 _PROVIDER_TIMEOUT_SECONDS = 15.0
 _PROVIDER_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 _MAX_RETRY_AFTER_SECONDS = 10.0
+# Per-job bound on identity resolution: wall-clock deadline (overridable by
+# `citation_resolution_deadline_seconds`) and consecutive transport failures after
+# which one provider is skipped for the rest of the job.
+_DEFAULT_RESOLUTION_DEADLINE_SECONDS = 180.0
+_MAX_CONSECUTIVE_PROVIDER_FAILURES = 3
 _ARXIV_MIN_INTERVAL_SECONDS = 3.0
 _ARXIV_TIMEOUT_SECONDS = 20.0
 _ARXIV_BATCH_SIZE = 32
@@ -182,8 +188,9 @@ async def _resolve_references(
         reference.arxiv_id for _, reference in arxiv_selected if reference.arxiv_id
     ]
     search_budget = _SearchBudget(_MAX_OPENALEX_SEARCHES)
+    limits = _JobLimits(_resolution_deadline_seconds())
     if arxiv_ids:
-        arxiv_records = await asyncio.to_thread(_resolve_arxiv_batch, arxiv_ids)
+        arxiv_records = await asyncio.to_thread(_resolve_arxiv_batch, arxiv_ids, limits)
         for index, reference in arxiv_selected:
             arxiv_id = extract_arxiv_id(reference.arxiv_id)
             if not reference.arxiv_id:
@@ -196,6 +203,7 @@ async def _resolve_references(
                     _openalex_by_doi,
                     f"10.48550/arxiv.{arxiv_id.split('v', 1)[0]}",
                     search_budget,
+                    limits,
                 )
 
     concurrency, _interval = _crossref_limits()
@@ -203,9 +211,16 @@ async def _resolve_references(
 
     async def resolve(reference: CitationReference) -> dict[str, Any] | None:
         async with semaphore:
-            return await asyncio.to_thread(
-                resolve_reference, reference, search_budget=search_budget
+            record = await asyncio.to_thread(
+                resolve_reference, reference, limits=limits
             )
+        if record is None:
+            # OpenAlex fallbacks run after the Crossref slot is released, so a
+            # slow fallback cannot hold up the next Crossref request.
+            record = await asyncio.to_thread(
+                _resolve_openalex, reference, search_budget, limits
+            )
+        return record
 
     resolved = await asyncio.gather(
         *(resolve(reference) for _index, reference in crossref_selected)
@@ -1566,47 +1581,124 @@ def _crossref_limits() -> tuple[int, float]:
     return _CROSSREF_POLITE_LIMITS if _contact_email() else _CROSSREF_PUBLIC_LIMITS
 
 
+def _resolution_deadline_seconds() -> float:
+    with suppress(Exception):  # settings may be invalid in bare test environments
+        return float(get_settings().citation_resolution_deadline_seconds)
+    return _DEFAULT_RESOLUTION_DEADLINE_SECONDS
+
+
+class _JobLimitReached(Exception):
+    """The job deadline passed, a wait would cross it, or a provider breaker opened."""
+
+
+class _JobLimits:
+    """Per-job wall-clock deadline and consecutive-failure breaker for providers.
+
+    Provider calls check it before every attempt; waits that would cross the
+    deadline are not started. References not reached stay UNRESOLVED.
+    """
+
+    def __init__(
+        self,
+        deadline_seconds: float = math.inf,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._clock = clock
+        self._deadline = clock() + deadline_seconds
+        self._failures: dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def remaining(self) -> float:
+        return self._deadline - self._clock()
+
+    def allows(self, provider: str) -> bool:
+        with self._lock:
+            failures = self._failures.get(provider, 0)
+        return self.remaining() > 0 and failures < _MAX_CONSECUTIVE_PROVIDER_FAILURES
+
+    def check(self, provider: str) -> None:
+        if not self.allows(provider):
+            raise _JobLimitReached
+
+    def fits(self, seconds: float) -> None:
+        """Raise unless a wait of `seconds` ends before the deadline."""
+        if seconds >= self.remaining():
+            raise _JobLimitReached
+
+    def timeout(self, seconds: float) -> float:
+        return max(0.001, min(seconds, self.remaining()))
+
+    def record(self, provider: str, ok: bool | None) -> None:
+        """Count a request outcome; None (e.g. HTTP 429) leaves the streak alone."""
+        if ok is None:
+            return
+        with self._lock:
+            self._failures[provider] = 0 if ok else self._failures.get(provider, 0) + 1
+
+
 def _retry_delay(retry_after: str | None, attempt: int) -> float:
     with suppress(TypeError, ValueError):
         return min(_MAX_RETRY_AFTER_SECONDS, max(0.0, float(retry_after)))
     return float(2**attempt)
 
 
-def _wait_for_crossref_rate_limit() -> None:
+def _wait_for_crossref_rate_limit(limits: _JobLimits | None = None) -> None:
+    """Reserve the next Crossref slot, then wait for it (raises past the deadline)."""
     global _NEXT_REQUEST_AT
+    limits = limits or _JobLimits()
     interval = _crossref_limits()[1]
     with _RATE_LOCK:
         now = time.monotonic()
         delay = max(0.0, _NEXT_REQUEST_AT - now)
+        limits.fits(delay)
         _NEXT_REQUEST_AT = max(now, _NEXT_REQUEST_AT) + interval
     if delay:
         time.sleep(delay)
 
 
-def _crossref_request(url: str) -> dict[str, Any] | None:
-    """JSON body, or None; 429/5xx and timeouts retry with backoff, 404 does not."""
+def _crossref_request(
+    url: str, limits: _JobLimits | None = None
+) -> dict[str, Any] | None:
+    """JSON body, or None; 429/5xx and timeouts retry with backoff, 404 does not.
+
+    Every attempt, retries included, takes a slot from the shared pacer.
+    """
+    limits = limits or _JobLimits()
     request = urllib.request.Request(
         url, headers={"Accept": "application/json", "User-Agent": _user_agent()}
     )
-    for attempt in range(3):
-        try:
-            with _open_provider_request(
-                request, timeout=_PROVIDER_TIMEOUT_SECONDS
-            ) as response:
-                raw = response.read(1_000_000)
-            payload = json.loads(raw.decode("utf-8"))
-            return dict(payload) if isinstance(payload, Mapping) else None
-        except urllib.error.HTTPError as exc:
-            if exc.code not in _PROVIDER_RETRY_STATUSES or attempt == 2:
-                return None
-            delay = _retry_delay(
-                exc.headers.get("Retry-After") if exc.headers else None, attempt
-            )
-        except (OSError, TimeoutError, ValueError, UnicodeError):
-            if attempt == 2:
-                return None
-            delay = float(2**attempt)
-        time.sleep(delay)
+    try:
+        for attempt in range(3):
+            limits.check("crossref")
+            _wait_for_crossref_rate_limit(limits)
+            try:
+                with _open_provider_request(
+                    request, timeout=limits.timeout(_PROVIDER_TIMEOUT_SECONDS)
+                ) as response:
+                    raw = response.read(1_000_000)
+                payload = json.loads(raw.decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                if exc.code not in _PROVIDER_RETRY_STATUSES or attempt == 2:
+                    limits.record(
+                        "crossref", None if exc.code == 429 else exc.code < 500
+                    )
+                    return None
+                delay = _retry_delay(
+                    exc.headers.get("Retry-After") if exc.headers else None, attempt
+                )
+            except (OSError, TimeoutError, ValueError, UnicodeError):
+                if attempt == 2:
+                    limits.record("crossref", False)
+                    return None
+                delay = float(2**attempt)
+            else:
+                limits.record("crossref", True)
+                return dict(payload) if isinstance(payload, Mapping) else None
+            limits.fits(delay)
+            time.sleep(delay)
+    except _JobLimitReached:
+        pass
     return None
 
 
@@ -1629,11 +1721,13 @@ class _SearchBudget:
             self._remaining = 0
 
 
-def _wait_for_openalex_rate_limit() -> None:
+def _wait_for_openalex_rate_limit(limits: _JobLimits | None = None) -> None:
     global _NEXT_OPENALEX_REQUEST_AT
+    limits = limits or _JobLimits()
     with _OPENALEX_RATE_LOCK:
         now = time.monotonic()
         delay = max(0.0, _NEXT_OPENALEX_REQUEST_AT - now)
+        limits.fits(delay)
         _NEXT_OPENALEX_REQUEST_AT = (
             max(now, _NEXT_OPENALEX_REQUEST_AT) + _OPENALEX_MIN_INTERVAL_SECONDS
         )
@@ -1642,7 +1736,10 @@ def _wait_for_openalex_rate_limit() -> None:
 
 
 def _openalex_request(
-    path: str, params: dict[str, Any], budget: _SearchBudget
+    path: str,
+    params: dict[str, Any],
+    budget: _SearchBudget,
+    limits: _JobLimits | None = None,
 ) -> dict[str, Any] | None:
     """One OpenAlex GET; HTTP 429 (daily budget spent) stops searching for the job."""
     settings_key = ""
@@ -1657,18 +1754,27 @@ def _openalex_request(
         f"{_OPENALEX_WORKS_ENDPOINT}{path}?{urllib.parse.urlencode(params)}",
         headers={"Accept": "application/json", "User-Agent": _user_agent()},
     )
-    _wait_for_openalex_rate_limit()
+    limits = limits or _JobLimits()
+    try:
+        limits.check("openalex")
+        _wait_for_openalex_rate_limit(limits)
+    except _JobLimitReached:
+        return None
     try:
         with _open_provider_request(
-            request, timeout=_PROVIDER_TIMEOUT_SECONDS
+            request, timeout=limits.timeout(_PROVIDER_TIMEOUT_SECONDS)
         ) as response:
             payload = json.loads(response.read(2_000_000).decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
             budget.exhaust()
+        else:
+            limits.record("openalex", exc.code < 500)
         return None
     except (OSError, TimeoutError, ValueError, UnicodeError):
+        limits.record("openalex", False)
         return None
+    limits.record("openalex", True)
     return dict(payload) if isinstance(payload, Mapping) else None
 
 
@@ -1707,7 +1813,9 @@ def _openalex_record(work: Any) -> dict[str, Any] | None:
     }
 
 
-def _openalex_by_doi(doi: str, budget: _SearchBudget) -> dict[str, Any] | None:
+def _openalex_by_doi(
+    doi: str, budget: _SearchBudget, limits: _JobLimits | None = None
+) -> dict[str, Any] | None:
     """DOI lookup for works Crossref does not register (e.g. DataCite arXiv DOIs).
 
     Single-entity lookups are free, so they do not consume the search budget.
@@ -1717,19 +1825,23 @@ def _openalex_by_doi(doi: str, budget: _SearchBudget) -> dict[str, Any] | None:
             "/doi:" + urllib.parse.quote(doi, safe="/"),
             {"select": _OPENALEX_SELECT},
             budget,
+            limits,
         )
     )
     return record if record and record.get("doi") == doi else None
 
 
 def _openalex_search(
-    reference: CitationReference, budget: _SearchBudget
+    reference: CitationReference,
+    budget: _SearchBudget,
+    limits: _JobLimits | None = None,
 ) -> dict[str, Any] | None:
     """Title search for a reference Crossref could not match; strict acceptance."""
     title = reference.title if reference.title and len(reference.title) >= 12 else None
     # Lower-case words only: OpenAlex treats AND/OR/NOT, quotes, `~` and `*` as syntax.
     words = re.sub(r"[^\w\s]", " ", (title or reference.raw)[:200]).lower().split()
-    if len(words) < 3 or not budget.take():
+    limits = limits or _JobLimits()
+    if len(words) < 3 or not limits.allows("openalex") or not budget.take():
         return None
     payload = _openalex_request(
         "",
@@ -1739,6 +1851,7 @@ def _openalex_search(
             "select": _OPENALEX_SELECT,
         },
         budget,
+        limits,
     )
     results = payload.get("results") if payload else None
     candidates = [
@@ -1749,11 +1862,13 @@ def _openalex_search(
     return _best_candidate(reference, candidates, threshold=0.85)
 
 
-def _wait_for_arxiv_rate_limit() -> None:
+def _wait_for_arxiv_rate_limit(limits: _JobLimits | None = None) -> None:
     global _NEXT_ARXIV_REQUEST_AT
+    limits = limits or _JobLimits()
     with _ARXIV_RATE_LOCK:
         now = time.monotonic()
         delay = max(0.0, _NEXT_ARXIV_REQUEST_AT - now)
+        limits.fits(delay)
         _NEXT_ARXIV_REQUEST_AT = max(now, _NEXT_ARXIV_REQUEST_AT) + (
             _ARXIV_MIN_INTERVAL_SECONDS
         )
@@ -1802,7 +1917,10 @@ def _arxiv_record(entry: ET.Element) -> dict[str, Any] | None:
     }
 
 
-def _arxiv_request(arxiv_ids: Sequence[str]) -> bytes | None:
+def _arxiv_request(
+    arxiv_ids: Sequence[str], limits: _JobLimits | None = None
+) -> bytes | None:
+    limits = limits or _JobLimits()
     query = urllib.parse.urlencode(
         {"id_list": ",".join(arxiv_ids), "max_results": len(arxiv_ids)}
     )
@@ -1812,7 +1930,7 @@ def _arxiv_request(arxiv_ids: Sequence[str]) -> bytes | None:
     )
     try:
         with _open_provider_request(
-            request, timeout=_ARXIV_TIMEOUT_SECONDS
+            request, timeout=limits.timeout(_ARXIV_TIMEOUT_SECONDS)
         ) as response:
             content_length = response.headers.get("Content-Length")
             if content_length and int(content_length) > _ARXIV_METADATA_MAX_BYTES:
@@ -1838,18 +1956,26 @@ def _arxiv_records(raw: bytes | None) -> dict[str, dict[str, Any]]:
 
 
 def _fetch_arxiv_records(
-    arxiv_ids: Sequence[str], *, attempts: int
+    arxiv_ids: Sequence[str], *, attempts: int, limits: _JobLimits | None = None
 ) -> dict[str, dict[str, Any]] | None:
     """Parsed Atom records, or None when arXiv gave no usable answer."""
-    for _attempt in range(attempts):
-        _wait_for_arxiv_rate_limit()
-        raw = _arxiv_request(arxiv_ids)
-        if raw is not None:
-            return _arxiv_records(raw)
+    limits = limits or _JobLimits()
+    try:
+        for _attempt in range(attempts):
+            limits.check("arxiv")
+            _wait_for_arxiv_rate_limit(limits)
+            raw = _arxiv_request(arxiv_ids, limits)
+            limits.record("arxiv", raw is not None)
+            if raw is not None:
+                return _arxiv_records(raw)
+    except _JobLimitReached:
+        pass
     return None
 
 
-def _resolve_arxiv_batch(arxiv_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+def _resolve_arxiv_batch(
+    arxiv_ids: Sequence[str], limits: _JobLimits | None = None
+) -> dict[str, dict[str, Any]]:
     canonical_ids = list(
         dict.fromkeys(
             arxiv_id
@@ -1876,7 +2002,7 @@ def _resolve_arxiv_batch(arxiv_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
         # arXiv's API often times out or answers 503 under load; one paced retry
         # recovers most batches.
         batch = _fetch_arxiv_records(
-            missing[start : start + _ARXIV_BATCH_SIZE], attempts=2
+            missing[start : start + _ARXIV_BATCH_SIZE], attempts=2, limits=limits
         )
         answered = answered and batch is not None
         parsed.update(batch or {})
@@ -1890,7 +2016,9 @@ def _resolve_arxiv_batch(arxiv_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
     # answer, more requests would only add timeouts.
     if answered and unresolved and len(missing) > 1:
         for arxiv_id in unresolved[:_MAX_ARXIV_SINGLE_FALLBACKS]:
-            parsed.update(_fetch_arxiv_records([arxiv_id], attempts=1) or {})
+            parsed.update(
+                _fetch_arxiv_records([arxiv_id], attempts=1, limits=limits) or {}
+            )
     with _CACHE_LOCK:
         for arxiv_id, record in parsed.items():
             if len(_ARXIV_CACHE) >= _CACHE_MAX:
@@ -1936,16 +2064,31 @@ def resolve_arxiv_references(
     )
 
 
-def resolve_reference(
-    reference: CitationReference, *, search_budget: _SearchBudget | None = None
+def _accept_record(
+    reference: CitationReference, result: dict[str, Any] | None
 ) -> dict[str, Any] | None:
-    """Resolve arXiv metadata first, otherwise Crossref, then OpenAlex.
+    """Drop records without comparable fields; cache DOI matches."""
+    if result is None:
+        return None
+    comparison = result.get("comparison", {})
+    if not isinstance(comparison, Mapping) or not any(
+        comparison.get(field) for field in ("title", "authors", "year", "venue")
+    ):
+        return None
+    if reference.doi:
+        with _CACHE_LOCK:
+            if len(_CACHE) >= _CACHE_MAX:
+                _CACHE.pop(next(iter(_CACHE)))
+            _CACHE[f"doi:{reference.doi}"] = (time.monotonic(), result)
+    return result
 
-    OpenAlex (DOI lookup for DOIs Crossref does not register, title search for
-    references without identifiers) runs only when a per-job search budget is given.
-    """
+
+def _resolve_primary(
+    reference: CitationReference, limits: _JobLimits | None = None
+) -> dict[str, Any] | None:
+    """arXiv metadata for arXiv-only references, otherwise Crossref."""
     if reference.arxiv_id and not reference.doi:
-        return _resolve_arxiv_batch([reference.arxiv_id]).get(
+        return _resolve_arxiv_batch([reference.arxiv_id], limits).get(
             extract_arxiv_id(reference.arxiv_id) or reference.arxiv_id
         )
     cache_key = f"doi:{reference.doi}" if reference.doi else None
@@ -1962,8 +2105,7 @@ def resolve_reference(
     else:
         query = urllib.parse.quote(reference.raw[:240], safe="")
         url = f"https://api.crossref.org/works?query.bibliographic={query}&rows=5"
-    _wait_for_crossref_rate_limit()
-    payload = _crossref_request(url)
+    payload = _crossref_request(url, limits)
     query_text = None if reference.doi else reference.raw[:240]
     results = _crossref_candidates(payload, query=query_text) if payload else []
     if reference.doi:
@@ -1975,25 +2117,41 @@ def resolve_reference(
             ),
             None,
         )
-        if result is None and search_budget is not None:
-            result = _openalex_by_doi(reference.doi, search_budget)
     else:
         result = _best_candidate(reference, results, threshold=0.70)
-        if result is None and search_budget is not None:
-            result = _openalex_search(reference, search_budget)
-    if result is None:
+    return _accept_record(reference, result)
+
+
+def _resolve_openalex(
+    reference: CitationReference,
+    search_budget: _SearchBudget,
+    limits: _JobLimits | None = None,
+) -> dict[str, Any] | None:
+    """OpenAlex: DOI lookup for DOIs Crossref does not register, else title search."""
+    if reference.arxiv_id and not reference.doi:
         return None
-    comparison = result.get("comparison", {})
-    if not isinstance(comparison, Mapping) or not any(
-        comparison.get(field) for field in ("title", "authors", "year", "venue")
-    ):
-        return None
-    if cache_key is not None:
-        with _CACHE_LOCK:
-            if len(_CACHE) >= _CACHE_MAX:
-                _CACHE.pop(next(iter(_CACHE)))
-            _CACHE[cache_key] = (now, result)
-    return result
+    if reference.doi:
+        result = _openalex_by_doi(reference.doi, search_budget, limits)
+    else:
+        result = _openalex_search(reference, search_budget, limits)
+    return _accept_record(reference, result)
+
+
+def resolve_reference(
+    reference: CitationReference,
+    *,
+    search_budget: _SearchBudget | None = None,
+    limits: _JobLimits | None = None,
+) -> dict[str, Any] | None:
+    """Resolve arXiv metadata first, otherwise Crossref, then OpenAlex.
+
+    OpenAlex (DOI lookup for DOIs Crossref does not register, title search for
+    references without identifiers) runs only when a per-job search budget is given.
+    """
+    record = _resolve_primary(reference, limits)
+    if record is None and search_budget is not None:
+        record = _resolve_openalex(reference, search_budget, limits)
+    return record
 
 
 def _squash(value: str | None) -> str:

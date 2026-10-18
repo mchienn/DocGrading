@@ -526,7 +526,9 @@ def _sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     return sentence_start, forced_end or min(right or [len(text)])
 
 
-_BRACKET_MARKER = re.compile(r"\[[^\]\n]{1,64}\]")
+# Inferred markers must look like numeric citations: [1], [1, 3], [1-4], [1;2].
+# Other styles come from parsed mention spans; "[CLS]" or "[MASK]" are plain text.
+_BRACKET_MARKER = re.compile(r"\[\d+(?:\s*[-\u2013,;]\s*\d+)*\]")
 
 
 def _marker_groups(
@@ -540,7 +542,7 @@ def _marker_groups(
     """
     found = {(left, right) for left, right in spans if start <= left and right <= end}
     found |= {
-        (start + item.start(), start + item.end())
+        (item.start(), item.end())
         for item in _BRACKET_MARKER.finditer(text, start, end)
     }
     groups: list[tuple[int, int]] = []
@@ -568,14 +570,19 @@ def _claim_scope(
         for item in parts
         if item.start() <= marker_start - sentence_start < item.end()
     ]
-    if len(parts) > 1 and len(containing) == 1:
+    in_clause = len(parts) > 1 and len(containing) == 1
+    scope_start, scope_end = sentence_start, sentence_end
+    if in_clause:
         part = containing[0]
-        start, end = sentence_start + part.start(), sentence_start + part.end()
-        trimmed = text[start:end].strip()
-        start += len(text[start:end]) - len(text[start:end].lstrip())
-        return trimmed, start, start + len(trimmed), ExtractionMethod.CLAUSE, None
+        scope_start = sentence_start + part.start()
+        scope_end = sentence_start + part.end()
+    raw_scope = text[scope_start:scope_end]
+    scope_start += len(raw_scope) - len(raw_scope.lstrip())
+    scope_end = scope_start + len(raw_scope.strip())
+    scope = text[scope_start:scope_end]
+    method = ExtractionMethod.CLAUSE if in_clause else ExtractionMethod.SENTENCE
     groups = _marker_groups(
-        text, sentence_start, sentence_end, [(marker_start, marker_end), *marker_spans]
+        text, scope_start, scope_end, [(marker_start, marker_end), *marker_spans]
     )
     if len(groups) > 1:
         # Citations at different places in one sentence: each marker owns the text
@@ -588,17 +595,17 @@ def _claim_scope(
             ),
             len(groups) - 1,
         )
-        segment_start = groups[index - 1][1] if index else sentence_start
-        segment_end = sentence_end if index == len(groups) - 1 else groups[index][1]
+        segment_start = groups[index - 1][1] if index else scope_start
+        segment_end = scope_end if index == len(groups) - 1 else groups[index][1]
         segment = text[segment_start:segment_end]
         claim = segment.lstrip(" ,;:").rstrip()
         start = segment_start + len(segment) - len(segment.lstrip(" ,;:"))
         if len(re.findall(r"\w+", _BRACKET_MARKER.sub(" ", claim))) >= 4:
             return claim, start, start + len(claim), ExtractionMethod.CLAUSE, None
-        # A bare list item ("A [1], B [2] and C [3] are ...") keeps the whole sentence.
-        claim = sentence.strip()
-        start = sentence_start + len(sentence) - len(sentence.lstrip())
-        return claim, start, start + len(claim), ExtractionMethod.SENTENCE, None
+        # A bare list item ("A [1], B [2] and C [3] are ...") keeps the whole scope.
+        return scope, scope_start, scope_end, method, None
+    if in_clause:
+        return scope, scope_start, scope_end, method, None
     if re.search(
         r",\s+(?:and|but|while|whereas)\s+[^,;]+\b"
         r"(?:is|are|was|were|shows?|increases?|decreases?|causes?|affects?)\b",
@@ -1748,6 +1755,7 @@ class BedrockSemanticModel:
             raise ValueError("semantic max_tokens is invalid")
         self.max_tokens = requested_tokens
         self._audit_lock = threading.Lock()
+        self._client_lock = threading.Lock()  # parallel claims share one client
         self._calls = 0
         self._input_tokens = 0
         self._output_tokens = 0
@@ -1759,30 +1767,31 @@ class BedrockSemanticModel:
             raise ValueError("semantic model configuration is not approved")
 
     def _client(self) -> Any:
-        if self.client is None:
-            import boto3
-            from botocore.config import Config
+        with self._client_lock:
+            if self.client is None:
+                import boto3
+                from botocore.config import Config
 
-            self.client = boto3.client(
-                "bedrock-runtime",
-                region_name=self.region,
-                config=Config(
-                    retries={"max_attempts": 5, "mode": "adaptive"},
-                    proxies={},
-                    ignore_configured_endpoint_urls=True,
-                ),
-            )
-            endpoint = urlsplit(str(self.client.meta.endpoint_url))
-            if (
-                endpoint.scheme != "https"
-                or endpoint.hostname is None
-                or not endpoint.hostname.endswith(
-                    (".amazonaws.com", ".amazonaws.com.cn")
+                self.client = boto3.client(
+                    "bedrock-runtime",
+                    region_name=self.region,
+                    config=Config(
+                        retries={"max_attempts": 5, "mode": "adaptive"},
+                        proxies={},
+                        ignore_configured_endpoint_urls=True,
+                    ),
                 )
-            ):
-                self.client = None
-                raise SemanticProviderError("semantic provider unavailable")
-        return self.client
+                endpoint = urlsplit(str(self.client.meta.endpoint_url))
+                if (
+                    endpoint.scheme != "https"
+                    or endpoint.hostname is None
+                    or not endpoint.hostname.endswith(
+                        (".amazonaws.com", ".amazonaws.com.cn")
+                    )
+                ):
+                    self.client = None
+                    raise SemanticProviderError("semantic provider unavailable")
+            return self.client
 
     def evaluate(
         self,
@@ -2243,6 +2252,9 @@ def _open_access_pdfs(doi: str, limit: int) -> Iterator[bytes]:
             yield data
 
 
+_DATACITE_ARXIV_DOI_PREFIX = "10.48550/arxiv."
+
+
 def _resolve_from_operator_cache(
     reference: CitationReference,
     settings: Any,
@@ -2251,14 +2263,21 @@ def _resolve_from_operator_cache(
 ) -> SemanticSource | None:
     """Source IR for a verified reference: private cache, then live download.
 
-    Downloads need `semantic_source_fetch_enabled`. An arXiv-only reference uses
-    its exact arXiv version; a reference with a DOI (printed or matched by
-    Crossref) uses open-access copies listed by OpenAlex. Every downloaded PDF is
-    parsed and identity-checked before it is cached or used.
+    Downloads need `semantic_source_fetch_enabled`. An arXiv-only reference, or one
+    whose DOI is a DataCite arXiv DOI, uses its exact arXiv version; any other
+    reference with a DOI (printed or matched by Crossref) uses open-access copies
+    listed by OpenAlex. Every downloaded PDF is parsed and identity-checked before
+    it is cached or used.
     """
     if settings is None:
         return None
     doi = _verified_doi(reference)
+    if doi and doi.lower().startswith(_DATACITE_ARXIV_DOI_PREFIX):
+        # An arXiv DOI must not reach the OpenAlex DOI lane, which accepts an
+        # unversioned arXiv copy; only the exact-version arXiv lane applies.
+        if not _exact_arxiv_id(reference.arxiv_id):
+            return None
+        doi = None
     if doi != reference.doi:
         reference = replace(reference, doi=doi)
     prefix = getattr(settings, "semantic_source_cache_prefix", "") or ""
