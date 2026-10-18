@@ -2102,6 +2102,21 @@ def test_kerned_words_below_three_points_stay_separate() -> None:
     assert parsed.content["paragraphs"][0]["text"] == "Teachers verify cited claims."
 
 
+def test_kerned_words_in_table_cells_stay_separate() -> None:
+    # Table cells are excluded from paragraphs, so their text must use the same
+    # word-gap ratio: -200/1000 em at 11 pt is a 2.2 pt gap.
+    operations = [
+        op.replace("(Kerned) Tj", "[(Glued) -200 (words)] TJ")
+        for op in _make_ruled_table_page(
+            [["Name", "Value"], ["Kerned", "1"]], y_lines=[592, 642, 692]
+        )
+    ]
+    parsed = parse_document_ir(_make_operations_pdf(operations))
+
+    rows = parsed.content["tables"][0]["rows"]
+    assert [cell["text"] for cell in rows[1]["cells"]] == ["Glued words", "1"]
+
+
 def test_upright_only_drops_rotated_margin_stamp() -> None:
     # arXiv stamps "arXiv:<id> [cat] <date>" vertically in the left margin; its
     # glyphs otherwise land inside body lines and split paragraphs.
