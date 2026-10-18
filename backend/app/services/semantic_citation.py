@@ -2073,11 +2073,11 @@ class SourceFetchBudget:
 
 
 def _verified_doi(reference: CitationReference) -> str | None:
-    """DOI printed in the reference, else the DOI Crossref matched it to."""
+    """DOI printed in the reference, else the DOI identity resolution matched it to."""
     record = reference.provider_record or {}
     if reference.doi:
         return reference.doi
-    if record.get("provider") == "crossref" and record.get("doi"):
+    if record.get("provider") in {"crossref", "openalex"} and record.get("doi"):
         return str(record["doi"])
     return None
 

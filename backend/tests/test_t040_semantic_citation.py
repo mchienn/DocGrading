@@ -1927,7 +1927,7 @@ def test_resolve_references_deduplicates_by_canonical_identity(
 
     resolve_calls: list[str] = []
 
-    def mock_resolve(reference: CitationReference) -> dict[str, Any]:
+    def mock_resolve(reference: CitationReference, **_: Any) -> dict[str, Any]:
         resolve_calls.append(reference.id)
         return {"doi": reference.doi, "title": f"Title for {reference.id}"}
 
