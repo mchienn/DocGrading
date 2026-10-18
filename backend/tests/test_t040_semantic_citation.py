@@ -1466,11 +1466,15 @@ def test_claims_run_in_parallel_and_keep_pair_order() -> None:
         def __init__(self) -> None:
             self.lock = threading.Lock()
             self.active = self.peak = 0
+            # Every call waits for a partner: sequential evaluation breaks the
+            # barrier (timeout) and the claim falls to manual review.
+            self.barrier = threading.Barrier(2, timeout=5)
 
         def evaluate(self, *, claim: str, **_: Any) -> dict[str, Any]:
             with self.lock:
                 self.active += 1
                 self.peak = max(self.peak, self.active)
+            self.barrier.wait()
             time.sleep(0.05)
             with self.lock:
                 self.active -= 1
