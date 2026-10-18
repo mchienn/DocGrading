@@ -246,13 +246,16 @@ nên không thay thế holdout/domain sign-off của quality gate.
 
 Citation Semantic Support có baseline stage-wise riêng tại
 [`docs/benchmarks/citation-semantic-v1.md`](../benchmarks/citation-semantic-v1.md).
-Candidate set hiện có 120 pair nhưng đều là `AI_DRAFT`/synthetic, chưa có human
-gold hoặc double annotation đã hoàn tất. Vì vậy số extraction/retrieval hiện tại
-chỉ là software-regression evidence; verdict accuracy, end-to-end accuracy và
-quality gate vẫn `NOT_MEASURED`/`BLOCKED`. Retrieval dùng shared text encoder khi
-được cấu hình (mặc định self-host `BAAI/bge-m3` + reranker qua Text Embeddings
-Inference), còn lại dùng BM25. Trên 16 claim tiếng Việt do AI soạn với 5 paper arXiv
-thật, Hit@3 là BM25 5/16, BGE-M3 13/16, BGE-M3 + reranker 15/16; chi tiết tại
+Candidate set v0 có 120 pair `AI_DRAFT`/synthetic, chưa có human gold hoặc double
+annotation đã hoàn tất, nên chỉ là software-regression evidence. Bộ v1
+`AI_CONSENSUS` (583 pair, 147 paper arXiv giấy phép CC, claim tổng hợp tiếng Việt,
+tiếng Anh và trộn, mọi judge đồng ý nhãn) đo verdict bằng code production qua
+[`docs/benchmarks/citation-semantic-v1-ai-consensus.md`](../benchmarks/citation-semantic-v1-ai-consensus.md):
+evidence Hit@3 BM25 70,8% (tiếng Việt 52,1%), BGE-M3 + reranker 95,0%; prompt v2 với
+`gemini-3.1-flash-lite` trên 200 pair test đạt macro-F1 0,555, false accusation 4,0%.
+Nhãn AI không phải human gold, nên quality gate production vẫn `BLOCKED`.
+Retrieval dùng shared text encoder khi được cấu hình (mặc định self-host
+`BAAI/bge-m3` + reranker qua Text Embeddings Inference), còn lại dùng BM25; chi tiết tại
 [`docs/benchmarks/bge-m3-retrieval-2026-09-24.md`](../benchmarks/bge-m3-retrieval-2026-09-24.md).
 
 ### 7.2. Ngưỡng kích hoạt
