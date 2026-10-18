@@ -1736,6 +1736,7 @@ class BedrockSemanticModel:
             raise ValueError("semantic max_tokens is invalid")
         self.max_tokens = requested_tokens
         self._audit_lock = threading.Lock()
+        self._client_lock = threading.Lock()  # parallel claims share one client
         self._calls = 0
         self._input_tokens = 0
         self._output_tokens = 0
@@ -1747,30 +1748,31 @@ class BedrockSemanticModel:
             raise ValueError("semantic model configuration is not approved")
 
     def _client(self) -> Any:
-        if self.client is None:
-            import boto3
-            from botocore.config import Config
+        with self._client_lock:
+            if self.client is None:
+                import boto3
+                from botocore.config import Config
 
-            self.client = boto3.client(
-                "bedrock-runtime",
-                region_name=self.region,
-                config=Config(
-                    retries={"max_attempts": 5, "mode": "adaptive"},
-                    proxies={},
-                    ignore_configured_endpoint_urls=True,
-                ),
-            )
-            endpoint = urlsplit(str(self.client.meta.endpoint_url))
-            if (
-                endpoint.scheme != "https"
-                or endpoint.hostname is None
-                or not endpoint.hostname.endswith(
-                    (".amazonaws.com", ".amazonaws.com.cn")
+                self.client = boto3.client(
+                    "bedrock-runtime",
+                    region_name=self.region,
+                    config=Config(
+                        retries={"max_attempts": 5, "mode": "adaptive"},
+                        proxies={},
+                        ignore_configured_endpoint_urls=True,
+                    ),
                 )
-            ):
-                self.client = None
-                raise SemanticProviderError("semantic provider unavailable")
-        return self.client
+                endpoint = urlsplit(str(self.client.meta.endpoint_url))
+                if (
+                    endpoint.scheme != "https"
+                    or endpoint.hostname is None
+                    or not endpoint.hostname.endswith(
+                        (".amazonaws.com", ".amazonaws.com.cn")
+                    )
+                ):
+                    self.client = None
+                    raise SemanticProviderError("semantic provider unavailable")
+            return self.client
 
     def evaluate(
         self,
