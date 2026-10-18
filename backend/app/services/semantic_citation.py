@@ -57,9 +57,6 @@ MAX_SOURCE_PASSAGES = 192
 MAX_PASSAGES = 3
 MAX_RESULTS = 256
 MAX_SOURCE_BYTES = 50_000_000
-# Published papers are mostly justified LaTeX; pdfplumber's fixed 3 pt word gap
-# glues their words ("Manyinsectshave"), so source parsing scales it with glyph size.
-SOURCE_WORD_X_TOLERANCE_RATIO = 0.15
 MAX_MODEL_TOKENS = 1_024
 SEMANTIC_EVALUATOR_VERSION = "citation-semantic-v1"
 SEMANTIC_SOURCE_IR_VERSION = 4
@@ -1002,7 +999,6 @@ def build_source_ir(
             max_page_count=100,
             max_nodes=100_000,
             extract_tables=False,
-            word_x_tolerance_ratio=SOURCE_WORD_X_TOLERANCE_RATIO,
             upright_only=True,
         )
         source = _source_from_content(reference, descriptor, parsed.content, digest)
@@ -2022,7 +2018,6 @@ def _source_from_pdf_bytes(
         max_page_count=100,
         max_nodes=100_000,
         extract_tables=False,
-        word_x_tolerance_ratio=SOURCE_WORD_X_TOLERANCE_RATIO,
         upright_only=True,
     )
     kind = "doi" if reference.doi else "arxiv"

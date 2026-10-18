@@ -1243,7 +1243,7 @@ def test_citation_benchmark_gold_cases_are_self_consistent() -> None:
     assert len(annotations["corpus"]["source_sha256"]) == 35
     assert len(unique_documents) == 11
     assert sum(len(document["references"]) for document in unique_documents) == 60
-    assert sum(len(document["mentions"]) for document in unique_documents) == 69
+    assert sum(len(document["mentions"]) for document in unique_documents) == 87
     assert identity["identifier_accuracy"] == 1
     assert identity["status_accuracy"] == 1
     assert identity["field_mismatch"]["f1"] == 1

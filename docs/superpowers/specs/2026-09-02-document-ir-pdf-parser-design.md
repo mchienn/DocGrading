@@ -100,7 +100,10 @@ Each page stores:
   prose, so tables, tables of contents and equation blocks keep row order. Gutter
   detection counts each text row for the side it sits on, so columns whose lines
   never share a baseline (page 1 under a full-width title) still split
-  (parser `pypdf-pdfplumber-v7`);
+  (parser `pypdf-pdfplumber-v7`). Words split where the horizontal gap exceeds
+  15% of glyph size (`WORD_X_TOLERANCE_RATIO`) instead of pdfplumber's fixed
+  3 pt, so justified LaTeX text keeps its words apart (parser
+  `pypdf-pdfplumber-v8`, #47);
 - ordered IDs of headings, paragraphs, logical tables, and link annotations on that page.
 
 Repeated short headers, footers, and page-number margin lines are excluded from
