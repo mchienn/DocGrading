@@ -2224,6 +2224,9 @@ def _open_access_pdfs(doi: str, limit: int) -> Iterator[bytes]:
             yield data
 
 
+_DATACITE_ARXIV_DOI_PREFIX = "10.48550/arxiv."
+
+
 def _resolve_from_operator_cache(
     reference: CitationReference,
     settings: Any,
@@ -2232,14 +2235,21 @@ def _resolve_from_operator_cache(
 ) -> SemanticSource | None:
     """Source IR for a verified reference: private cache, then live download.
 
-    Downloads need `semantic_source_fetch_enabled`. An arXiv-only reference uses
-    its exact arXiv version; a reference with a DOI (printed or matched by
-    Crossref) uses open-access copies listed by OpenAlex. Every downloaded PDF is
-    parsed and identity-checked before it is cached or used.
+    Downloads need `semantic_source_fetch_enabled`. An arXiv-only reference, or one
+    whose DOI is a DataCite arXiv DOI, uses its exact arXiv version; any other
+    reference with a DOI (printed or matched by Crossref) uses open-access copies
+    listed by OpenAlex. Every downloaded PDF is parsed and identity-checked before
+    it is cached or used.
     """
     if settings is None:
         return None
     doi = _verified_doi(reference)
+    if doi and doi.lower().startswith(_DATACITE_ARXIV_DOI_PREFIX):
+        # An arXiv DOI must not reach the OpenAlex DOI lane, which accepts an
+        # unversioned arXiv copy; only the exact-version arXiv lane applies.
+        if not _exact_arxiv_id(reference.arxiv_id):
+            return None
+        doi = None
     if doi != reference.doi:
         reference = replace(reference, doi=doi)
     prefix = getattr(settings, "semantic_source_cache_prefix", "") or ""

@@ -514,10 +514,10 @@ def _probe_crossref(case: Mapping[str, Any]) -> dict[str, Any]:
     original = citation._crossref_request
     adapter_calls = 0
 
-    def counted(url: str) -> dict[str, Any] | None:
+    def counted(url: str, limits: Any = None) -> dict[str, Any] | None:
         nonlocal adapter_calls
         adapter_calls += 1
-        return original(url)
+        return original(url, limits)
 
     with citation._CACHE_LOCK:
         citation._CACHE.clear()

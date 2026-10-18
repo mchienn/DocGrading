@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import pytest
 
 from app.services import citation
 from app.services.document_ir import parse_document_ir
@@ -258,6 +261,7 @@ def test_crossref_request_retries_rate_limit_but_not_missing_doi(monkeypatch) ->
         return io.BytesIO(b'{"message": {}}')
 
     monkeypatch.setattr(citation, "_open_provider_request", opener)
+    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda *_: None)
     monkeypatch.setattr(citation.time, "sleep", lambda _seconds: None)
 
     assert citation._crossref_request("https://api.crossref.org/works/a") == {
@@ -265,6 +269,174 @@ def test_crossref_request_retries_rate_limit_but_not_missing_doi(monkeypatch) ->
     }
     assert citation._crossref_request("https://api.crossref.org/works/b") is None
     assert len(calls) == 3
+
+
+class _FakeClock:
+    """Monotonic clock that only `sleep` and fake provider calls advance."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _doi_reference(index: int) -> citation.CitationReference:
+    return citation.CitationReference(
+        id=f"doi-{index}",
+        number=index,
+        raw=f"doi:10.1000/job.{index}",
+        page_number=1,
+        element_id=f"paragraph-{index}",
+        start=0,
+        end=1,
+        snippet="DOI",
+        doi=f"10.1000/job.{index}",
+    )
+
+
+def _failing_crossref(monkeypatch, clock, calls: list[str], *, took: float = 0.0):
+    def opener(request, timeout):  # noqa: ANN001, ANN202
+        calls.append(request.full_url)
+        clock.now += took
+        raise TimeoutError
+
+    monkeypatch.setattr(citation, "_open_provider_request", opener)
+    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda *_: None)
+    monkeypatch.setattr(citation.time, "sleep", clock.sleep)
+
+
+def test_crossref_retries_reserve_a_pacer_slot_per_attempt(monkeypatch) -> None:
+    clock = _FakeClock()
+    attempts: list[str] = []
+    slots: list[int] = []
+    _failing_crossref(monkeypatch, clock, attempts)
+    monkeypatch.setattr(
+        citation,
+        "_wait_for_crossref_rate_limit",
+        lambda *_: slots.append(len(attempts)),
+    )
+
+    assert citation._crossref_request("https://api.crossref.org/works/a") is None
+
+    # A slot is reserved before each of the three attempts, retries included.
+    assert slots == [0, 1, 2]
+
+
+def test_crossref_wait_never_crosses_the_job_deadline(monkeypatch) -> None:
+    clock = _FakeClock()
+    calls: list[str] = []
+    _failing_crossref(monkeypatch, clock, calls)
+    limits = citation._JobLimits(2.5, clock=clock)
+
+    assert (
+        citation._crossref_request("https://api.crossref.org/works/a", limits) is None
+    )
+
+    # Backoff is 1 s then 2 s: the 2 s wait would end past 2.5 s, so it never starts.
+    assert len(calls) == 2
+    assert clock.now == 1.0
+
+
+def test_resolution_stops_calling_providers_after_the_deadline(monkeypatch) -> None:
+    clock = _FakeClock()
+    calls: list[str] = []
+    _failing_crossref(monkeypatch, clock, calls, took=15.0)
+    limits = citation._JobLimits(10.0, clock=clock)
+
+    records = [
+        citation.resolve_reference(_doi_reference(index), limits=limits)
+        for index in range(5)
+    ]
+
+    assert records == [None] * 5
+    assert len(calls) == 1
+
+
+def test_crossref_pacer_wait_past_the_deadline_reserves_no_slot(monkeypatch) -> None:
+    clock = _FakeClock()
+    slept: list[float] = []
+    monkeypatch.setattr(citation.time, "sleep", slept.append)
+    far_slot = citation.time.monotonic() + 100.0
+    monkeypatch.setattr(citation, "_NEXT_REQUEST_AT", far_slot)
+
+    with pytest.raises(citation._JobLimitReached):
+        citation._wait_for_crossref_rate_limit(citation._JobLimits(5.0, clock=clock))
+
+    assert far_slot == citation._NEXT_REQUEST_AT
+    assert slept == []
+
+
+def test_provider_is_skipped_after_three_consecutive_transport_failures(
+    monkeypatch,
+) -> None:
+    clock = _FakeClock()
+    calls: list[str] = []
+    _failing_crossref(monkeypatch, clock, calls)
+    limits = citation._JobLimits(1_000.0, clock=clock)
+
+    records = [
+        citation.resolve_reference(_doi_reference(index), limits=limits)
+        for index in range(6)
+    ]
+
+    assert records == [None] * 6
+    # Three references x three attempts, then the breaker skips Crossref.
+    assert len(calls) == 9
+
+
+def test_openalex_and_arxiv_breakers_skip_after_three_failures(monkeypatch) -> None:
+    clock = _FakeClock()
+    limits = citation._JobLimits(1_000.0, clock=clock)
+    openalex_calls: list[str] = []
+    arxiv_calls: list[object] = []
+
+    def openalex_opener(request, timeout):  # noqa: ANN001, ANN202
+        openalex_calls.append(request.full_url)
+        raise TimeoutError
+
+    monkeypatch.setattr(citation, "_open_provider_request", openalex_opener)
+    monkeypatch.setattr(citation, "_wait_for_openalex_rate_limit", lambda *_: None)
+    budget = citation._SearchBudget(16)
+    for index in range(5):
+        assert citation._openalex_by_doi(f"10.1000/oa.{index}", budget, limits) is None
+    assert len(openalex_calls) == 3
+
+    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda *_: None)
+    monkeypatch.setattr(
+        citation, "_arxiv_request", lambda ids, *_: arxiv_calls.append(ids)
+    )
+    for _ in range(5):
+        assert (
+            citation._fetch_arxiv_records(["1706.06083"], attempts=1, limits=limits)
+            is None
+        )
+    assert len(arxiv_calls) == 3
+
+
+def test_openalex_fallback_runs_outside_the_crossref_slot(monkeypatch) -> None:
+    references = [_doi_reference(index) for index in range(2)]
+    second_in_crossref = threading.Event()
+    waited_for_second: list[bool] = []
+
+    def crossref(reference, **_):  # noqa: ANN001, ANN202
+        if reference.id == "doi-1":
+            second_in_crossref.set()
+
+    def openalex(reference, budget, limits):  # noqa: ANN001, ANN202
+        if reference.id == "doi-0":
+            # Needs the single Crossref slot to have been released.
+            waited_for_second.append(second_in_crossref.wait(timeout=10))
+
+    monkeypatch.setattr(citation, "_crossref_limits", lambda: (1, 1.0))
+    monkeypatch.setattr(citation, "resolve_reference", crossref)
+    monkeypatch.setattr(citation, "_resolve_openalex", openalex)
+
+    assert asyncio.run(citation._resolve_references(references)) == [None, None]
+    assert waited_for_second == [True]
 
 
 def test_openalex_title_search_runs_only_with_a_budget(monkeypatch) -> None:
@@ -286,27 +458,25 @@ def test_openalex_title_search_runs_only_with_a_budget(monkeypatch) -> None:
     }
     requests: list[dict] = []
 
-    def request(path, params, budget):  # noqa: ANN001, ANN202
+    def request(path, params, budget, limits=None):  # noqa: ANN001, ANN202
         requests.append(params)
         return {"results": [work]}
 
-    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda: None)
-    monkeypatch.setattr(citation, "_crossref_request", lambda _url: None)
+    monkeypatch.setattr(citation, "_crossref_request", lambda *_: None)
     monkeypatch.setattr(citation, "_openalex_request", request)
 
     assert citation.resolve_reference(reference) is None
-    record = citation.resolve_reference(
-        reference, search_budget=citation._SearchBudget(1)
-    )
+    budget = citation._SearchBudget(1)
+    record = citation.resolve_reference(reference, search_budget=budget)
 
     assert record is not None
     assert record["provider"] == "openalex"
     assert record["doi"] == "10.1007/978-3-030-79457-6_35"
     assert citation._identity(reference, record) == (citation.VERIFIED, ())
     assert "search.title" in requests[0]
-    # The budget is spent: no second billed search.
-    budget = citation._SearchBudget(1)
-    assert budget.take() and not budget.take()
+    # The resolver spent the one billed search: one request, none left.
+    assert len(requests) == 1
+    assert not budget.take()
 
 
 def test_candidate_search_selects_matching_record(monkeypatch) -> None:
@@ -324,11 +494,10 @@ def test_candidate_search_selects_matching_record(monkeypatch) -> None:
         year=2020,
         venue="Nature",
     )
-    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda: None)
     monkeypatch.setattr(
         citation,
         "_crossref_request",
-        lambda _url: {
+        lambda *_: {
             "message": {
                 "items": [
                     {
@@ -373,11 +542,10 @@ def test_crossref_search_results_are_not_shared_between_documents(monkeypatch) -
         for suffix in ("one", "two")
     ]
     calls: list[str] = []
-    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda: None)
     monkeypatch.setattr(
         citation,
         "_crossref_request",
-        lambda url: (
+        lambda url, *_: (
             calls.append(url)
             or {
                 "message": {
@@ -465,7 +633,7 @@ def test_arxiv_only_references_do_not_consume_crossref_budget(monkeypatch) -> No
     monkeypatch.setattr(
         citation,
         "_resolve_arxiv_batch",
-        lambda ids: selected.append(tuple(ids)) or {},
+        lambda ids, *_: selected.append(tuple(ids)) or {},
     )
     monkeypatch.setattr(citation, "_openalex_request", lambda *_args: None)
     monkeypatch.setattr(
@@ -501,7 +669,7 @@ def test_arxiv_outage_falls_back_to_openalex_datacite_doi(monkeypatch) -> None:
     )
     paths: list[str] = []
 
-    def openalex(path, params, budget):  # noqa: ANN001, ANN202
+    def openalex(path, params, budget, limits=None):  # noqa: ANN001, ANN202
         paths.append(path)
         return {
             "id": "https://openalex.org/W2",
@@ -511,7 +679,7 @@ def test_arxiv_outage_falls_back_to_openalex_datacite_doi(monkeypatch) -> None:
             "authorships": [{"author": {"display_name": "Aleksander Madry"}}],
         }
 
-    monkeypatch.setattr(citation, "_resolve_arxiv_batch", lambda _ids: {})
+    monkeypatch.setattr(citation, "_resolve_arxiv_batch", lambda *_: {})
     monkeypatch.setattr(citation, "_openalex_request", openalex)
 
     [record] = asyncio.run(citation._resolve_references([reference]))
@@ -1518,11 +1686,11 @@ def test_arxiv_atom_batch_resolution_and_metadata_cache(monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
     citation._ARXIV_CACHE.clear()
     citation._ARXIV_MISS_CACHE.clear()
-    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda: None)
+    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda *_: None)
     monkeypatch.setattr(
         citation,
         "_arxiv_request",
-        lambda ids: calls.append(tuple(ids)) or atom,
+        lambda ids, *_: calls.append(tuple(ids)) or atom,
     )
     records = asyncio.run(citation._resolve_references(refs))
     assert len(calls) == 1
@@ -1544,9 +1712,9 @@ def test_arxiv_partial_batch_falls_back_for_missing_ids(monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
     citation._ARXIV_CACHE.clear()
     citation._ARXIV_MISS_CACHE.clear()
-    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda: None)
+    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda *_: None)
 
-    def request(ids):
+    def request(ids, *_):
         calls.append(tuple(ids))
         return atom(ids[0])
 
@@ -1565,7 +1733,7 @@ def test_arxiv_partial_batch_falls_back_for_missing_ids(monkeypatch) -> None:
     monkeypatch.setattr(
         citation,
         "_arxiv_request",
-        lambda ids: miss_calls.append(tuple(ids)),
+        lambda ids, *_: miss_calls.append(tuple(ids)),
     )
     assert citation._resolve_arxiv_batch(["2401.99999"]) == {}
     assert citation._resolve_arxiv_batch(["2401.99999"]) == {}
