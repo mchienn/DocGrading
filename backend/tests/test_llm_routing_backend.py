@@ -685,6 +685,62 @@ def test_catalog_request_sends_explicit_user_agent(
     assert sent[0].get_header("User-agent") == "DocGrading/1.0"
 
 
+def test_hosted_transport_waits_out_rate_limit_then_gives_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Parallel claims on a free tier get 429; the transport waits as Gemini asks
+    # (retryDelay in the error body) and retries, but not forever.
+    import io
+    import urllib.error
+
+    from app.services import semantic_adapters
+
+    calls: list[str] = []
+    waits: list[float] = []
+    outcomes = [429, "ok", 429, 429, 429]
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class FakeOpener:
+        def open(self, request: urllib.request.Request, timeout: float) -> object:
+            calls.append(request.full_url)
+            outcome = outcomes.pop(0)
+            if outcome == "ok":
+                return FakeResponse(b'{"ok": true}')
+            raise urllib.error.HTTPError(
+                request.full_url,
+                429,
+                "quota",
+                {},
+                io.BytesIO(b'{"error": {"details": [{"retryDelay": "7s"}]}}'),
+            )
+
+    monkeypatch.setattr(
+        semantic_adapters.urllib.request, "build_opener", lambda *_h: FakeOpener()
+    )
+    monkeypatch.setattr(semantic_adapters.time, "sleep", waits.append)
+
+    def send() -> bytes:
+        return semantic_adapters._default_transport(
+            LLMProvider.GEMINI,
+            LLMProtocol.GEMINI_GENERATE_CONTENT,
+            "gemini-test",
+            "key",
+            b"{}",
+        )
+
+    assert send() == b'{"ok": true}'
+    with pytest.raises(SemanticProviderError):
+        send()
+    assert len(calls) == 5
+    assert waits == [7.0, 7.0, 7.0]
+
+
 def test_hosted_request_builder_rejects_oversized_body() -> None:
     with pytest.raises(SemanticProviderError, match="semantic request too large"):
         _request(

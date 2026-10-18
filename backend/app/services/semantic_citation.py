@@ -1162,8 +1162,9 @@ class EncoderRanker:
     and kept next to cached source PDFs when a private cache prefix is configured;
     keying by text means parser changes can never pair old vectors with new
     passages. Claims are de-identified before leaving the worker. Encoder order is
-    reranked with the cross-encoder when one is configured. Any failure returns
-    None, so retrieval falls back to BM25 for that claim.
+    reranked with the cross-encoder when one is configured; a reranker failure
+    keeps the dense order. Any encoder failure returns None, so retrieval falls
+    back to BM25 for that claim. Safe to call from several threads.
     """
 
     def __init__(
@@ -1181,7 +1182,12 @@ class EncoderRanker:
         self._storage = storage
         self._cache_prefix = cache_prefix.strip("/")
         self._vectors: dict[str, list[array]] = {}
+        self._lock = threading.Lock()
         self.failures = 0
+
+    def _failed(self) -> None:
+        with self._lock:
+            self.failures += 1
 
     def __call__(
         self, query: str, passages: Sequence[SemanticSourcePassage]
@@ -1195,11 +1201,15 @@ class EncoderRanker:
             documents = self._document_vectors(passages)
             [query_vector] = self.encoder.embed([claim], kind="query")
             order = similarity_order(query_vector, documents)
-            top = order[:_RERANK_CANDIDATES]
+        except Exception:
+            self._failed()
+            return None
+        top = order[:_RERANK_CANDIDATES]
+        try:
             scores = self.encoder.rerank(claim, [passages[i].text for i in top])
         except Exception:
-            self.failures += 1
-            return None
+            self._failed()
+            scores = None
         if scores is not None:
             ranked = sorted(range(len(top)), key=lambda i: (-scores[i], i))
             order = [top[i] for i in ranked] + order[_RERANK_CANDIDATES:]
@@ -1209,20 +1219,21 @@ class EncoderRanker:
         self, passages: Sequence[SemanticSourcePassage]
     ) -> list[array]:
         source_hash = passages[0].source_hash
-        if source_hash in self._vectors:
-            vectors = self._vectors[source_hash]
-        else:
-            digest = hashlib.sha256(self.encoder.fingerprint.encode())
-            for passage in passages:
-                digest.update(b"\x00" + passage.text.encode())
-            key = f"{self._cache_prefix}/embeddings/{digest.hexdigest()}.f32"
-            vectors = self._cached(key, len(passages))
+        # One lock: concurrent claims citing the same paper encode it once.
+        with self._lock:
+            vectors = self._vectors.get(source_hash)
             if vectors is None:
-                vectors = self.encoder.embed(
-                    [passage.text for passage in passages], kind="document"
-                )
-                self._store(key, vectors)
-            self._vectors[source_hash] = vectors
+                digest = hashlib.sha256(self.encoder.fingerprint.encode())
+                for passage in passages:
+                    digest.update(b"\x00" + passage.text.encode())
+                key = f"{self._cache_prefix}/embeddings/{digest.hexdigest()}.f32"
+                vectors = self._cached(key, len(passages))
+                if vectors is None:
+                    vectors = self.encoder.embed(
+                        [passage.text for passage in passages], kind="document"
+                    )
+                    self._store(key, vectors)
+                self._vectors[source_hash] = vectors
         if len(vectors) != len(passages):
             raise ValueError("passage vectors do not match source passages")
         return vectors
@@ -2311,6 +2322,18 @@ def _resolve_from_operator_cache(
         return None
 
 
+class _ClaimCalls:
+    """Counts one claim's model calls while sharing the job's budgeted model."""
+
+    def __init__(self, model: SemanticModel) -> None:
+        self._model = model
+        self.calls = 0
+
+    def evaluate(self, **kwargs: Any) -> Any:
+        self.calls += 1
+        return self._model.evaluate(**kwargs)
+
+
 class _BudgetExhaustedError(SemanticProviderError):
     """Raised when the semantic model call budget is exhausted."""
 
@@ -2554,8 +2577,9 @@ async def evaluate_semantic_citations(
     sources_by_canonical: dict[str, SemanticSource | None] = {}
     fetch_budget = SourceFetchBudget()
     verified_sources: dict[str, SemanticSource] = {}
-    results: list[SemanticCitationResultResponse] = []
-    deterministic_short_circuits = 0
+    claim_jobs: list[
+        tuple[ClaimCitationPair, CitationReference, SemanticSource | None]
+    ] = []
     for pair in pairs:
         reference = refs.get(pair.reference_id)
         if reference is None:
@@ -2612,22 +2636,39 @@ async def evaluate_semantic_citations(
             source = _accept_source(reference, source)
             if source is not None:
                 verified_sources[canonical_id] = source
-        calls_before = model.calls if model is not None else None
-        result = await asyncio.to_thread(
-            evaluate_claim,
-            pair,
-            reference,
-            source,
-            model,
-            dense_ranker=dense_ranker if callable(dense_ranker) else None,
-        )
-        if (
-            model is not None
-            and calls_before == model.calls
+        claim_jobs.append((pair, reference, source))
+
+    # Sources resolve in order above (provider pacing); claims then run in parallel.
+    # Results keep pair order; under budget pressure, which of the first few
+    # concurrent claims get the last model calls is not fixed.
+    concurrency = max(1, int(getattr(settings, "semantic_model_concurrency", 4) or 1))
+    gate = asyncio.Semaphore(concurrency)
+
+    async def evaluate(
+        pair: ClaimCitationPair,
+        reference: CitationReference,
+        source: SemanticSource | None,
+    ) -> tuple[SemanticCitationResultResponse, bool]:
+        counter = _ClaimCalls(model) if model is not None else None
+        async with gate:
+            result = await asyncio.to_thread(
+                evaluate_claim,
+                pair,
+                reference,
+                source,
+                counter,
+                dense_ranker=dense_ranker if callable(dense_ranker) else None,
+            )
+        deterministic = (
+            counter is not None
+            and counter.calls == 0
             and result.reason_code == SemanticReasonCode.DIRECT_SUPPORT
-        ):
-            deterministic_short_circuits += 1
-        results.append(result)
+        )
+        return result, deterministic
+
+    outcomes = await asyncio.gather(*(evaluate(*item) for item in claim_jobs))
+    results = [result for result, _deterministic in outcomes]
+    deterministic_short_circuits = sum(flag for _result, flag in outcomes)
     complete_sources = list(verified_sources.values())
     report_response = score_semantic_results(
         results,
