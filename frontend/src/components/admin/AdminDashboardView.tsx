@@ -42,19 +42,20 @@ const SemanticRetrievalNotice: React.FC<{ status: SemanticRetrieval }> = ({ stat
   return (
     <div role="status" className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm flex items-start gap-2">
       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
-      <div>
-        {unavailable ? (
+      <div className="space-y-1">
+        {unavailable && (
           <p>
             <span className="font-semibold">Text encoder unavailable.</span> Semantic citation checks match claims
             to source passages by keywords only, so claims written in another language than the source (Vietnamese
             claim, English paper) often get the wrong passages. Set <code>SEMANTIC_ENCODER_URL</code> and{' '}
             <code>SEMANTIC_ENCODER_MODEL</code> on the worker to enable it.
           </p>
-        ) : (
+        )}
+        {failing && (
           <p>
-            <span className="font-semibold">Text encoder failing.</span> {status.encoder_failure_jobs_last_7_days} of{' '}
-            {status.semantic_jobs_last_7_days} semantic jobs in the last 7 days had encoder failures; those claims
-            fell back to keyword search.
+            <span className="font-semibold">{unavailable ? 'Encoder failures recorded.' : 'Text encoder failing.'}</span>{' '}
+            {status.encoder_failure_jobs_last_7_days} of {status.semantic_jobs_last_7_days} semantic jobs in the last
+            7 days had encoder failures; those claims fell back to keyword search.
             {status.last_encoder_failure_at && (
               <> Last failure: {new Date(status.last_encoder_failure_at).toLocaleString()}.</>
             )}

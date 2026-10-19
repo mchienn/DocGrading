@@ -769,8 +769,19 @@ async def _semantic_retrieval_status(db: AsyncSession) -> AdminSemanticRetrieval
     trace = AnalysisJob.snapshot["semantic_citation_trace"]
     failures = AnalysisJob.snapshot[
         ("semantic_citation_trace", "execution", "encoder", "failures")
-    ].astext.cast(sa.Integer)
-    failed = sa.func.coalesce(failures, 0) > 0
+    ]
+    # Only a JSON number counts; a malformed stored value must not break the cast.
+    failed = sa.and_(
+        sa.func.jsonb_typeof(failures) == "number",
+        sa.case(
+            (
+                sa.func.jsonb_typeof(failures) == "number",
+                failures.astext.cast(sa.Numeric),
+            ),
+            else_=0,
+        )
+        > 0,
+    )
     total, failed_jobs, last_failure = (
         await db.execute(
             sa.select(

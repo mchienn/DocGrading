@@ -857,6 +857,17 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
                 {"id": extra["job"]},
             )
             with_failure = await operations_svc.get_dashboard(session)
+            # A malformed stored counter is not a failure and must not break the query.
+            await session.execute(
+                text("""
+                    UPDATE public.analysis_jobs SET snapshot = snapshot ||
+                    '{"semantic_citation_trace": {"execution":
+                      {"encoder": {"failures": "many"}}}}'::jsonb
+                    WHERE id = :id
+                """),
+                {"id": extra["job"]},
+            )
+            malformed = await operations_svc.get_dashboard(session)
             await session.execute(
                 text("""
                     UPDATE public.analysis_jobs
@@ -875,6 +886,14 @@ def test_admin_operations_workflow_and_existing_teacher_scope(
                 == baseline_semantic.encoder_failure_jobs_last_7_days + 1
             )
             assert with_failure.semantic_retrieval.last_encoder_failure_at is not None
+            assert (
+                malformed.semantic_retrieval.semantic_jobs_last_7_days
+                == baseline_semantic.semantic_jobs_last_7_days + 1
+            )
+            assert (
+                malformed.semantic_retrieval.encoder_failure_jobs_last_7_days
+                == baseline_semantic.encoder_failure_jobs_last_7_days
+            )
 
             audit_page = await operations_svc.list_audit_events(
                 session,
