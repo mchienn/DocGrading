@@ -2,7 +2,7 @@
   "schema_version": 1,
   "approvals": [
     {
-      "approval_id": "gemini-3.8-flash-bge-m3-2026-10-20",
+      "approval_id": "gemini-gemini-3.8-flash-2026-10-20-057afe6b",
       "configuration": {
         "evaluator_version": "citation-semantic-v1",
         "prompt_version": "citation-semantic-v2",
@@ -14,7 +14,9 @@
         "model_id": "gemini-3.8-flash",
         "encoder_model": "BAAI/bge-m3",
         "encoder_fingerprint": "034d3c6141eb5056",
-        "reranker": true
+        "encoder_query_prefix": "",
+        "reranker": true,
+        "max_tokens": 512
       },
       "benchmark": {
         "fixture": "semantic_citation_annotations.v1.json",

@@ -49,7 +49,11 @@ class RunConfiguration(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     encoder_model: str = Field(min_length=1, max_length=256)
     encoder_fingerprint: str = Field(min_length=1, max_length=128)
+    # Query vectors depend on the prefix; the fingerprint covers documents only.
+    encoder_query_prefix: str = Field(max_length=256)
     reranker: bool
+    # Output budget: a smaller one truncates verdict JSON into manual review.
+    max_tokens: int = Field(ge=1, le=1024)
 
 
 class Benchmark(BaseModel):

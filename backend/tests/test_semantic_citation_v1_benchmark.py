@@ -94,9 +94,10 @@ def test_gate_entry_is_written_pending_then_replaced_when_approved(
 
     _write_entry(path)
     pending = semantic_gate.load_approvals(path)
-    assert [a.approval_id for a in pending] == [
-        "gemini-gemini-3.8-flash-" + pending[0].benchmark.measured_at.isoformat()
-    ]
+    [entry] = pending
+    assert entry.approval_id.startswith(
+        "gemini-gemini-3.8-flash-" + entry.benchmark.measured_at.isoformat() + "-"
+    )
     assert not pending[0].approved
     assert pending[0].benchmark.hit_at_3 == 0.9498
     assert json.loads(path.read_text())["approvals"][0] == other  # kept verbatim

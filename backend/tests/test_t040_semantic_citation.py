@@ -2356,6 +2356,7 @@ _GATE_ROUTE = {
     "provider": "GEMINI",
     "protocol": "GEMINI_GENERATE_CONTENT",
     "model_id": "gemini-3.8-flash",
+    "max_tokens": 512,
     "call_budget": 10,
 }
 
@@ -2394,7 +2395,9 @@ def _gate_entry(
         model_id=_GATE_ROUTE["model_id"],
         encoder_model=encoder.model,
         encoder_fingerprint=encoder.fingerprint,
+        encoder_query_prefix=encoder.query_prefix,
         reranker=True,
+        max_tokens=_GATE_ROUTE["max_tokens"],
     )
     return {
         "approval_id": "gate-test",
@@ -2545,6 +2548,8 @@ def test_approved_matching_configuration_passes_gate_and_proposes_score(
         ("model_id", "no approved benchmark"),
         ("prompt_fingerprint", "no approved benchmark"),
         ("reranker", "no approved benchmark"),
+        ("query_prefix", "no approved benchmark"),
+        ("max_tokens", "no approved benchmark"),
         ("no_encoder", "encoder missing"),
         ("encoder_failures", "encoder fell back for 1 claims"),
         ("pending", "approval pending"),
@@ -2565,6 +2570,16 @@ def test_gate_blocks_each_blocker_with_its_reason(
         entry = _gate_entry({"prompt_fingerprint": "f" * 64})
     elif case == "reranker":
         kwargs["encoder"] = _gate_encoder(rerank="")
+    elif case == "query_prefix":
+        # Query vectors change with the prefix; the document fingerprint does not.
+        kwargs["encoder"] = _Encoder(
+            "http://embed",
+            "BAAI/bge-m3",
+            rerank_url="http://rerank",
+            query_prefix="query: ",
+        )
+    elif case == "max_tokens":
+        entry = _gate_entry({"max_tokens": 1024})
     elif case == "no_encoder":
         kwargs["no_encoder"] = True
     elif case == "encoder_failures":

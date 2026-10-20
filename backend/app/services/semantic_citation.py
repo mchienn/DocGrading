@@ -1650,7 +1650,9 @@ def _run_configuration(
             model_id=route.get("model_id"),
             encoder_model=ranker.encoder.model,
             encoder_fingerprint=ranker.encoder.fingerprint,
+            encoder_query_prefix=ranker.encoder.query_prefix,
             reranker=bool(ranker.encoder.rerank_url),
+            max_tokens=route.get("max_tokens"),
         )
     except ValidationError:
         return None
