@@ -36,7 +36,11 @@ from app.services.pdf_validation import (
 )
 
 SCHEMA_VERSION: int = 2
-PARSER_VERSION: str = "pypdf-pdfplumber-v7"
+PARSER_VERSION: str = "pypdf-pdfplumber-v8"
+# A horizontal gap above 15% of glyph size is a word break. pdfplumber's fixed 3 pt
+# default glues justified LaTeX words ("Teachersverifycitedclaims.") because
+# LaTeX places words with small TJ offsets instead of space glyphs.
+WORD_X_TOLERANCE_RATIO = 0.15
 
 _TABLE_SOURCE_OBJECT_TYPES = ("line", "rect", "curve")
 _MAX_TABLE_SOURCE_OBJECTS = 256
@@ -740,12 +744,11 @@ def _extract_lines(
     page_height: float,
     budget: _NodeBudget,
     excluded_bboxes: Sequence[_BBox] = (),
-    word_x_tolerance_ratio: float | None = None,
     upright_only: bool = False,
 ) -> tuple[list[_Line], list[_Line], list[_Word]]:
     extracted = page.extract_words(
         extra_attrs=["fontname", "size"],
-        x_tolerance_ratio=word_x_tolerance_ratio,
+        x_tolerance_ratio=WORD_X_TOLERANCE_RATIO,
     )
     budget.consume(len(extracted))
     if upright_only:
@@ -1179,7 +1182,7 @@ def _extract_tables(
     text_char_count = len(text_page.objects.get("char", ()))
     if text_char_count > _MAX_TABLE_TEXT_CHARS:
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
-    text_words = text_page.extract_words()
+    text_words = text_page.extract_words(x_tolerance_ratio=WORD_X_TOLERANCE_RATIO)
     if len(text_words) > _MAX_TABLE_TEXT_WORDS:
         raise PDFValidationError("PDF_STRUCTURE_LIMIT")
     budget.consume(len(text_words))
@@ -1202,6 +1205,7 @@ def _extract_tables(
                 "horizontal_strategy": "text",
                 "min_words_vertical": _TEXT_TABLE_MIN_WORDS_VERTICAL,
                 "min_words_horizontal": _TEXT_TABLE_MIN_WORDS_HORIZONTAL,
+                "text_x_tolerance_ratio": WORD_X_TOLERANCE_RATIO,
             }
         )
     )
@@ -1255,7 +1259,7 @@ def _extract_tables(
             cell_count += sum(len(row.cells) for row in table_rows)
             if cell_count > _MAX_TABLE_CELLS:
                 raise PDFValidationError("PDF_STRUCTURE_LIMIT")
-            extracted_rows = table.extract()
+            extracted_rows = table.extract(x_tolerance_ratio=WORD_X_TOLERANCE_RATIO)
             if is_text and not _text_table_rows_are_consistent(extracted_rows):
                 continue
         except PDFValidationError:
@@ -1399,7 +1403,6 @@ def _parse_pages(
     pdf_links: Sequence[PDFLink] = (),
     links: list[dict[str, Any]] | None = None,
     extract_tables: bool = True,
-    word_x_tolerance_ratio: float | None = None,
     upright_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Extract bounded page geometry and structural containers."""
@@ -1521,7 +1524,6 @@ def _parse_pages(
             page_height=page_height,
             budget=budget,
             excluded_bboxes=table_bboxes,
-            word_x_tolerance_ratio=word_x_tolerance_ratio,
             upright_only=upright_only,
         )
         page_link_ids: list[str] = []
@@ -1858,7 +1860,6 @@ def parse_document_ir(
     max_page_count: int = 100,
     max_nodes: int = 100_000,
     extract_tables: bool = True,
-    word_x_tolerance_ratio: float | None = None,
     upright_only: bool = False,
 ) -> ParsedDocumentIR:
     """Validate untrusted PDF bytes and extract bounded Document IR."""
@@ -1889,7 +1890,6 @@ def parse_document_ir(
                 pdf_links=validation.links,
                 links=links,
                 extract_tables=extract_tables,
-                word_x_tolerance_ratio=word_x_tolerance_ratio,
                 upright_only=upright_only,
             )
     except PDFValidationError:

@@ -2088,7 +2088,7 @@ def test_typography_baseline_ignores_many_large_headings() -> None:
     )
 
 
-def test_word_gap_ratio_splits_kerned_words_below_three_points() -> None:
+def test_kerned_words_below_three_points_stay_separate() -> None:
     # LaTeX justification places words with TJ offsets instead of space glyphs;
     # -200/1000 em at 12 pt leaves a 2.4 pt gap that a fixed 3 pt tolerance glues.
     parsed = parse_document_ir(
@@ -2097,10 +2097,24 @@ def test_word_gap_ratio_splits_kerned_words_below_three_points() -> None:
                 "BT /F1 12 Tf 72 700 Td "
                 "[(Teachers) -200 (verify) -200 (cited) -200 (claims.)] TJ ET"
             ]
-        ),
-        word_x_tolerance_ratio=0.15,
+        )
     )
     assert parsed.content["paragraphs"][0]["text"] == "Teachers verify cited claims."
+
+
+def test_kerned_words_in_table_cells_stay_separate() -> None:
+    # Table cells are excluded from paragraphs, so their text must use the same
+    # word-gap ratio: -200/1000 em at 11 pt is a 2.2 pt gap.
+    operations = [
+        op.replace("(Kerned) Tj", "[(Glued) -200 (words)] TJ")
+        for op in _make_ruled_table_page(
+            [["Name", "Value"], ["Kerned", "1"]], y_lines=[592, 642, 692]
+        )
+    ]
+    parsed = parse_document_ir(_make_operations_pdf(operations))
+
+    rows = parsed.content["tables"][0]["rows"]
+    assert [cell["text"] for cell in rows[1]["cells"]] == ["Glued words", "1"]
 
 
 def test_upright_only_drops_rotated_margin_stamp() -> None:
