@@ -10210,11 +10210,24 @@
             "title": "Human Gold Pairs",
             "default": 0
           },
+          "verified_pairs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Verified Pairs",
+            "default": 0
+          },
           "double_annotated_fraction": {
             "type": "number",
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Double Annotated Fraction",
+            "default": 0.0
+          },
+          "heldout_agreement": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Heldout Agreement",
             "default": 0.0
           },
           "anchor_completeness": {
@@ -10256,6 +10269,18 @@
             "type": "boolean",
             "title": "Domain Approved",
             "default": false
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
           }
         },
         "additionalProperties": false,
