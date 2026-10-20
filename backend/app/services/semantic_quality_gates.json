@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "approvals": [
+    {
+      "approval_id": "gemini-gemini-3.8-flash-2026-10-20-057afe6b",
+      "configuration": {
+        "evaluator_version": "citation-semantic-v1",
+        "prompt_version": "citation-semantic-v2",
+        "prompt_fingerprint": "2e7ebc1f20d147b80d6ed2eb937a815afc5ce79798d83abd1e9f64e686532dd2",
+        "retrieval_version": "bm25-or-encoder-v3",
+        "source_ir_version": 4,
+        "provider": "GEMINI",
+        "protocol": "GEMINI_GENERATE_CONTENT",
+        "model_id": "gemini-3.8-flash",
+        "encoder_model": "BAAI/bge-m3",
+        "encoder_fingerprint": "034d3c6141eb5056",
+        "encoder_query_prefix": "",
+        "reranker": true,
+        "max_tokens": 512
+      },
+      "benchmark": {
+        "fixture": "semantic_citation_annotations.v1.json",
+        "fixture_sha256": "f75603c526f96210e20ef8566b988877745ebcd14f7868859af7369cf5fbc342",
+        "annotation_status": "AI_CONSENSUS",
+        "pairs": 884,
+        "human_gold_pairs": 0,
+        "double_annotated_fraction": 0.0,
+        "heldout_agreement": 0.9667,
+        "anchor_completeness": 1.0,
+        "structured_success_rate": 0.9968,
+        "macro_f1": 0.9186,
+        "false_accusation_rate": 0.006,
+        "hit_at_3": 0.9498,
+        "measured_with": "agent-harness transport for gemini-3.8-flash (same system prompt, payload, parsing and validation as HostedSemanticModel); encoder rankings from TEI 1.9.4 on a Kaggle T4",
+        "report": "docs/benchmarks/citation-semantic-v1-ai-consensus.md",
+        "measured_at": "2026-10-20"
+      },
+      "approved_by": null,
+      "approved_at": null
+    }
+  ]
+}

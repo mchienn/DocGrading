@@ -27,7 +27,7 @@ Labels: {'SUPPORTED': 327, 'IRRELEVANT': 166, 'CONTRADICTED': 134, 'PARTIALLY_SU
 - PASS: structured output >= 0.99
 - PASS: no provider failures
 
-Gate passed for this configuration. Automatic scores also need recorded owner approval and a server-side gate artifact (not implemented); labels are AI-verified, not human gold.
+Gate passed for this configuration. Automatic scores also need an owner-approved entry in `backend/app/services/semantic_quality_gates.json` (`--gate-artifact`, `--approved-by`); labels are AI-verified, not human gold.
 
 ## Reproduce
 

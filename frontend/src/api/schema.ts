@@ -3379,10 +3379,20 @@ export interface components {
              */
             human_gold_pairs: number;
             /**
+             * Verified Pairs
+             * @default 0
+             */
+            verified_pairs: number;
+            /**
              * Double Annotated Fraction
              * @default 0
              */
             double_annotated_fraction: number;
+            /**
+             * Heldout Agreement
+             * @default 0
+             */
+            heldout_agreement: number;
             /**
              * Anchor Completeness
              * @default 0
@@ -3413,6 +3423,8 @@ export interface components {
              * @default false
              */
             domain_approved: boolean;
+            /** Approval Id */
+            approval_id?: string | null;
         };
         /** SemanticSource */
         SemanticSource: {
