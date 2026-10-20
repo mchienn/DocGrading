@@ -10,6 +10,7 @@ dependencies = [
   "boto3>=1.43.82,<2",
   "celery[redis]>=5.6,<6",
   "fastapi>=0.116,<1",
+  "openai>=3.19,<4",
   "pypdf>=6.16.2,<7",
   "pydantic-settings>=2.10,<3",
   "sqlalchemy[asyncio]>=2.0.41,<3",
@@ -20,11 +21,38 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+  "networkx>=3.4,<4",
+  "rapidfuzz>=3.9,<4",
+  "numpy>=2,<3",
+  "scikit-learn>=1.6,<2",
   "black>=25.1,<27",
   "httpx2>=2.12,<3",
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
 ]
+
+[project.optional-dependencies]
+logical = [
+  "networkx>=3.4,<4",
+  "rapidfuzz>=3.9,<4",
+  "numpy>=2,<3",
+  "scikit-learn>=1.6,<2",
+  "hnswlib>=0.8,<1; sys_platform != 'win32'",
+  "torch>=2.6,<3",
+  "sentence-transformers>=3,<6",
+  "transformers>=4.40,<5",
+  "pint>=0.24,<1",
+  "sentencepiece>=0.2,<1",
+  "pymupdf4llm>=0.0.17,<1",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu", marker = "sys_platform != 'darwin'" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
@@ -42,6 +70,9 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 "app/api/**" = ["B008"]
+# These modules retain notebook text/control flow for auditable parity.
+"app/services/logical_prompts.py" = ["E501"]
+"app/services/logical_pipeline.py" = ["E501", "SIM102"]
 
 [tool.black]
 target-version = ["py313"]

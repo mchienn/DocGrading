@@ -20,6 +20,7 @@ from app.api.schemas_submission import (
     BBox,
     BulkPublishResponse,
     CitationReportResponse,
+    CriterionReviewResponse,
     DocumentDownloadResponse,
     EvidenceResponse,
     EvidenceWorkspaceResponse,
@@ -68,6 +69,7 @@ from app.models.submission import DocumentVersion, Submission
 from app.services import course as course_svc
 from app.services import notification as notification_svc
 from app.services.audit import record_audit
+from app.services.score_scale import ten_point_score
 from app.services.storage import S3Storage
 
 LOCK_TTL = timedelta(minutes=10)
@@ -274,6 +276,13 @@ def _anchor_index(
                     continue
                 if key in required:
                     candidates.append((key, element["bbox"]))
+                if collection_name == "paragraphs":
+                    for line in element.get("lines", ()):
+                        if not isinstance(line, Mapping):
+                            continue
+                        line_key = (str(line["id"]), int(line["page_number"]))
+                        if line_key in required:
+                            candidates.append((line_key, line["bbox"]))
         for table in content.get("tables", ()):
             if not isinstance(table, Mapping):
                 continue
@@ -336,10 +345,13 @@ async def get_evidence(
     statement = (
         sa.select(Finding, EvidenceAnchor)
         .join(AnalysisJob, AnalysisJob.id == Finding.analysis_job_id)
-        .join(EvidenceAnchor, EvidenceAnchor.finding_id == Finding.id)
+        .outerjoin(EvidenceAnchor, EvidenceAnchor.finding_id == Finding.id)
         .where(
             AnalysisJob.document_version_id == document.id,
-            EvidenceAnchor.document_ir_id == document_ir.id,
+            sa.or_(
+                EvidenceAnchor.document_ir_id == document_ir.id,
+                EvidenceAnchor.id.is_(None),
+            ),
         )
         .order_by(
             Finding.created_at,
@@ -351,13 +363,14 @@ async def get_evidence(
     rows = (await db.execute(statement)).all()
     anchors = _anchor_index(
         document_ir.content,
-        {(anchor.element_id, anchor.page_number) for _, anchor in rows},
+        {
+            (anchor.element_id, anchor.page_number)
+            for _, anchor in rows
+            if anchor is not None
+        },
     )
     grouped: dict[uuid.UUID, FindingResponse] = {}
     for finding, anchor in rows:
-        bbox = anchors.get((anchor.element_id, anchor.page_number))
-        if bbox is None:
-            raise _evidence_error()
         response = grouped.get(finding.id)
         if response is None:
             response = FindingResponse(
@@ -370,6 +383,11 @@ async def get_evidence(
                 evidence=[],
             )
             grouped[finding.id] = response
+        if anchor is None:
+            continue
+        bbox = anchors.get((anchor.element_id, anchor.page_number))
+        if bbox is None:
+            raise _evidence_error()
         response.evidence.append(
             EvidenceResponse(
                 document_ir_id=document_ir.id,
@@ -390,6 +408,12 @@ async def get_evidence(
         .scalars()
         .all()
     )
+    criterion_reviews = [
+        CriterionReviewResponse.model_validate(report)
+        for snapshot in snapshots
+        if isinstance(snapshot, Mapping)
+        for report in snapshot.get("logical_consistency", {}).get("reports", [])
+    ]
     citation = None
     for snapshot in snapshots:
         if not isinstance(snapshot, Mapping):
@@ -407,6 +431,7 @@ async def get_evidence(
         document_version_id=document.id,
         findings=list(grouped.values()),
         citation=citation,
+        criterion_reviews=criterion_reviews,
     )
 
 
@@ -668,10 +693,10 @@ def _effective_score(
     decision: ReviewDecision | ReviewDecisionRequest | None,
 ) -> Decimal | None:
     if decision is None or decision.decision is ReviewDecisionType.ACCEPT:
-        return finding.proposed_score
+        return ten_point_score(finding.proposed_score)
     if decision.decision is ReviewDecisionType.REJECT:
         return None
-    return (
+    return ten_point_score(
         decision.final_score
         if decision.final_score is not None
         else finding.proposed_score
@@ -970,6 +995,16 @@ async def _approval_snapshot(
             status_code=422,
             detail="Every finding requires a review decision before approval",
         )
+    if any(
+        finding.severity == "criterion_score"
+        and decisions[finding.id].decision is not ReviewDecisionType.REJECT
+        and _effective_score(finding, decisions[finding.id]) is None
+        for finding in findings
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Each retained criterion requires a score before approval",
+        )
 
     published_finding_ids = {
         finding.id
@@ -1062,10 +1097,41 @@ async def _approval_snapshot(
                 "evidence_count": evidence_counts.get(finding.id, 0),
             }
         )
+    snapshots = (
+        (
+            await db.execute(
+                sa.select(AnalysisJob.snapshot).where(
+                    AnalysisJob.document_version_id == version.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Publish names and score references only. Raw detector drafts remain private;
+    # student-facing feedback comes exclusively from accepted/edited findings.
+    criterion_reviews = [
+        {
+            key: report[key]
+            for key in (
+                "criterion_version_id",
+                "title",
+                "kind",
+                "status",
+                "score_finding_id",
+            )
+        }
+        for snapshot in snapshots
+        if isinstance(snapshot, Mapping)
+        for report in snapshot.get("logical_consistency", {}).get("reports", [])
+        if uuid.UUID(report["score_finding_id"]) in published_finding_ids
+    ]
     return {
+        "score_scale": 10,
         "comment": draft.comment if draft is not None else "",
         "findings": output_findings,
         "rejected_findings": rejected_findings,
+        "criterion_reviews": criterion_reviews,
     }
 
 
@@ -1081,6 +1147,7 @@ def _published_response(
         "published_at": result.published_at.isoformat(),
         "comment": snapshot.get("comment", ""),
         "findings": snapshot.get("findings", []),
+        "criterion_reviews": snapshot.get("criterion_reviews", []),
     }
 
 

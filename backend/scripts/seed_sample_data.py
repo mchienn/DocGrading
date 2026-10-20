@@ -153,47 +153,63 @@ async def main() -> None:
             assert resp.status_code == 201, f"Failed creating rubric: {resp.text}"
             rubric = resp.json()
             rubric_id = rubric["id"]
+            logical_criteria = [
+                {
+                    "code": "LOGIC-01",
+                    "title": "Logical consistency",
+                    "description": (
+                        "Detects contradictory rules, claims, or cause-effect statements "
+                        "across the document."
+                    ),
+                    "evaluation_method": "LOGICAL_CONSISTENCY",
+                },
+                {
+                    "code": "LOGIC-02",
+                    "title": "Data consistency",
+                    "description": (
+                        "Checks numeric claims and units for conflicts across comparable "
+                        "entities, attributes, scopes, and time periods."
+                    ),
+                    "evaluation_method": "DATA_CONSISTENCY",
+                },
+                {
+                    "code": "LOGIC-03",
+                    "title": "Local coherence",
+                    "description": (
+                        "Evaluates sentence and paragraph flow inside each nearby section."
+                    ),
+                    "evaluation_method": "LOCAL_COHERENCE",
+                },
+                {
+                    "code": "LOGIC-04",
+                    "title": "Global coherence",
+                    "description": (
+                        "Evaluates whether section-level summaries form a coherent overall "
+                        "document argument."
+                    ),
+                    "evaluation_method": "GLOBAL_COHERENCE",
+                },
+                {
+                    "code": "LOGIC-05",
+                    "title": "Terminology consistency",
+                    "description": (
+                        "Checks whether terms, acronyms, and definitions are introduced "
+                        "and used consistently."
+                    ),
+                    "evaluation_method": "TERMINOLOGY_CONSISTENCY",
+                },
+            ]
+            for position, criterion in enumerate(logical_criteria, start=1):
+                await client.post(
+                    f"{BASE_URL}/rubrics/{rubric_id}/criteria",
+                    headers=_csrf(client),
+                    json={
+                        **criterion,
+                        "weight": 20,
+                        "position": position,
+                    },
+                )
 
-            await client.post(
-                f"{BASE_URL}/rubrics/{rubric_id}/criteria",
-                headers=_csrf(client),
-                json={
-                    "code": "SRS-01",
-                    "title": "Cấu trúc & Định dạng IEEE 830",
-                    "description": "Báo cáo có đủ 3 phần chính, phân cấp rõ ràng",
-                    "weight": 30,
-                    "position": 1,
-                    "evaluation_method": "AI",
-                },
-            )
-            await client.post(
-                f"{BASE_URL}/rubrics/{rubric_id}/criteria",
-                headers=_csrf(client),
-                json={
-                    "code": "SRS-02",
-                    "title": "Yêu cầu Chức năng & Phi chức năng",
-                    "description": (
-                        "Yêu cầu đo lường được, không mơ hồ, có mã định danh"
-                    ),
-                    "weight": 40,
-                    "position": 2,
-                    "evaluation_method": "AI",
-                },
-            )
-            await client.post(
-                f"{BASE_URL}/rubrics/{rubric_id}/criteria",
-                headers=_csrf(client),
-                json={
-                    "code": "SRS-03",
-                    "title": "Đặc tả Use Case & Kịch bản",
-                    "description": (
-                        "Luồng chính, luồng phụ, ngoại lệ và tiền điều kiện đầy đủ"
-                    ),
-                    "weight": 30,
-                    "position": 3,
-                    "evaluation_method": "AI",
-                },
-            )
             pub_resp = await client.post(
                 f"{BASE_URL}/rubrics/{rubric_id}/publish", headers=_csrf(client)
             )

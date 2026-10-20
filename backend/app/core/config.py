@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -72,6 +72,19 @@ class Settings(BaseSettings):
     analysis_job_lease_seconds: int = Field(default=300, gt=0)
     analysis_job_heartbeat_seconds: int = Field(default=30, gt=0)
 
+    logical_llm_enabled: bool = False
+    logical_llm_provider: str = "auto"
+    logical_llm_base_url: str = "https://api.openai.com/v1"
+    logical_llm_api_key: SecretStr = SecretStr("")
+    logical_llm_model: str = "gpt-6-luna"
+    logical_llm_concurrency: int = Field(default=2, ge=1, le=8)
+    logical_map_concurrency: int = Field(default=2, ge=1, le=8)
+    logical_llm_reasoning_effort: str = "none"
+    logical_llm_timeout_seconds: int = Field(default=90, ge=1, le=300)
+    logical_llm_max_input_chars: int = Field(default=180_000, ge=1000)
+    logical_llm_max_output_tokens: int = Field(default=8192, ge=256)
+    logical_max_chunks: int = Field(default=200, ge=1)
+
     @model_validator(mode="after")
     def _validate_invariants(self) -> "Settings":
         if self.analysis_job_heartbeat_seconds >= self.analysis_job_lease_seconds:
@@ -103,6 +116,12 @@ class Settings(BaseSettings):
                 "Default join rate-limit hash secret is not allowed outside "
                 "development environment"
             )
+        provider = self.logical_llm_provider.strip().lower()
+        if provider not in {"auto", "ollama", "openai"}:
+            raise ValueError(
+                "logical_llm_provider must be one of: auto, ollama, openai"
+            )
+        self.logical_llm_provider = provider
         return self
 
     @property

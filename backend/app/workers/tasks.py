@@ -21,12 +21,14 @@ from app.services.analysis_job import (
     processing_failure_report,
     update_heartbeat,
 )
+from app.services.analysis_logging import job_context, timed_step
 from app.services.citation import evaluate_citations
 from app.services.document_ir import (
     DocumentIRExtractionError,
     get_or_build_document_ir,
 )
 from app.services.file_integrity import evaluate_file_integrity
+from app.services.logical_consistency import evaluate_logical_consistency
 from app.services.pdf_validation import PDFValidationError
 from app.services.storage import S3Storage
 from app.workers.celery_app import celery_app
@@ -87,6 +89,7 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
         await db.commit()
 
         claimed_attempt = job.attempt_count
+        job_context.set(str(job.id))
         heartbeat_interval = get_settings().analysis_job_heartbeat_seconds
         heartbeat_task = asyncio.create_task(
             _heartbeat_loop(job.id, claimed_attempt, heartbeat_interval)
@@ -94,22 +97,24 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
         try:
             try:
                 storage = S3Storage()
-                data = await asyncio.to_thread(
-                    storage.get_bounded,
-                    job.document_version.storage_key,
-                    get_settings().pdf_max_size_bytes,
-                )
+                with timed_step("storage.download"):
+                    data = await asyncio.to_thread(
+                        storage.get_bounded,
+                        job.document_version.storage_key,
+                        get_settings().pdf_max_size_bytes,
+                    )
             except Exception:
                 # Keep provider exceptions (which may include URLs/request metadata)
                 # out of logs and persisted student-visible detail.
                 job_outcome = ("storage_error", None)
             else:
                 try:
-                    ir = await get_or_build_document_ir(
-                        db,
-                        job.document_version.id,
-                        data,
-                    )
+                    with timed_step("pdf.extract", size_bytes=len(data)):
+                        ir = await get_or_build_document_ir(
+                            db,
+                            job.document_version.id,
+                            data,
+                        )
                 except PDFValidationError as exc:
                     job_outcome = ("validation_error", exc)
                 except DocumentIRExtractionError:
@@ -124,7 +129,8 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                         job_outcome = ("success", ir)
                     else:
                         try:
-                            await evaluate_file_integrity(db, job, ir)
+                            with timed_step("file_integrity.evaluate"):
+                                await evaluate_file_integrity(db, job, ir)
                         except SQLAlchemyError:
                             await db.rollback()
                             raise
@@ -138,7 +144,8 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                             )
                         else:
                             try:
-                                await evaluate_citations(db, job, ir)
+                                with timed_step("citation.evaluate"):
+                                    await evaluate_citations(db, job, ir)
                             except SQLAlchemyError:
                                 await db.rollback()
                                 raise
@@ -151,7 +158,23 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                                     ),
                                 )
                             else:
-                                job_outcome = ("success", ir)
+                                try:
+                                    await evaluate_logical_consistency(
+                                        db, job, ir, data
+                                    )
+                                except SQLAlchemyError:
+                                    await db.rollback()
+                                    raise
+                                except Exception:
+                                    job_outcome = (
+                                        "evaluation_error",
+                                        (
+                                            "LOGICAL_EVALUATION_FAILED",
+                                            "Logical evaluation persistence failed",
+                                        ),
+                                    )
+                                else:
+                                    job_outcome = ("success", ir)
         finally:
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -239,7 +262,8 @@ async def _run_analysis_job(job_id: str | None = None) -> str | None:
                 await db.rollback()
                 return None
 
-        await db.commit()
+        with timed_step("analysis.commit"):
+            await db.commit()
         return str(job.id)
 
 
@@ -257,7 +281,11 @@ async def _run_analysis_job_once(job_id: str | None) -> str | None:
     name="app.workers.tasks.process_analysis_job",
 )
 def process_analysis_job(task: Task, job_id: str | None = None) -> str | None:
+    token = job_context.set(job_id or "next")
     try:
-        return asyncio.run(_run_analysis_job_once(job_id))
+        with timed_step("analysis.job"):
+            return asyncio.run(_run_analysis_job_once(job_id))
     except _ActiveLease as exc:
         raise task.retry(countdown=exc.retry_after) from exc
+    finally:
+        job_context.reset(token)

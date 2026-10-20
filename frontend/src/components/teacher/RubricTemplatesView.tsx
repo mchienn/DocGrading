@@ -283,6 +283,13 @@ export const RubricTemplatesView: React.FC = () => {
                     <option value="AI">AI</option>
                     <option value="MANUAL">Manual</option>
                     <option value="HYBRID">Hybrid</option>
+                    <option value="LOGICAL_CONSISTENCY">Logical consistency</option>
+                    <option value="TERMINOLOGY_CONSISTENCY">Terminology consistency</option>
+                    <option value="DATA_CONSISTENCY">Data consistency</option>
+                    <option value="LOCAL_COHERENCE">Local coherence</option>
+                    <option value="GLOBAL_COHERENCE">Global coherence</option>
+                    <option value="FILE_INTEGRITY">File integrity</option>
+                    <option value="CITATION">Citation</option>
                   </select>
                   <div className="flex gap-2">
                     <button disabled={busy} className="px-4 py-2 bg-[#1F4B7A] text-white rounded-lg text-sm font-semibold disabled:opacity-50">{editingCriterion ? 'Update' : 'Add'}</button>

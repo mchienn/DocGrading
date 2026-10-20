@@ -41,6 +41,7 @@ export type PdfMarker = {
   pageNumber: number
   bbox?: BBox
   findingId?: string
+  comment?: string
 }
 
 type SearchResult = {
@@ -332,7 +333,7 @@ function PdfPageSurface({
             ref={selected ? selectedMarkerRef : undefined}
             type="button"
             aria-label={`Open evidence ${marker.label} at page ${pageNumber}`}
-            title={`Evidence ${marker.label}`}
+            title={marker.comment ?? `Evidence ${marker.label}`}
             onClick={() => onSelectMarker?.(marker.id)}
             className={`absolute border-2 transition focus:outline-none focus:ring-4 focus:ring-sky-300 ${
               selected
@@ -740,6 +741,7 @@ export function PdfEvidenceViewer({
           pageNumber: evidence.page_number,
           bbox: evidence.bbox,
           findingId: finding.id,
+          comment: finding.description,
         })),
       ),
     [findings],

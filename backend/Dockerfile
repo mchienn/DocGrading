@@ -9,22 +9,30 @@ ENV PATH="/app/.venv/bin:$PATH" \
     UV_LINK_MODE=copy
 
 WORKDIR /app
+ARG INSTALL_LOGICAL=false
+
+# hnswlib builds its CPU extension in the logical worker image.
+RUN if [ "$INSTALL_LOGICAL" = "true" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends g++ \
+    && rm -rf /var/lib/apt/lists/*; fi
 
 COPY --from=uv /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+    if [ "$INSTALL_LOGICAL" = "true" ]; then uv sync --frozen --no-dev --no-install-project --extra logical; else uv sync --frozen --no-dev --no-install-project; fi
 
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    if [ "$INSTALL_LOGICAL" = "true" ]; then uv sync --frozen --no-dev --extra logical; else uv sync --frozen --no-dev; fi
 
 RUN groupadd --system appgroup \
     && useradd --system --gid appgroup --home-dir /app appuser \
-    && mkdir -p /var/lib/docgrading/storage \
-    && chown -R appuser:appgroup /app /var/lib/docgrading
+    && mkdir -p /var/lib/docgrading/storage /var/lib/docgrading/huggingface \
+    && chown -R appuser:appgroup /var/lib/docgrading
+
+ENV HF_HOME=/var/lib/docgrading/huggingface
 
 USER appuser
 EXPOSE 8000

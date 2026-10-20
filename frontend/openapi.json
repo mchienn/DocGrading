@@ -1087,7 +1087,7 @@
           "assignments"
         ],
         "summary": "Publish Assignment",
-        "description": "Publish a DRAFT assignment (DRAFT → OPEN).",
+        "description": "Publish a DRAFT assignment (DRAFT \u2192 OPEN).",
         "operationId": "publish_assignment_api_v1_courses__course_id__assignments__assignment_id__publish_post",
         "parameters": [
           {
@@ -1141,7 +1141,7 @@
           "assignments"
         ],
         "summary": "Close Assignment",
-        "description": "Close an OPEN assignment (OPEN → CLOSED).",
+        "description": "Close an OPEN assignment (OPEN \u2192 CLOSED).",
         "operationId": "close_assignment_api_v1_courses__course_id__assignments__assignment_id__close_post",
         "parameters": [
           {
@@ -5737,6 +5737,61 @@
         ],
         "title": "CriterionResponse"
       },
+      "CriterionReviewResponse": {
+        "properties": {
+          "criterion_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Criterion Version Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCORED",
+              "NEEDS_REVIEW"
+            ],
+            "title": "Status"
+          },
+          "score_finding_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Score Finding Id"
+          },
+          "detector_output": {
+            "items": {},
+            "type": "array",
+            "title": "Detector Output"
+          },
+          "global_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Global Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "criterion_version_id",
+          "title",
+          "kind",
+          "status",
+          "score_finding_id"
+        ],
+        "title": "CriterionReviewResponse"
+      },
       "CriterionUpdate": {
         "properties": {
           "title": {
@@ -5949,6 +6004,13 @@
                 "type": "null"
               }
             ]
+          },
+          "criterion_reviews": {
+            "items": {
+              "$ref": "#/components/schemas/CriterionReviewResponse"
+            },
+            "type": "array",
+            "title": "Criterion Reviews"
           }
         },
         "type": "object",
@@ -6448,6 +6510,13 @@
             },
             "type": "array",
             "title": "Findings"
+          },
+          "criterion_reviews": {
+            "items": {
+              "$ref": "#/components/schemas/CriterionReviewResponse"
+            },
+            "type": "array",
+            "title": "Criterion Reviews"
           }
         },
         "type": "object",
@@ -6530,7 +6599,7 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 100.0,
+                "maximum": 10.0,
                 "minimum": 0.0
               },
               {

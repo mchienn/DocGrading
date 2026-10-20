@@ -117,8 +117,16 @@ services:
   worker:
     build:
       context: backend
+      args:
+        INSTALL_LOGICAL: "true"
+    restart: unless-stopped
     env_file: .env
     environment:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+      PYTHONFAULTHANDLER: "1"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       REDIS_HOST: redis
@@ -137,8 +145,9 @@ services:
       ANALYSIS_JOB_HEARTBEAT_SECONDS: ${ANALYSIS_JOB_HEARTBEAT_SECONDS:-30}
     command: >-
       celery -A app.workers.celery_app:celery_app worker
-      --loglevel=INFO --concurrency=2 --prefetch-multiplier=1
-      --max-tasks-per-child=10
+      --loglevel=INFO --pool=threads --concurrency=1 --prefetch-multiplier=1
+    volumes:
+      - logical_model_cache:/var/lib/docgrading/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,7 +165,7 @@ services:
         ]
       interval: 10s
       timeout: 8s
-      start_period: 15s
+      start_period: 180s
       retries: 5
     networks: [backend]
 
@@ -263,6 +272,7 @@ services:
     networks: [restore]
 
 volumes:
+  logical_model_cache:
   postgres_data:
   redis_data:
   localstack_data:

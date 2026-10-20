@@ -4,12 +4,14 @@ import { ArrowLeft, FileText, MessageSquare, RefreshCw, ShieldCheck } from 'luci
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, apiData, getErrorMessage } from '../../api/client';
 import { AppealModal } from './AppealModal';
+import { PdfEvidenceViewer } from '../teacher/PdfEvidenceViewer';
 
 export const StudentPublishedResultView: React.FC = () => {
   const { submissionId = '' } = useParams();
   const navigate = useNavigate();
   const [showReviewRequest, setShowReviewRequest] = useState(false);
   const [requestStatus, setRequestStatus] = useState<string>();
+  const [selectedFindingId, setSelectedFindingId] = useState<string>();
   const resultQuery = useQuery({
     queryKey: ['published-result', submissionId],
     queryFn: () => apiData(api.GET('/api/v1/submissions/{submission_id}/published-result', {
@@ -106,14 +108,15 @@ export const StudentPublishedResultView: React.FC = () => {
               <p className="p-6 bg-white border border-slate-200 rounded-xl text-sm text-slate-500">No published findings.</p>
             ) : criterionGroups.map(([criterionVersionId, findings]) => (
               <article key={criterionVersionId} className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-                <h3 className="font-mono text-xs font-bold text-slate-700 break-all">Criterion {criterionVersionId}</h3>
+                <h3 className="text-sm font-bold text-slate-700 break-all">{result.criterion_reviews?.find((r) => r.criterion_version_id === criterionVersionId)?.title ?? `Criterion ${criterionVersionId}`}</h3>
                 {findings.map((finding) => (
                   <div key={finding.finding_id} className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-mono text-xs text-slate-500 break-all">Finding {finding.finding_id}</span>
-                      <span className="text-sm font-semibold text-slate-800">Score: {finding.score ?? 'none'}</span>
+                      {finding.score != null && <span className="text-sm font-semibold text-slate-800">Score: {finding.score} / 10</span>}
                     </div>
                     <p className="text-sm text-slate-800 whitespace-pre-wrap">{finding.description}</p>
+                    {finding.evidence.length > 0 && <button type="button" className="text-xs font-semibold text-sky-800 underline" onClick={() => setSelectedFindingId(finding.finding_id)}>View comment on PDF</button>}
                     {finding.suggestion && <p className="text-sm text-sky-800">Suggestion: {finding.suggestion}</p>}
                     <div className="space-y-1">
                       {finding.evidence.map((evidence) => (
@@ -128,6 +131,21 @@ export const StudentPublishedResultView: React.FC = () => {
               </article>
             ))}
           </section>
+          <PdfEvidenceViewer
+            documentVersionId={result.document_version_id}
+            selectedFindingId={selectedFindingId}
+            onSelectFinding={setSelectedFindingId}
+            findings={result.findings.map((finding) => ({
+              id: finding.finding_id,
+              criterion_version_id: finding.criterion_version_id,
+              severity: 'reviewed',
+              description: finding.description,
+              suggestion: finding.suggestion,
+              proposed_score: finding.score,
+              evidence: finding.evidence,
+            }))}
+          />
+          {selectedFindingId && <p className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm whitespace-pre-wrap">{result.findings.find((f) => f.finding_id === selectedFindingId)?.description}</p>}
         </>
       ) : null}
 

@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.analysis import DocumentIR
 from app.models.submission import DocumentVersion, Submission
+from app.services.analysis_logging import log_event, timed, timed_step
 from app.services.pdf_validation import (
     PDFLink,
     PDFValidationError,
@@ -247,6 +248,7 @@ async def get_or_build_document_ir(
         document.validation_report = _accepted_replay_report(
             getattr(document, "validation_report", None)
         )
+        log_event("pdf.ir.cache_hit")
         return existing
 
     settings = get_settings()
@@ -294,7 +296,8 @@ async def get_or_build_document_ir(
         existing.schema_version = SCHEMA_VERSION
         existing.parser_version = PARSER_VERSION
         existing.content = parsed.content
-    await db.flush()
+    with timed_step("pdf.ir.persist"):
+        await db.flush()
     return existing
 
 
@@ -1273,6 +1276,7 @@ def _is_heading(
     return True, typography_ranks[line.font_size]
 
 
+@timed("pdf.parse_pages")
 def _parse_pages(
     pages: Sequence[Any],
     budget: _NodeBudget,
@@ -1688,6 +1692,20 @@ def _append_paragraph(
         "page_number": page_number,
         "line_start": lines[0][2],
         "line_end": lines[-1][2],
+        "lines": [
+            {
+                "id": f"{paragraph_id}-line-{line_index}",
+                "text": line.text,
+                "page_number": page_number,
+                "bbox": {
+                    "x0": line.bbox.x0,
+                    "top": line.bbox.top,
+                    "x1": line.bbox.x1,
+                    "bottom": line.bbox.bottom,
+                },
+            }
+            for line, _, line_index in lines
+        ],
         "bbox": {
             "x0": bbox.x0,
             "top": bbox.top,
@@ -1701,6 +1719,7 @@ def _append_paragraph(
     page_paragraph_ids.append(paragraph_id)
 
 
+@timed("pdf.assemble_ir")
 def _assemble_ir(
     validation: PDFValidationResult,
     pages: list[dict[str, Any]],
@@ -1734,12 +1753,13 @@ def parse_document_ir(
     max_nodes: int = 100_000,
 ) -> ParsedDocumentIR:
     """Validate untrusted PDF bytes and extract bounded Document IR."""
-    validation = validate_pdf(
-        data,
-        max_size_bytes=max_size_bytes,
-        max_decoded_bytes=max_decoded_bytes,
-        max_page_count=max_page_count,
-    )
+    with timed_step("pdf.validate", size_bytes=len(data)):
+        validation = validate_pdf(
+            data,
+            max_size_bytes=max_size_bytes,
+            max_decoded_bytes=max_decoded_bytes,
+            max_page_count=max_page_count,
+        )
     budget = _NodeBudget(limit=max_nodes)
     budget.consume(validation.page_count)
     sections: list[dict[str, Any]] = []

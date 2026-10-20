@@ -1879,6 +1879,32 @@ export interface components {
             /** Revision */
             revision: number;
         };
+        /** CriterionReviewResponse */
+        CriterionReviewResponse: {
+            /**
+             * Criterion Version Id
+             * Format: uuid
+             */
+            criterion_version_id: string;
+            /** Title */
+            title: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "SCORED" | "NEEDS_REVIEW";
+            /**
+             * Score Finding Id
+             * Format: uuid
+             */
+            score_finding_id: string;
+            /** Detector Output */
+            detector_output?: unknown[];
+            /** Global Summary */
+            global_summary?: string | null;
+        };
         /** CriterionUpdate */
         CriterionUpdate: {
             /** Title */
@@ -1943,6 +1969,8 @@ export interface components {
             /** Findings */
             findings: components["schemas"]["FindingResponse"][];
             citation?: components["schemas"]["CitationReportResponse"] | null;
+            /** Criterion Reviews */
+            criterion_reviews?: components["schemas"]["CriterionReviewResponse"][];
         };
         /** FindingResponse */
         FindingResponse: {
@@ -2146,6 +2174,8 @@ export interface components {
             comment: string;
             /** Findings */
             findings: components["schemas"]["PublishedFindingResponse"][];
+            /** Criterion Reviews */
+            criterion_reviews?: components["schemas"]["CriterionReviewResponse"][];
         };
         /** QueueLockResponse */
         QueueLockResponse: {

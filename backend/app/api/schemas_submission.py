@@ -5,11 +5,14 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 
 from app.models.enums import AnalysisJobStatus, ReviewDecisionType, ReviewRequestStatus
+from app.services.score_scale import ten_point_score
+
+ResponseScore = Annotated[Decimal, Field(ge=0, le=10), BeforeValidator(ten_point_score)]
 
 
 class PresignRequest(BaseModel):
@@ -214,8 +217,18 @@ class FindingResponse(BaseModel):
     severity: str
     description: str
     suggestion: str | None
-    proposed_score: Decimal | None
+    proposed_score: ResponseScore | None
     evidence: list[EvidenceResponse]
+
+
+class CriterionReviewResponse(BaseModel):
+    criterion_version_id: uuid.UUID
+    title: str
+    kind: str
+    status: Literal["SCORED", "NEEDS_REVIEW"]
+    score_finding_id: uuid.UUID
+    detector_output: list[Any] = Field(default_factory=list)
+    global_summary: str | None = None
 
 
 class EvidenceWorkspaceResponse(BaseModel):
@@ -223,6 +236,7 @@ class EvidenceWorkspaceResponse(BaseModel):
     document_version_id: uuid.UUID
     findings: list[FindingResponse]
     citation: CitationReportResponse | None = None
+    criterion_reviews: list[CriterionReviewResponse] = Field(default_factory=list)
 
 
 class QueueLockResponse(BaseModel):
@@ -263,7 +277,7 @@ class ReviewDecisionRequest(BaseModel):
     final_score: Decimal | None = Field(
         default=None,
         ge=0,
-        le=100,
+        le=10,
         max_digits=5,
         decimal_places=2,
     )
@@ -318,7 +332,7 @@ class ReviewDecisionResponse(BaseModel):
     finding_id: uuid.UUID
     decision: ReviewDecisionType
     edited_description: str | None
-    final_score: Decimal | None
+    final_score: ResponseScore | None
     reason: str | None
 
 
@@ -374,7 +388,7 @@ class UnpublishRequest(PublishRequest):
 class PublishedFindingResponse(BaseModel):
     criterion_version_id: uuid.UUID
     finding_id: uuid.UUID
-    score: Decimal | None
+    score: ResponseScore | None
     description: str
     suggestion: str | None
     evidence: list[EvidenceResponse]
@@ -388,6 +402,7 @@ class PublishedResultResponse(BaseModel):
     published_at: datetime
     comment: str
     findings: list[PublishedFindingResponse]
+    criterion_reviews: list[CriterionReviewResponse] = Field(default_factory=list)
 
 
 class BulkPublishResponse(BaseModel):
@@ -414,7 +429,7 @@ class SubmissionVersionListResponse(BaseModel):
 class VersionComparisonFindingResponse(BaseModel):
     criterion_version_id: uuid.UUID
     finding_id: uuid.UUID
-    score: Decimal | None
+    score: ResponseScore | None
     decision: ReviewDecisionType | None
     evidence_count: int = Field(ge=0)
 

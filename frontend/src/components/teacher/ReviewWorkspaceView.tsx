@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, LockKeyhole, Send, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, LockKeyhole, Save, Send, XCircle } from 'lucide-react';
 import { useBeforeUnload, useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { ApiError, api, apiData, apiVoid, getErrorMessage } from '../../api/client';
@@ -34,6 +34,20 @@ function trapFocus(event: React.KeyboardEvent<HTMLDialogElement>) {
 
 function serializeDraft(draft: DraftContent): string {
   return JSON.stringify(draft);
+}
+
+function detectorIssueText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+  const issue = value as Record<string, unknown>;
+  if (typeof issue.description === 'string') return issue.description;
+  const side = (suffix: string) => [
+    issue[`entity_${suffix}`], issue[`attribute_${suffix}`],
+    issue[`value_${suffix}`], issue[`unit_${suffix}`],
+    issue[`condition_${suffix}`], issue[`time_${suffix}`],
+    issue[`population_${suffix}`], issue[`scope_${suffix}`],
+  ].filter((part) => part !== undefined && part !== null && part !== '').join(' · ');
+  return `${side('1')} ↔ ${side('2')}`;
 }
 
 const queuePageSize = 100;
@@ -230,9 +244,16 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
 
   const findings = evidenceQuery.data?.findings ?? [];
   const citation = evidenceQuery.data?.citation;
+  const criterionReviews = evidenceQuery.data?.criterion_reviews ?? [];
+  const [criterionFilter, setCriterionFilter] = useState('all');
+  const visibleFindings = criterionFilter === 'all' ? findings : findings.filter((f) => f.criterion_version_id === criterionFilter);
   const decisions = draft?.decisions ?? [];
   const selectedFinding = findings.find((finding) => finding.id === selectedFindingId) ?? findings[0];
-  const allDecided = findings.every((finding) => decisions.some((decision) => decision.finding_id === finding.id));
+  const allDecided = findings.every((finding) => decisions.some((decision) =>
+    decision.finding_id === finding.id && (
+      finding.severity !== 'criterion_score' || decision.decision === 'REJECT'
+      || (decision.final_score ?? finding.proposed_score) != null
+    )));
   const decisionByFinding = useMemo(
     () => new Map(decisions.map((decision) => [decision.finding_id, decision])),
     [decisions],
@@ -262,6 +283,15 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
         : currentDecisions.map((item, currentIndex) => currentIndex === index ? next : item);
       return { ...current, decisions: updated };
     });
+  };
+
+  const saveReviewAndScores = async () => {
+    const latest = draftRef.current;
+    if (!latest || !editable) return;
+    // Explicitly save the teacher's current decisions and scores atomically.
+    // Saving never silently accepts an undecided AI finding.
+    queuedRef.current = latest;
+    await drainSaves();
   };
 
   const updateDecision = (findingId: string, patch: Partial<Decision>) => {
@@ -436,7 +466,15 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
           </span>
           <button
             type="button"
-            disabled={!editable || !allDecided || saveStatus !== 'saved' || action !== undefined}
+            disabled={!editable || saveStatus === 'saving' || action !== undefined}
+            onClick={() => void saveReviewAndScores()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 border border-sky-700 text-sky-800 rounded-lg text-xs font-semibold disabled:opacity-40"
+          >
+            <Save className="w-4 h-4" /> Save review &amp; criterion scores
+          </button>
+          <button
+            type="button"
+            disabled={!editable || !allDecided || draftDirty || saveStatus !== 'saved' || action !== undefined}
             onClick={() => void approve()}
             className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold disabled:opacity-40"
           >
@@ -558,12 +596,39 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
               )}
             </section>
           )}
+          {criterionReviews.length > 0 && (
+            <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3" aria-label="LLM criterion reviews">
+              <h2 className="font-semibold">Criterion reviews and scores</h2>
+              <p className="text-xs text-slate-600">Scores use a 0-10 scale. Accept, edit or reject each proposed score and finding, then save. Students see approved feedback after publication.</p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {criterionReviews.map((review) => {
+                  const scoreFinding = findings.find((f) => f.id === review.score_finding_id);
+                  const decision = decisionByFinding.get(review.score_finding_id);
+                  const score = decision?.decision === 'REJECT' ? null : decision?.final_score ?? scoreFinding?.proposed_score;
+                  const analysis = decision?.edited_description ?? scoreFinding?.description;
+                  return <article key={review.criterion_version_id} className="border border-slate-200 rounded-lg p-3 space-y-2">
+                    <button type="button" className="font-semibold text-sm text-left text-sky-800" onClick={() => { setCriterionFilter(review.criterion_version_id); setSelectedFindingId(review.score_finding_id); }}>{review.title}</button>
+                    <p className="text-sm">Score: {score ?? 'Awaiting manual score'}{score != null ? ' / 10' : ''} · {decision?.decision ?? 'Not reviewed'}</p>
+                    {review.status === 'NEEDS_REVIEW' && <p className="text-xs text-amber-800">Automatic evaluation unavailable. Edit the score and review manually.</p>}
+                    {analysis && <div className="text-sm text-slate-700"><p className="font-medium">Assessment</p><p className="mt-1 whitespace-pre-wrap break-words">{analysis}</p></div>}
+                    {review.global_summary && <details className="text-xs"><summary>Global summary</summary><p className="mt-2 whitespace-pre-wrap">{review.global_summary}</p></details>}
+                    {(review.detector_output?.length ?? 0) > 0 && <details className="text-xs"><summary>Detected issues ({review.detector_output?.length})</summary><ul className="mt-2 space-y-2">{review.detector_output?.map((issue, index) => <li key={index} className="whitespace-pre-wrap break-words">{detectorIssueText(issue)}</li>)}</ul></details>}
+                  </article>;
+                })}
+              </div>
+            </section>
+          )}
           <div className="grid lg:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)] gap-4 items-start">
           <PdfEvidenceViewer
             documentVersionId={evidenceQuery.data.document_version_id}
             findings={findings}
             selectedFindingId={selectedFinding?.id}
-            onSelectFinding={setSelectedFindingId}
+            onSelectFinding={(id) => {
+              setSelectedFindingId(id);
+              if (criterionFilter !== 'all') {
+                setCriterionFilter(findings.find((f) => f.id === id)?.criterion_version_id ?? 'all');
+              }
+            }}
           />
 
           <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-4" aria-label="Review decisions">
@@ -580,7 +645,13 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
             </label>
 
             <div className="space-y-3">
-              {findings.map((finding) => {
+              <label className="block text-sm font-semibold">Criterion
+                <select value={criterionFilter} onChange={(event) => setCriterionFilter(event.target.value)} className="block w-full mt-1 border rounded-lg p-2">
+                  <option value="all">All criteria</option>
+                  {[...new Set(findings.map((f) => f.criterion_version_id))].map((id) => <option key={id} value={id}>{criterionReviews.find((r) => r.criterion_version_id === id)?.title ?? id}</option>)}
+                </select>
+              </label>
+              {visibleFindings.map((finding) => {
                 const decision = decisionByFinding.get(finding.id);
                 return (
                   <article
@@ -590,7 +661,8 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
                     <button type="button" onClick={() => setSelectedFindingId(finding.id)} className="w-full text-left">
                       <span className="font-mono text-[11px] text-slate-500">{finding.severity} · Criterion {finding.criterion_version_id}</span>
                       <p className="mt-1 text-sm text-slate-800">{finding.description}</p>
-                      <span className="block mt-1 text-xs text-slate-500">Proposed score: {finding.proposed_score ?? 'none'} · Evidence: {finding.evidence.length}</span>
+                      {finding.suggestion && <p className="mt-2 text-sm text-sky-800">Suggestion: {finding.suggestion}</p>}
+                      <span className="block mt-1 text-xs text-slate-500">Proposed score: {finding.proposed_score != null ? `${finding.proposed_score} / 10` : 'none'} · Evidence: {finding.evidence.length}</span>
                     </button>
                     <div className="flex gap-2 mt-3">
                       {(['ACCEPT', 'EDIT', 'REJECT'] as const).map((value) => (
@@ -621,7 +693,7 @@ export const ReviewWorkspaceView: React.FC<ReviewWorkspaceViewProps> = ({ role }
                           <input
                             type="number"
                             min={0}
-                            max={100}
+                            max={10}
                             step={0.01}
                             disabled={!editable}
                             value={decision.final_score ?? ''}
