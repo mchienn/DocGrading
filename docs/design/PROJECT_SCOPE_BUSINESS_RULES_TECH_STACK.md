@@ -254,8 +254,9 @@ quyết định owner 2026-10-20, bộ AI-verified này thay human gold cho qual
 trên tập test ([`docs/benchmarks/citation-semantic-v1-ai-consensus.md`](../benchmarks/citation-semantic-v1-ai-consensus.md)):
 evidence Hit@3 BM25 69,6% (tiếng Việt 48,1%), BGE-M3 + reranker 95,0%; prompt v2 với
 encoder và `gemini-3.8-flash` đạt macro-F1 0,914–0,926, false accusation 0,3–0,9%, qua mọi
-tiêu chí benchmark gate; với BM25 macro-F1 chỉ 0,748 và false accusation 7,5%. Điểm tự động
-vẫn chưa bật vì server chưa có gate artifact tin cậy cho cấu hình đang chạy.
+tiêu chí benchmark gate; với BM25 macro-F1 chỉ 0,748 và false accusation 7,5%. Gate artifact
+tin cậy (`backend/app/services/semantic_quality_gates.json`, chỉ đổi qua pull request) đã có
+entry cho cấu hình này nhưng đang chờ owner phê duyệt, nên điểm tự động vẫn chưa bật.
 Retrieval dùng shared text encoder khi được cấu hình (mặc định self-host
 `BAAI/bge-m3` + reranker qua Text Embeddings Inference), còn lại dùng BM25; chi tiết tại
 [`docs/benchmarks/bge-m3-retrieval-2026-09-24.md`](../benchmarks/bge-m3-retrieval-2026-09-24.md).
