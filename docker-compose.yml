@@ -192,8 +192,10 @@ services:
     profiles: [encoder]
     # --max-batch-tokens 2048 (default 16384) keeps warmup within memory: bge-m3
     # warms up with full-length batches and was OOM-killed at 16384 and 8192.
-    # Inputs stay under it: the client sends at most 8,000 characters and source
-    # passages are at most about 3,400 characters (v1 benchmark corpus).
+    # With --auto-truncate, longer inputs are truncated to 2048 tokens rather than
+    # rejected. All 26,565 v1 benchmark passages are under 3,400 characters, but
+    # production allows passages up to 4,000 characters, so number-heavy ones may
+    # be cut; benchmark on this runtime before approving a gate entry.
     command:
       [
         "--model-id", "BAAI/bge-m3",
