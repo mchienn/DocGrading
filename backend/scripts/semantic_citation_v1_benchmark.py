@@ -52,12 +52,15 @@ LABELS = (
     "INSUFFICIENT_EVIDENCE",
 )
 EVIDENCE_LABELS = {"SUPPORTED", "PARTIALLY_SUPPORTED", "CONTRADICTED"}
-# Benchmark gate for AI-consensus labels, chosen 2026-10-17 to mirror spec section 7
-# minus the human-gold criteria. It does not unlock the production gate, which stays
-# blocked until a human-gold set and server approval exist.
+# Gate for the AI-verified set (spec section 7, owner decision 2026-10-20): the
+# human-gold criteria are replaced by >=800 pairs accepted by rule v1.1 whose labels a
+# held-out judge confirms for >=95%. A pass is a benchmark result for one configuration
+# (retrieval, model, prompt); the server still produces no automatic score without a
+# trusted gate artifact.
 GATE = {
     "pairs": 800,
     "judge_families": 2,
+    "heldout_agreement": 0.95,
     "macro_f1": 0.80,
     "false_accusation": 0.02,
     "hit_at_3": 0.90,
@@ -178,6 +181,12 @@ def main() -> int:
     parser.add_argument("--provider", choices=("gemini", "deepseek"), default="gemini")
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--sample", type=int, help="evaluate this many test pairs")
+    parser.add_argument(
+        "--rankings",
+        type=Path,
+        help="encoder order per passage source and query, JSON "
+        "{source_id: {query: [passage_id, ...]}} written by a GPU EncoderRanker run",
+    )
     parser.add_argument("--write-report", action="store_true")
     args = parser.parse_args()
     fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
@@ -210,6 +219,20 @@ def main() -> int:
 
     encoder = encoder_from_settings(get_settings())
     ranker = semantic.EncoderRanker(encoder) if encoder else None
+    retrieval = (
+        (f"{encoder.model} encoder" + (" + reranker" if encoder.rerank_url else ""))
+        if encoder
+        else "BM25"
+    )
+    if args.rankings:
+        cached = json.loads(args.rankings.read_text(encoding="utf-8"))
+
+        def ranker(query: str, passages: list) -> list[str] | None:
+            return (
+                cached.get(passages[0].source_id, {}).get(query) if passages else None
+            )
+
+        retrieval = f"precomputed encoder rankings ({args.rankings.name})"
     hits = collections.Counter()
     totals = collections.Counter()
     reciprocal = 0.0
@@ -236,11 +259,7 @@ def main() -> int:
             hits[key] += rank is not None
         reciprocal += 1 / rank if rank else 0.0
     stage3 = {
-        "retrieval": (
-            (f"{encoder.model} encoder" + (" + reranker" if encoder.rerank_url else ""))
-            if encoder
-            else "BM25"
-        ),
+        "retrieval": retrieval,
         "queries": totals["all"],
         "hit_at_3": hits["all"] / totals["all"] if totals["all"] else 0.0,
         "mrr_at_3": reciprocal / totals["all"] if totals["all"] else 0.0,
@@ -342,6 +361,10 @@ def main() -> int:
         f"judge families (not the evaluated model's) >= {GATE['judge_families']}": (
             len(families) >= GATE["judge_families"]
         ),
+        f"held-out judge confirms labels >= {GATE['heldout_agreement']}": (
+            (fixture["annotation_set"].get("heldout_agreement") or 0)
+            >= GATE["heldout_agreement"]
+        ),
         f"evidence Hit@3 >= {GATE['hit_at_3']}": stage3["hit_at_3"] >= GATE["hit_at_3"],
         f"macro-F1 >= {GATE['macro_f1']}": (
             stage4.get("macro_f1", 0) >= GATE["macro_f1"]
@@ -405,15 +428,16 @@ def main() -> int:
             "",
             *verdicts,
             "",
-            "## Gate (AI-consensus benchmark gate, 2026-10-17)",
+            "## Gate (AI-verified benchmark gate, spec section 7)",
             "",
             *(
                 f"- {'PASS' if ok else 'FAIL'}: {name}"
                 for name, ok in gate_checks.items()
             ),
             "",
-            f"Gate {'passed' if results['gate']['passed'] else 'blocked'}. "
-            "Passing also requires recorded owner approval; labels are AI consensus, "
+            f"Gate {'passed' if results['gate']['passed'] else 'blocked'} for this "
+            "configuration. Automatic scores also need recorded owner approval and a "
+            "server-side gate artifact (not implemented); labels are AI-verified, "
             "not human gold.",
             "",
             "## Reproduce",

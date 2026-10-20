@@ -105,6 +105,8 @@ Stage-3 queries of [`citation-semantic-v1-dataset.md`](citation-semantic-v1-data
 
 Encoder and reranker had 0 failures; 79.8 passages/s, rerank 20 candidates p50/p95 302/438 ms, peak 5.6 GB per GPU. The BM25 row matches the local `semantic_citation_v1_benchmark.py` stage 3 run (281/397), so both harnesses see the same passages and gold. With the encoder the evidence Hit@3 gate criterion (at least 0.90) is met on this set; with BM25 alone it is not, mostly because of Vietnamese claims.
 
+For the 900-pair v1.1 set (2026-10-20) the same TEI pair ranked all 1,584 candidate queries with the production `EncoderRanker` (0 failures) and saved the orders; `semantic_citation_v1_benchmark.py --rankings` replays them so stage 4 sees exactly the encoder's top 3. Evidence Hit@3 on the 618 v1.1 queries: BM25 430/618 (69.6%; Vietnamese 156/324), `bge-m3` + reranker 587/618 (95.0%; Vietnamese 310/324, English 228/244, mixed 49/50).
+
 ## Reproduce
 
 The script emits model ID/revision and runtime versions for each run.
