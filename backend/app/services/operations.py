@@ -18,12 +18,14 @@ from app.api.schemas_operations import (
     AdminAuditEventResponse,
     AdminDashboardResponse,
     AdminJobTrendPoint,
+    AdminSemanticRetrievalStatus,
     AdminUserCreateRequest,
     AdminUserListResponse,
     AdminUserResponse,
     AdminUserUpdateRequest,
     CourseSubmissionCount,
 )
+from app.core.config import get_settings
 from app.models.analysis import AnalysisJob
 from app.models.assignment import Assignment
 from app.models.audit import AuditEvent
@@ -755,6 +757,51 @@ async def _jobs_last_7_days(db: AsyncSession) -> list[AdminJobTrendPoint]:
     ]
 
 
+async def _semantic_retrieval_status(db: AsyncSession) -> AdminSemanticRetrievalStatus:
+    """Configured retrieval mode plus encoder failures recorded in job traces."""
+    settings = get_settings()
+    if not settings.semantic_encoder_url:
+        mode = "BM25_ONLY"
+    elif settings.semantic_reranker_url:
+        mode = "ENCODER_RERANKER"
+    else:
+        mode = "ENCODER"
+    trace = AnalysisJob.snapshot["semantic_citation_trace"]
+    failures = AnalysisJob.snapshot[
+        ("semantic_citation_trace", "execution", "encoder", "failures")
+    ]
+    # Only a JSON number counts; a malformed stored value must not break the cast.
+    failed = sa.and_(
+        sa.func.jsonb_typeof(failures) == "number",
+        sa.case(
+            (
+                sa.func.jsonb_typeof(failures) == "number",
+                failures.astext.cast(sa.Numeric),
+            ),
+            else_=0,
+        )
+        > 0,
+    )
+    total, failed_jobs, last_failure = (
+        await db.execute(
+            sa.select(
+                sa.func.count(AnalysisJob.id),
+                sa.func.count(AnalysisJob.id).filter(failed),
+                sa.func.max(AnalysisJob.finished_at).filter(failed),
+            ).where(
+                trace.is_not(None),
+                AnalysisJob.finished_at >= datetime.now(UTC) - timedelta(days=7),
+            )
+        )
+    ).one()
+    return AdminSemanticRetrievalStatus(
+        mode=mode,
+        semantic_jobs_last_7_days=int(total or 0),
+        encoder_failure_jobs_last_7_days=int(failed_jobs or 0),
+        last_encoder_failure_at=last_failure,
+    )
+
+
 async def get_dashboard(db: AsyncSession) -> AdminDashboardResponse:
     jobs_by_status = await _jobs_by_status(db)
     average_active_age = await _average_active_job_age(db)
@@ -801,4 +848,5 @@ async def get_dashboard(db: AsyncSession) -> AdminDashboardResponse:
         average_active_job_age_seconds=average_active_age,
         jobs_last_7_days=await _jobs_last_7_days(db),
         review_requests_by_status=review_requests_by_status,
+        semantic_retrieval=await _semantic_retrieval_status(db),
     )

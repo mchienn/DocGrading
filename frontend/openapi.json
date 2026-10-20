@@ -5115,6 +5115,9 @@
             },
             "type": "object",
             "title": "Review Requests By Status"
+          },
+          "semantic_retrieval": {
+            "$ref": "#/components/schemas/AdminSemanticRetrievalStatus"
           }
         },
         "additionalProperties": false,
@@ -5126,7 +5129,8 @@
           "total_users",
           "average_active_job_age_seconds",
           "jobs_last_7_days",
-          "review_requests_by_status"
+          "review_requests_by_status",
+          "semantic_retrieval"
         ],
         "title": "AdminDashboardResponse"
       },
@@ -5162,6 +5166,50 @@
           "average_processing_seconds"
         ],
         "title": "AdminJobTrendPoint"
+      },
+      "AdminSemanticRetrievalStatus": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ENCODER_RERANKER",
+              "ENCODER",
+              "BM25_ONLY"
+            ],
+            "title": "Mode"
+          },
+          "semantic_jobs_last_7_days": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Semantic Jobs Last 7 Days"
+          },
+          "encoder_failure_jobs_last_7_days": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Encoder Failure Jobs Last 7 Days"
+          },
+          "last_encoder_failure_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Encoder Failure At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "semantic_jobs_last_7_days",
+          "encoder_failure_jobs_last_7_days"
+        ],
+        "title": "AdminSemanticRetrievalStatus",
+        "description": "Semantic-citation retrieval mode and encoder health over the last 7 days."
       },
       "AdminUserCreateRequest": {
         "properties": {

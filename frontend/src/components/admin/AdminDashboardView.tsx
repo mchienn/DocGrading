@@ -20,6 +20,51 @@ import type { components } from '../../api/schema';
 
 type CourseSubmission = components['schemas']['CourseSubmissionCount'];
 type TrendPoint = components['schemas']['AdminJobTrendPoint'];
+type SemanticRetrieval = components['schemas']['AdminSemanticRetrievalStatus'];
+
+const RETRIEVAL_MODE_LABEL: Record<SemanticRetrieval['mode'], string> = {
+  ENCODER_RERANKER: 'Encoder + reranker',
+  ENCODER: 'Encoder',
+  BM25_ONLY: 'Keyword search only (BM25)',
+};
+
+const SemanticRetrievalNotice: React.FC<{ status: SemanticRetrieval }> = ({ status }) => {
+  const failing = status.encoder_failure_jobs_last_7_days > 0;
+  const unavailable = status.mode === 'BM25_ONLY';
+  if (!failing && !unavailable) {
+    return (
+      <p className="text-xs text-[#596579]">
+        Semantic retrieval: <span className="font-semibold text-emerald-700">{RETRIEVAL_MODE_LABEL[status.mode]}</span>
+        {' '}· {status.semantic_jobs_last_7_days} semantic jobs in the last 7 days, no encoder failures.
+      </p>
+    );
+  }
+  return (
+    <div role="status" className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm flex items-start gap-2">
+      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+      <div className="space-y-1">
+        {unavailable && (
+          <p>
+            <span className="font-semibold">Text encoder unavailable.</span> Semantic citation checks match claims
+            to source passages by keywords only, so claims written in another language than the source (Vietnamese
+            claim, English paper) often get the wrong passages. Set <code>SEMANTIC_ENCODER_URL</code> and{' '}
+            <code>SEMANTIC_ENCODER_MODEL</code> on the worker to enable it.
+          </p>
+        )}
+        {failing && (
+          <p>
+            <span className="font-semibold">{unavailable ? 'Encoder failures recorded.' : 'Text encoder failing.'}</span>{' '}
+            {status.encoder_failure_jobs_last_7_days} of {status.semantic_jobs_last_7_days} semantic jobs in the last
+            7 days had encoder failures; those claims fell back to keyword search.
+            {status.last_encoder_failure_at && (
+              <> Last failure: {new Date(status.last_encoder_failure_at).toLocaleString()}.</>
+            )}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
 
 function formatDuration(seconds: number): string {
   if (!seconds || seconds <= 0) return '0s';
@@ -119,6 +164,8 @@ export const AdminDashboardView: React.FC = () => {
           </button>
         </div>
       )}
+
+      {data?.semantic_retrieval && <SemanticRetrievalNotice status={data.semantic_retrieval} />}
 
       {/* KPI Cards Grid */}
       <section aria-label="Key Performance Indicators" className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">

@@ -206,6 +206,8 @@ Student sees only published accepted findings under existing publication policy.
 
 Admin alone can list provider configuration, import/replace/remove credentials, verify catalog access, edit a route draft, activate/deactivate routing and see safe provider status. Teacher and Student receive no provider list, source, hint, status, model, route or technical failure metadata. The UI uses `Manual review only`, `Draft` and `Active` as route states; it never labels catalog access as generation health. Disabling routing affects new jobs; disabling or rotating the credential also prevents queued/retried snapshots from calling the old credential.
 
+The Admin dashboard also shows the semantic retrieval mode (`Encoder + reranker`, `Encoder` or `Keyword search only (BM25)`, from settings) and how many finished jobs in the last 7 days recorded encoder failures in their trace, with the latest failure time. Without an encoder, or with failures, it warns that claims written in another language than the source match passages poorly. The counts come from stored job traces, not a live probe.
+
 ## 9. Benchmark
 
 Stage-wise script consumes a versioned fixture manifest and reports:
