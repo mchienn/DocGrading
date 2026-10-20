@@ -64,6 +64,7 @@ _PROTOCOL = {
     LLMProvider.GEMINI: LLMProtocol.GEMINI_GENERATE_CONTENT,
     LLMProvider.DEEPSEEK: LLMProtocol.OPENAI_CHAT,
 }
+_MAX_TOKENS = 512  # model output budget the benchmark measures (route max_tokens)
 
 
 def _norm(text: str) -> str:
@@ -189,11 +190,16 @@ def _write_gate_entry(
         model_id=model_id,
         encoder_model=encoder.model,
         encoder_fingerprint=encoder.fingerprint,
+        encoder_query_prefix=encoder.query_prefix,
         reranker=bool(encoder.rerank_url),
+        max_tokens=_MAX_TOKENS,
     ).model_dump()
+    config_hash = hashlib.sha256(
+        json.dumps(configuration, sort_keys=True).encode()
+    ).hexdigest()[:8]
     entry = semantic_gate.Approval.model_validate(
         {
-            "approval_id": f"{provider.value}-{model_id}-{today}".lower(),
+            "approval_id": f"{provider.value}-{model_id}-{today}-{config_hash}".lower(),
             "configuration": configuration,
             "benchmark": {
                 "fixture": fixture.name,
@@ -263,8 +269,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--rankings-encoder-model",
-        default="BAAI/bge-m3",
-        help="encoder that produced --rankings (identifies the gate configuration)",
+        help="encoder that produced --rankings (required with --rankings; it "
+        "identifies the gate configuration)",
     )
     parser.add_argument(
         "--rankings-reranker",
@@ -282,6 +288,8 @@ def main() -> int:
     parser.add_argument("--approved-by", help="owner approving the written entry")
     parser.add_argument("--write-report", action="store_true")
     args = parser.parse_args()
+    if args.rankings and not args.rankings_encoder_model:
+        parser.error("--rankings needs --rankings-encoder-model")
     fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
     args.pdf_cache.mkdir(parents=True, exist_ok=True)
 
@@ -332,6 +340,20 @@ def main() -> int:
             )
 
         retrieval = f"precomputed encoder rankings ({args.rankings.name})"
+    # Production blocks the gate when the encoder falls back to BM25 for any claim,
+    # so the benchmark counts the same: a missing ranking or encoder error is one.
+    fallbacks = [0]
+    fallback_lock = threading.Lock()
+    if ranker is not None:
+        encoder_ranker = ranker
+
+        def ranker(query: str, passages: list) -> list[str] | None:
+            order = encoder_ranker(query, passages)
+            if order is None:
+                with fallback_lock:
+                    fallbacks[0] += 1
+            return order
+
     hits = collections.Counter()
     totals = collections.Counter()
     reciprocal = 0.0
@@ -365,6 +387,7 @@ def main() -> int:
         "hit_at_3_by_language": {
             k: f"{hits[k]}/{totals[k]}" for k in sorted(totals) if k != "all"
         },
+        "encoder_fallbacks": fallbacks[0],
     }
 
     stage4: dict = {"status": "NOT_MEASURED"}
@@ -376,7 +399,7 @@ def main() -> int:
                 "protocol": _PROTOCOL[provider],
                 "model_id": args.model,
                 "credential": os.environ[f"{provider.value}_API_KEY"],
-                "max_tokens": 512,
+                "max_tokens": _MAX_TOKENS,
             }
         )
         failed_claims: dict[str, str] = {}  # claim -> provider failure cause
@@ -496,6 +519,8 @@ def main() -> int:
         ),
         "no provider failures": stage4.get("provider_failures", 1) == 0,
         "anchor completeness == 1.0": stage4.get("anchor_completeness", 0) == 1.0,
+        "encoder ran without BM25 fallback": gate_encoder is not None
+        and fallbacks[0] == 0,
     }
     results = {
         "pairs": len(pairs),
