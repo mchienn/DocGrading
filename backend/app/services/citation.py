@@ -19,6 +19,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -1640,6 +1641,13 @@ class _JobLimits:
 def _retry_delay(retry_after: str | None, attempt: int) -> float:
     with suppress(TypeError, ValueError):
         return min(_MAX_RETRY_AFTER_SECONDS, max(0.0, float(retry_after)))
+    with suppress(TypeError, ValueError, IndexError):  # Retry-After as an HTTP-date
+        when = parsedate_to_datetime(retry_after)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        seconds = (when - datetime.now(UTC)).total_seconds()
+        if seconds > 0:
+            return min(_MAX_RETRY_AFTER_SECONDS, seconds)
     return float(2**attempt)
 
 
