@@ -93,6 +93,20 @@ The same 16 claims and 904 production passages ran through the unchanged product
 
 Against CPU, passage encoding is about 19× faster and reranking about 24× faster; quality is identical in fp16 and fp32. TEI's default fp16 flash-attention path on T4 intermittently returned NaN (embedding `null`, reranker HTTP 424 "score is NaN") while logging success, so a T4 deployment must set `USE_FLASH_ATTENTION=False` or `--dtype float32`. The CPU image used by Compose is not affected. Stopping the reranker mid-run produced no exception; since then a reranker failure keeps the dense order instead of dropping the claim to BM25. MRR@10 for BM25 needed a local override of the production three-passage cap.
 
+## v1 AI-consensus set on a GPU (Kaggle T4, 2026-10-18)
+
+Stage-3 queries of [`citation-semantic-v1-dataset.md`](citation-semantic-v1-dataset.md): 397 `SUPPORTED`/`PARTIALLY_SUPPORTED`/`CONTRADICTED` claims whose evidence quote lies in one of 25,093 production Source IR passages from 139 arXiv papers (gold = passages containing the quote; claims with citation markers stripped as production does). Same TEI 1.9.4 router and pinned revisions as above, fp16 with `USE_FLASH_ATTENTION=False`, encoder and reranker on separate T4s, unchanged production `TextEncoder`/`EncoderRanker`.
+
+| Retrieval | Hit@1 | Hit@3 | MRR@10 | Hit@3 Vietnamese (217) | Hit@3 English (141) | Hit@3 mixed (39) |
+|---|---:|---:|---:|---:|---:|---:|
+| BM25 | 233/397 | 281/397 (70.8%) | 0.663 | 113 (52.1%) | 130 (92.2%) | 38 (97.4%) |
+| `bge-m3` dense | 324/397 | 369/397 (92.9%) | 0.876 | 204 (94.0%) | 128 (90.8%) | 37 (94.9%) |
+| `bge-m3` + reranker top 20 | 353/397 | 377/397 (95.0%) | 0.924 | 208 (95.9%) | 132 (93.6%) | 37 (94.9%) |
+
+Encoder and reranker had 0 failures; 79.8 passages/s, rerank 20 candidates p50/p95 302/438 ms, peak 5.6 GB per GPU. The BM25 row matches the local `semantic_citation_v1_benchmark.py` stage 3 run (281/397), so both harnesses see the same passages and gold. With the encoder the evidence Hit@3 gate criterion (at least 0.90) is met on this set; with BM25 alone it is not, mostly because of Vietnamese claims.
+
+For the 900-pair v1.1 set (2026-10-20) the same TEI pair ranked all 1,584 candidate queries with the production `EncoderRanker` (0 failures) and saved the orders; `semantic_citation_v1_benchmark.py --rankings` replays them so stage 4 sees exactly the encoder's top 3. Evidence Hit@3 on the 618 v1.1 queries: BM25 430/618 (69.6%; Vietnamese 156/324), `bge-m3` + reranker 587/618 (95.0%; Vietnamese 310/324, English 228/244, mixed 49/50).
+
 ## Reproduce
 
 The script emits model ID/revision and runtime versions for each run.
