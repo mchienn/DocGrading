@@ -1120,6 +1120,64 @@ def test_source_lanes_cache_first_then_arxiv_or_openalex(
     assert openalex_lookups == ["10.1000/182", "10.1000/matched"]
 
 
+def test_datacite_arxiv_doi_uses_only_the_exact_version_arxiv_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    arxiv_downloads: list[str] = []
+    openalex_lookups: list[str] = []
+
+    def download(arxiv_id: str, _limit: int) -> bytes:
+        arxiv_downloads.append(arxiv_id)
+        return b"%PDF-1.7 exact"
+
+    def open_access(doi: str, _limit: int):
+        openalex_lookups.append(doi)
+        return iter([b"%PDF-1.7 unversioned"])
+
+    class MissingStorage:
+        def get_bounded(self, _key: str, _limit: int) -> bytes:
+            raise StorageObjectNotFound
+
+        def put_private_object(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    monkeypatch.setattr(semantic, "_download_arxiv_pdf", download)
+    monkeypatch.setattr(semantic, "_open_access_pdfs", open_access)
+    monkeypatch.setattr(
+        semantic,
+        "_source_from_pdf_bytes",
+        lambda *_args, **_kwargs: _source(doi=None, arxiv_id="1706.03762v7"),
+    )
+    settings = SimpleNamespace(
+        semantic_source_cache_prefix="semantic",
+        semantic_max_source_bytes=1_000,
+        pdf_max_decoded_bytes=1_000,
+        semantic_source_fetch_enabled=True,
+    )
+    matched = {"provider": "openalex", "doi": "10.48550/arxiv.1706.03762"}
+
+    def resolve(reference: CitationReference) -> object:
+        return semantic._resolve_from_operator_cache(
+            reference, settings, MissingStorage()
+        )
+
+    printed = resolve(
+        _reference(doi="10.48550/arXiv.1706.03762", arxiv_id="1706.03762v7")
+    )
+    record = resolve(
+        replace(_reference(doi=None, arxiv_id="1706.03762v7"), provider_record=matched)
+    )
+    unversioned = resolve(
+        replace(_reference(doi=None, arxiv_id="1706.03762"), provider_record=matched)
+    )
+    no_arxiv_id = resolve(_reference(doi="10.48550/ARXIV.1706.03762", arxiv_id=None))
+
+    assert printed is not None and record is not None
+    assert (unversioned, no_arxiv_id) == (None, None)
+    assert arxiv_downloads == ["1706.03762v7"] * 2
+    assert openalex_lookups == []
+
+
 def test_openalex_lane_tries_only_open_access_pdf_locations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1927,7 +1985,7 @@ def test_resolve_references_deduplicates_by_canonical_identity(
 
     resolve_calls: list[str] = []
 
-    def mock_resolve(reference: CitationReference) -> dict[str, Any]:
+    def mock_resolve(reference: CitationReference, **_: Any) -> dict[str, Any]:
         resolve_calls.append(reference.id)
         return {"doi": reference.doi, "title": f"Title for {reference.id}"}
 

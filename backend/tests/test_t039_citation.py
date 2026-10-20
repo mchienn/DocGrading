@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import pytest
 
 from app.services import citation
 from app.services.document_ir import parse_document_ir
@@ -127,6 +130,370 @@ def test_identity_accepts_crossref_full_author_list() -> None:
     assert citation._identity(reference, record) == (citation.VERIFIED, ())
 
 
+def _student_reference(raw: str, **fields: object) -> citation.CitationReference:
+    return citation.CitationReference(
+        id="reference-student",
+        number=1,
+        raw=raw,
+        page_number=1,
+        element_id="paragraph-1",
+        start=0,
+        end=len(raw),
+        snippet=raw,
+        **fields,
+    )
+
+
+def test_identity_checks_provider_title_against_raw_reference() -> None:
+    # Glued words and a title parsed into the wrong field still verify when the
+    # provider title occurs in the raw reference; an arXiv/proceedings year
+    # difference of one is accepted and venue abbreviations match by prefix.
+    glued = _student_reference(
+        "I. J. Goodfellow, J. Shlens, C. Szegedy. Explainingandharnessingadversarial "
+        "examples, arXiv preprint arXiv:1412.6572, 2014.",
+        title="Explainingandharnessingadversarial examples,",
+        authors=("I. J. Goodfellow",),
+        year=2014,
+        arxiv_id="1412.6572",
+    )
+    record = {
+        "comparison": {
+            "title": "explaining and harnessing adversarial examples",
+            "authors": ["ian j goodfellow", "jonathon shlens"],
+            "year": 2014,
+            "venue": None,
+        }
+    }
+    misparsed = _student_reference(
+        "Redmon, J., Farhadi, A.: Yolov3: An incremental improvement. arXiv "
+        "preprint arXiv:1804.02767 (2018)",
+        authors=("Redmon, J., Farhadi, A.: Yolov3: An incremental improvement",),
+        year=2018,
+        arxiv_id="1804.02767",
+    )
+    yolo = {
+        "comparison": {
+            "title": "yolov3 an incremental improvement",
+            "authors": ["joseph redmon", "ali farhadi"],
+            "year": 2018,
+            "venue": None,
+        }
+    }
+    later_print = _student_reference(
+        "Sarlin, P.-E. et al. (2020). SuperGlue: Learning Feature Matching with "
+        "Graph Neural Networks. Neural Comput.",
+        title="SuperGlue: Learning Feature Matching with Graph Neural Networks",
+        authors=("Sarlin, P.-E.",),
+        year=2020,
+        venue="Neural Comput",
+    )
+    superglue = {
+        "comparison": {
+            "title": "superglue learning feature matching with graph neural networks",
+            "authors": ["paul edouard sarlin"],
+            "year": 2019,
+            "venue": "neural computing and applications",
+        }
+    }
+
+    assert citation._identity(glued, record) == (citation.VERIFIED, ())
+    assert citation._identity(misparsed, yolo) == (citation.VERIFIED, ())
+    assert citation._identity(later_print, superglue) == (citation.VERIFIED, ())
+
+
+def test_identity_still_flags_a_different_work_behind_the_printed_id() -> None:
+    # Student cites "Attention is all you need" with the arXiv ID of another paper.
+    reference = _student_reference(
+        "Vaswani, A., Shazeer, N. (2017). Attention is all you need. "
+        "arXiv:1612.03144.",
+        title="Attention is all you need",
+        authors=("Vaswani, A.",),
+        year=2017,
+        arxiv_id="1612.03144",
+    )
+    record = {
+        "comparison": {
+            "title": "feature pyramid networks for object detection",
+            "authors": ["tsung yi lin", "piotr dollar"],
+            "year": 2016,
+            "venue": None,
+        }
+    }
+
+    assert citation._identity(reference, record) == (
+        citation.METADATA_MISMATCH,
+        ("title", "author"),
+    )
+
+
+def test_search_hit_needs_a_corroborating_author() -> None:
+    # A proceedings-volume record named like the cited venue has no authors.
+    reference = _student_reference(
+        "Deep residual hashing. In: Advances in Neural Information Processing "
+        "Systems, 2018.",
+        year=2018,
+    )
+    volume = {
+        "comparison": {
+            "title": "advances in neural information processing systems",
+            "authors": [],
+            "year": 2018,
+        }
+    }
+
+    assert citation._best_candidate(reference, [volume], threshold=0.70) is None
+
+
+def test_crossref_request_retries_rate_limit_but_not_missing_doi(monkeypatch) -> None:
+    import io
+    import urllib.error
+
+    calls: list[str] = []
+    answers = [429, 200, 404]
+
+    def opener(request, timeout):  # noqa: ANN001, ANN202
+        calls.append(request.full_url)
+        status = answers.pop(0)
+        if status != 200:
+            raise urllib.error.HTTPError(
+                request.full_url, status, "error", {"Retry-After": "0"}, None
+            )
+        return io.BytesIO(b'{"message": {}}')
+
+    monkeypatch.setattr(citation, "_open_provider_request", opener)
+    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda *_: None)
+    monkeypatch.setattr(citation.time, "sleep", lambda _seconds: None)
+
+    assert citation._crossref_request("https://api.crossref.org/works/a") == {
+        "message": {}
+    }
+    assert citation._crossref_request("https://api.crossref.org/works/b") is None
+    assert len(calls) == 3
+
+
+def test_crossref_retry_after_http_date_sets_the_wait() -> None:
+    import email.utils
+    from datetime import UTC, datetime, timedelta
+
+    def date(seconds: int) -> str:
+        when = datetime.now(UTC) + timedelta(seconds=seconds)
+        return email.utils.format_datetime(when, usegmt=True)
+
+    assert 4.0 <= citation._retry_delay(date(6), 0) <= 6.0
+    assert citation._retry_delay(date(3600), 0) == citation._MAX_RETRY_AFTER_SECONDS
+    # A past or unparsable date is no explicit wait: exponential backoff.
+    assert citation._retry_delay(date(-60), 1) == 2.0
+    assert citation._retry_delay("soon", 2) == 4.0
+
+
+class _FakeClock:
+    """Monotonic clock that only `sleep` and fake provider calls advance."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _doi_reference(index: int) -> citation.CitationReference:
+    return citation.CitationReference(
+        id=f"doi-{index}",
+        number=index,
+        raw=f"doi:10.1000/job.{index}",
+        page_number=1,
+        element_id=f"paragraph-{index}",
+        start=0,
+        end=1,
+        snippet="DOI",
+        doi=f"10.1000/job.{index}",
+    )
+
+
+def _failing_crossref(monkeypatch, clock, calls: list[str], *, took: float = 0.0):
+    def opener(request, timeout):  # noqa: ANN001, ANN202
+        calls.append(request.full_url)
+        clock.now += took
+        raise TimeoutError
+
+    monkeypatch.setattr(citation, "_open_provider_request", opener)
+    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda *_: None)
+    monkeypatch.setattr(citation.time, "sleep", clock.sleep)
+
+
+def test_crossref_retries_reserve_a_pacer_slot_per_attempt(monkeypatch) -> None:
+    clock = _FakeClock()
+    attempts: list[str] = []
+    slots: list[int] = []
+    _failing_crossref(monkeypatch, clock, attempts)
+    monkeypatch.setattr(
+        citation,
+        "_wait_for_crossref_rate_limit",
+        lambda *_: slots.append(len(attempts)),
+    )
+
+    assert citation._crossref_request("https://api.crossref.org/works/a") is None
+
+    # A slot is reserved before each of the three attempts, retries included.
+    assert slots == [0, 1, 2]
+
+
+def test_crossref_wait_never_crosses_the_job_deadline(monkeypatch) -> None:
+    clock = _FakeClock()
+    calls: list[str] = []
+    _failing_crossref(monkeypatch, clock, calls)
+    limits = citation._JobLimits(2.5, clock=clock)
+
+    assert (
+        citation._crossref_request("https://api.crossref.org/works/a", limits) is None
+    )
+
+    # Backoff is 1 s then 2 s: the 2 s wait would end past 2.5 s, so it never starts.
+    assert len(calls) == 2
+    assert clock.now == 1.0
+
+
+def test_resolution_stops_calling_providers_after_the_deadline(monkeypatch) -> None:
+    clock = _FakeClock()
+    calls: list[str] = []
+    _failing_crossref(monkeypatch, clock, calls, took=15.0)
+    limits = citation._JobLimits(10.0, clock=clock)
+
+    records = [
+        citation.resolve_reference(_doi_reference(index), limits=limits)
+        for index in range(5)
+    ]
+
+    assert records == [None] * 5
+    assert len(calls) == 1
+
+
+def test_crossref_pacer_wait_past_the_deadline_reserves_no_slot(monkeypatch) -> None:
+    clock = _FakeClock()
+    slept: list[float] = []
+    monkeypatch.setattr(citation.time, "sleep", slept.append)
+    far_slot = citation.time.monotonic() + 100.0
+    monkeypatch.setattr(citation, "_NEXT_REQUEST_AT", far_slot)
+
+    with pytest.raises(citation._JobLimitReached):
+        citation._wait_for_crossref_rate_limit(citation._JobLimits(5.0, clock=clock))
+
+    assert far_slot == citation._NEXT_REQUEST_AT
+    assert slept == []
+
+
+def test_provider_is_skipped_after_three_consecutive_transport_failures(
+    monkeypatch,
+) -> None:
+    clock = _FakeClock()
+    calls: list[str] = []
+    _failing_crossref(monkeypatch, clock, calls)
+    limits = citation._JobLimits(1_000.0, clock=clock)
+
+    records = [
+        citation.resolve_reference(_doi_reference(index), limits=limits)
+        for index in range(6)
+    ]
+
+    assert records == [None] * 6
+    # Three references x three attempts, then the breaker skips Crossref.
+    assert len(calls) == 9
+
+
+def test_openalex_and_arxiv_breakers_skip_after_three_failures(monkeypatch) -> None:
+    clock = _FakeClock()
+    limits = citation._JobLimits(1_000.0, clock=clock)
+    openalex_calls: list[str] = []
+    arxiv_calls: list[object] = []
+
+    def openalex_opener(request, timeout):  # noqa: ANN001, ANN202
+        openalex_calls.append(request.full_url)
+        raise TimeoutError
+
+    monkeypatch.setattr(citation, "_open_provider_request", openalex_opener)
+    monkeypatch.setattr(citation, "_wait_for_openalex_rate_limit", lambda *_: None)
+    budget = citation._SearchBudget(16)
+    for index in range(5):
+        assert citation._openalex_by_doi(f"10.1000/oa.{index}", budget, limits) is None
+    assert len(openalex_calls) == 3
+
+    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda *_: None)
+    monkeypatch.setattr(
+        citation, "_arxiv_request", lambda ids, *_: arxiv_calls.append(ids)
+    )
+    for _ in range(5):
+        assert (
+            citation._fetch_arxiv_records(["1706.06083"], attempts=1, limits=limits)
+            is None
+        )
+    assert len(arxiv_calls) == 3
+
+
+def test_openalex_fallback_runs_outside_the_crossref_slot(monkeypatch) -> None:
+    references = [_doi_reference(index) for index in range(2)]
+    second_in_crossref = threading.Event()
+    waited_for_second: list[bool] = []
+
+    def crossref(reference, **_):  # noqa: ANN001, ANN202
+        if reference.id == "doi-1":
+            second_in_crossref.set()
+
+    def openalex(reference, budget, limits):  # noqa: ANN001, ANN202
+        if reference.id == "doi-0":
+            # Needs the single Crossref slot to have been released.
+            waited_for_second.append(second_in_crossref.wait(timeout=10))
+
+    monkeypatch.setattr(citation, "_crossref_limits", lambda: (1, 1.0))
+    monkeypatch.setattr(citation, "resolve_reference", crossref)
+    monkeypatch.setattr(citation, "_resolve_openalex", openalex)
+
+    assert asyncio.run(citation._resolve_references(references)) == [None, None]
+    assert waited_for_second == [True]
+
+
+def test_openalex_title_search_runs_only_with_a_budget(monkeypatch) -> None:
+    reference = _student_reference(
+        "S. T. Luu, K. V. Nguyen, N. L. T. Nguyen. A large-scale dataset for hate "
+        "speech detection on Vietnamese social media texts. IEA/AIE 2021.",
+        title="A large-scale dataset for hate speech detection on Vietnamese "
+        "social media texts",
+        authors=("S. T. Luu",),
+        year=2021,
+    )
+    work = {
+        "id": "https://openalex.org/W1",
+        "doi": "https://doi.org/10.1007/978-3-030-79457-6_35",
+        "title": "A Large-Scale Dataset for Hate Speech Detection on Vietnamese "
+        "Social Media Texts",
+        "publication_year": 2021,
+        "authorships": [{"author": {"display_name": "Son T. Luu"}}],
+    }
+    requests: list[dict] = []
+
+    def request(path, params, budget, limits=None):  # noqa: ANN001, ANN202
+        requests.append(params)
+        return {"results": [work]}
+
+    monkeypatch.setattr(citation, "_crossref_request", lambda *_: None)
+    monkeypatch.setattr(citation, "_openalex_request", request)
+
+    assert citation.resolve_reference(reference) is None
+    budget = citation._SearchBudget(1)
+    record = citation.resolve_reference(reference, search_budget=budget)
+
+    assert record is not None
+    assert record["provider"] == "openalex"
+    assert record["doi"] == "10.1007/978-3-030-79457-6_35"
+    assert citation._identity(reference, record) == (citation.VERIFIED, ())
+    assert "search.title" in requests[0]
+    # The resolver spent the one billed search: one request, none left.
+    assert len(requests) == 1
+    assert not budget.take()
+
+
 def test_candidate_search_selects_matching_record(monkeypatch) -> None:
     reference = citation.CitationReference(
         id="reference-search",
@@ -142,11 +509,10 @@ def test_candidate_search_selects_matching_record(monkeypatch) -> None:
         year=2020,
         venue="Nature",
     )
-    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda: None)
     monkeypatch.setattr(
         citation,
         "_crossref_request",
-        lambda _url: {
+        lambda *_: {
             "message": {
                 "items": [
                     {
@@ -180,7 +546,7 @@ def test_crossref_search_results_are_not_shared_between_documents(monkeypatch) -
         citation.CitationReference(
             id=f"reference-{suffix}",
             number=1,
-            raw=raw_prefix + suffix,
+            raw=raw_prefix + " Lovelace " + suffix,
             page_number=1,
             element_id="paragraph-1",
             start=0,
@@ -191,11 +557,10 @@ def test_crossref_search_results_are_not_shared_between_documents(monkeypatch) -
         for suffix in ("one", "two")
     ]
     calls: list[str] = []
-    monkeypatch.setattr(citation, "_wait_for_crossref_rate_limit", lambda: None)
     monkeypatch.setattr(
         citation,
         "_crossref_request",
-        lambda url: (
+        lambda url, *_: (
             calls.append(url)
             or {
                 "message": {
@@ -203,6 +568,7 @@ def test_crossref_search_results_are_not_shared_between_documents(monkeypatch) -
                         {
                             "DOI": "10.0000/study",
                             "title": ["Study"],
+                            "author": [{"given": "Ada", "family": "Lovelace"}],
                             "published": {"date-parts": [[2024]]},
                         }
                     ]
@@ -241,7 +607,7 @@ def test_crossref_resolution_count_is_bounded(monkeypatch) -> None:
     monkeypatch.setattr(
         citation,
         "resolve_reference",
-        lambda reference: resolved.append(reference.id) or {"id": reference.id},
+        lambda reference, **_: resolved.append(reference.id) or {"id": reference.id},
     )
 
     records = asyncio.run(citation._resolve_references(references))
@@ -282,12 +648,13 @@ def test_arxiv_only_references_do_not_consume_crossref_budget(monkeypatch) -> No
     monkeypatch.setattr(
         citation,
         "_resolve_arxiv_batch",
-        lambda ids: selected.append(tuple(ids)) or {},
+        lambda ids, *_: selected.append(tuple(ids)) or {},
     )
+    monkeypatch.setattr(citation, "_openalex_request", lambda *_args: None)
     monkeypatch.setattr(
         citation,
         "resolve_reference",
-        lambda reference: resolved.append(reference.id) or {"id": reference.id},
+        lambda reference, **_: resolved.append(reference.id) or {"id": reference.id},
     )
 
     records = asyncio.run(citation._resolve_references([*references, doi_reference]))
@@ -296,6 +663,45 @@ def test_arxiv_only_references_do_not_consume_crossref_budget(monkeypatch) -> No
     assert records[-1] == {"id": "doi-reference"}
     assert len(selected[0]) == citation._MAX_ARXIV_RESOLUTIONS
     assert records[-3:-1] == [None, None]
+
+
+def test_arxiv_outage_falls_back_to_openalex_datacite_doi(monkeypatch) -> None:
+    # export.arxiv.org answering 503 must not leave arXiv references unresolved.
+    reference = citation.CitationReference(
+        id="arxiv-madry",
+        number=1,
+        raw="A. Madry et al. Towards deep learning models resistant to adversarial "
+        "attacks. arXiv:1706.06083, 2017.",
+        page_number=1,
+        element_id="paragraph-1",
+        start=0,
+        end=1,
+        snippet="Madry",
+        arxiv_id="1706.06083",
+        title="Towards deep learning models resistant to adversarial attacks",
+        authors=("A. Madry",),
+        year=2017,
+    )
+    paths: list[str] = []
+
+    def openalex(path, params, budget, limits=None):  # noqa: ANN001, ANN202
+        paths.append(path)
+        return {
+            "id": "https://openalex.org/W2",
+            "doi": "https://doi.org/10.48550/arXiv.1706.06083",
+            "title": "Towards Deep Learning Models Resistant to Adversarial Attacks",
+            "publication_year": 2017,
+            "authorships": [{"author": {"display_name": "Aleksander Madry"}}],
+        }
+
+    monkeypatch.setattr(citation, "_resolve_arxiv_batch", lambda *_: {})
+    monkeypatch.setattr(citation, "_openalex_request", openalex)
+
+    [record] = asyncio.run(citation._resolve_references([reference]))
+
+    assert paths == ["/doi:10.48550/arxiv.1706.06083"]
+    assert record["doi"] == "10.48550/arxiv.1706.06083"
+    assert citation._identity(reference, record) == (citation.VERIFIED, ())
 
 
 def test_crossref_payload_rejects_malformed_nested_fields_without_raising() -> None:
@@ -355,7 +761,7 @@ def test_evaluator_persists_issue_findings_and_bounded_snapshot(
         snapshot={},
     )
     document_ir = SimpleNamespace(id=uuid.uuid4(), content=_document())
-    monkeypatch.setattr(citation, "resolve_reference", lambda _reference: None)
+    monkeypatch.setattr(citation, "resolve_reference", lambda _reference, **_: None)
     monkeypatch.setattr(citation, "_MAX_FINDINGS_PER_CRITERION", 2)
 
     class ScalarResult:
@@ -1295,11 +1701,11 @@ def test_arxiv_atom_batch_resolution_and_metadata_cache(monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
     citation._ARXIV_CACHE.clear()
     citation._ARXIV_MISS_CACHE.clear()
-    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda: None)
+    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda *_: None)
     monkeypatch.setattr(
         citation,
         "_arxiv_request",
-        lambda ids: calls.append(tuple(ids)) or atom,
+        lambda ids, *_: calls.append(tuple(ids)) or atom,
     )
     records = asyncio.run(citation._resolve_references(refs))
     assert len(calls) == 1
@@ -1321,9 +1727,9 @@ def test_arxiv_partial_batch_falls_back_for_missing_ids(monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
     citation._ARXIV_CACHE.clear()
     citation._ARXIV_MISS_CACHE.clear()
-    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda: None)
+    monkeypatch.setattr(citation, "_wait_for_arxiv_rate_limit", lambda *_: None)
 
-    def request(ids):
+    def request(ids, *_):
         calls.append(tuple(ids))
         return atom(ids[0])
 
@@ -1342,11 +1748,12 @@ def test_arxiv_partial_batch_falls_back_for_missing_ids(monkeypatch) -> None:
     monkeypatch.setattr(
         citation,
         "_arxiv_request",
-        lambda ids: miss_calls.append(tuple(ids)),
+        lambda ids, *_: miss_calls.append(tuple(ids)),
     )
     assert citation._resolve_arxiv_batch(["2401.99999"]) == {}
     assert citation._resolve_arxiv_batch(["2401.99999"]) == {}
-    assert miss_calls == [("2401.99999",)]
+    # No answer is retried once, then cached as a miss.
+    assert miss_calls == [("2401.99999",), ("2401.99999",)]
     citation._ARXIV_MISS_CACHE.clear()
 
 

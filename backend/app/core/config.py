@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     pdf_max_decoded_bytes: int = Field(default=50_000_000, gt=0)
     pdf_max_page_count: int = Field(default=100, gt=0)
     pdf_ir_max_nodes: int = Field(default=100_000, gt=0)
+    # Contact email for Crossref's polite pool (3 req/s instead of 1) and OpenAlex;
+    # optional OpenAlex key raises the free search budget from $0.10 to $1 per day.
+    citation_contact_email: str = ""
+    openalex_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    # Wall-clock bound on Crossref/arXiv/OpenAlex identity resolution per analysis job.
+    citation_resolution_deadline_seconds: int = Field(default=180, gt=0)
     # Download verified sources (arXiv, OpenAlex open-access PDFs) into the cache.
     semantic_source_fetch_enabled: bool = False
     semantic_source_cache_prefix: str = ""
@@ -186,6 +192,10 @@ class Settings(BaseSettings):
             and urlsplit(self.semantic_encoder_url).scheme != "https"
         ):
             raise ValueError("an encoder API key requires an HTTPS encoder URL")
+        email = self.citation_contact_email.strip()
+        if email and not re.fullmatch(r"[^@\s()]+@[^@\s()]+\.[^@\s()]+", email):
+            raise ValueError("citation_contact_email must be a plain email address")
+        self.citation_contact_email = email
         return self
 
     @property
