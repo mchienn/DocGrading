@@ -32,6 +32,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.services import semantic_gate
 from app.services.citation import (
     LINKED,
     PARSED,
@@ -385,13 +386,16 @@ class SemanticQualityGateResponse(BaseModel):
     passed: bool = False
     reason: str = Field(min_length=1, max_length=256)
     human_gold_pairs: int = Field(default=0, ge=0)
+    verified_pairs: int = Field(default=0, ge=0)
     double_annotated_fraction: float = Field(default=0.0, ge=0, le=1)
+    heldout_agreement: float = Field(default=0.0, ge=0, le=1)
     anchor_completeness: float = Field(default=0.0, ge=0, le=1)
     structured_success_rate: float = Field(default=0.0, ge=0, le=1)
     macro_f1: float = Field(default=0.0, ge=0, le=1)
     false_accusation_rate: float = Field(default=0.0, ge=0, le=1)
     hit_at_3: float = Field(default=0.0, ge=0, le=1)
     domain_approved: bool = False
+    approval_id: str | None = Field(default=None, max_length=128)
 
 
 class SemanticCitationReportResponse(BaseModel):
@@ -1626,47 +1630,70 @@ def evaluate_claim(
     )
 
 
-class _GateInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    human_gold_pairs: int = Field(default=0, ge=0)
-    double_annotated_fraction: float = Field(default=0.0, ge=0, le=1)
-    anchor_completeness: float = Field(default=0.0, ge=0, le=1)
-    structured_success_rate: float = Field(default=0.0, ge=0, le=1)
-    macro_f1: float = Field(default=0.0, ge=0, le=1)
-    false_accusation_rate: float = Field(default=0.0, ge=0, le=1)
-    hit_at_3: float = Field(default=0.0, ge=0, le=1)
-    domain_approved: StrictBool = False
-
-
-def quality_gate_from_config(config: Mapping[str, Any]) -> SemanticQualityGateResponse:
-    raw = config.get("quality_gate")
-    if not isinstance(raw, Mapping):
-        return SemanticQualityGateResponse(
-            passed=False, reason="quality gate not configured"
-        )
-    values = {
-        key: raw.get(key, 0)
-        for key in (
-            "human_gold_pairs",
-            "double_annotated_fraction",
-            "anchor_completeness",
-            "structured_success_rate",
-            "macro_f1",
-            "false_accusation_rate",
-            "hit_at_3",
-            "domain_approved",
-        )
-    }
+def _run_configuration(
+    job: Any, ranker: EncoderRanker | None
+) -> semantic_gate.RunConfiguration | None:
+    """What this job actually ran with; None without a route or encoder."""
+    snapshot = getattr(job, "snapshot", None)
+    route = snapshot.get("llm_route") if isinstance(snapshot, Mapping) else None
+    if not isinstance(route, Mapping) or ranker is None:
+        return None
     try:
-        gate = _GateInput.model_validate(values)
+        return semantic_gate.RunConfiguration(
+            evaluator_version=SEMANTIC_EVALUATOR_VERSION,
+            prompt_version=SEMANTIC_PROMPT_VERSION,
+            prompt_fingerprint=_prompt_fingerprint(),
+            retrieval_version=SEMANTIC_RETRIEVAL_VERSION,
+            source_ir_version=SEMANTIC_SOURCE_IR_VERSION,
+            provider=route.get("provider"),
+            protocol=route.get("protocol"),
+            model_id=route.get("model_id"),
+            encoder_model=ranker.encoder.model,
+            encoder_fingerprint=ranker.encoder.fingerprint,
+            reranker=bool(ranker.encoder.rerank_url),
+        )
     except ValidationError:
-        return SemanticQualityGateResponse(passed=False, reason="quality gate invalid")
-    # Config is never an approved artifact. Keep metrics for Teacher diagnostics.
-    return SemanticQualityGateResponse(
-        **gate.model_dump(),
-        passed=False,
-        reason="quality gate blocked: server approval required",
+        return None
+
+
+def _quality_gate(
+    job: Any, *, route_model: bool, ranker: EncoderRanker | None
+) -> tuple[SemanticQualityGateResponse, semantic_gate.RunConfiguration | None]:
+    """Gate from the code-owned approval artifact, never from criterion config.
+
+    route_model: the model was built from the job's route snapshot, not injected.
+    """
+    run = _run_configuration(job, ranker)
+    snapshot = getattr(job, "snapshot", None)
+    has_route = isinstance(snapshot, Mapping) and isinstance(
+        snapshot.get("llm_route"), Mapping
+    )
+    decision = semantic_gate.decide(
+        run,
+        has_model=route_model and has_route,
+        encoder_failures=ranker.failures if ranker is not None else None,
+    )
+    entry = decision.approval
+    if entry is None:
+        return SemanticQualityGateResponse(passed=False, reason=decision.reason), run
+    b = entry.benchmark
+    return (
+        SemanticQualityGateResponse(
+            passed=decision.passed,
+            reason=decision.reason,
+            human_gold_pairs=b.human_gold_pairs,
+            verified_pairs=b.pairs,
+            double_annotated_fraction=b.double_annotated_fraction,
+            heldout_agreement=b.heldout_agreement,
+            anchor_completeness=b.anchor_completeness,
+            structured_success_rate=b.structured_success_rate,
+            macro_f1=b.macro_f1,
+            false_accusation_rate=b.false_accusation_rate,
+            hit_at_3=b.hit_at_3,
+            domain_approved=entry.approved,
+            approval_id=entry.approval_id,
+        ),
+        run,
     )
 
 
@@ -2446,6 +2473,7 @@ def _audit_trace(
     elapsed_ms: float,
     deterministic_short_circuits: int = 0,
     ranker: EncoderRanker | None = None,
+    run_configuration: semantic_gate.RunConfiguration | None = None,
 ) -> dict[str, Any]:
     budget = call_budget
     model_trace = (
@@ -2531,6 +2559,10 @@ def _audit_trace(
             for result in report.results
         ],
         "quality_gate_passed": report.quality_gate.passed,
+        "run_configuration": (
+            run_configuration.model_dump() if run_configuration is not None else None
+        ),
+        "approval_id": report.quality_gate.approval_id,
         "proposed_score": report.proposed_score,
     }
 
@@ -2708,9 +2740,13 @@ async def evaluate_semantic_citations(
     results = [result for result, _deterministic in outcomes]
     deterministic_short_circuits = sum(flag for _result, flag in outcomes)
     complete_sources = list(verified_sources.values())
+    ranker = dense_ranker if isinstance(dense_ranker, EncoderRanker) else None
+    quality_gate, run_configuration = _quality_gate(
+        job, route_model=injected_model is None and raw_model is not None, ranker=ranker
+    )
     report_response = score_semantic_results(
         results,
-        quality_gate=quality_gate_from_config(config),
+        quality_gate=quality_gate,
         coverage_threshold=(
             getattr(settings, "semantic_coverage_threshold", 1.0) if settings else 1.0
         ),
@@ -2777,7 +2813,8 @@ async def evaluate_semantic_citations(
         report=report_response,
         elapsed_ms=(time.perf_counter() - started) * 1_000,
         deterministic_short_circuits=deterministic_short_circuits,
-        ranker=dense_ranker if isinstance(dense_ranker, EncoderRanker) else None,
+        ranker=ranker,
+        run_configuration=run_configuration,
     )
     job.snapshot = snapshot
     return len(pending)

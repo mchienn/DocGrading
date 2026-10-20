@@ -9,6 +9,7 @@ import json
 import threading
 import time
 import urllib.error
+from array import array
 from collections.abc import Sequence
 from dataclasses import replace
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.services import semantic_citation as semantic
+from app.services import semantic_gate
 from app.services.citation import (
     BIBLIOGRAPHY_NOT_FOUND,
     LINKED,
@@ -33,6 +35,7 @@ from app.services.citation import (
     CitationReport,
 )
 from app.services.storage import StorageObjectNotFound
+from app.services.text_encoder import TextEncoder
 
 
 def _run_async(coro: Any) -> Any:
@@ -1004,18 +1007,6 @@ def test_scoring_coverage_and_quality_gate() -> None:
         results, quality_gate=passed_gate, coverage_threshold=0.80
     )
     assert report_unmet_coverage.proposed_score is None
-
-    # 4. Spoofed quality gate config remains blocked
-    spoofed_config = {
-        "quality_gate": {
-            "passed": True,
-            "human_gold_pairs": 1000,
-            "domain_approved": True,
-        }
-    }
-    blocked_gate = semantic.quality_gate_from_config(spoofed_config)
-    assert blocked_gate.passed is False
-    assert "blocked" in blocked_gate.reason
 
 
 def test_operator_cache_key_derivation_and_config_validation() -> None:
@@ -2359,3 +2350,278 @@ def test_hosted_model_accepts_markdown_fenced_json_verdict() -> None:
     assert result.status is semantic.SemanticPipelineStatus.SUPPORTED
     assert result.evidence_passage_ids == ["p-1"]
     assert calls == 1
+
+
+_GATE_ROUTE = {
+    "provider": "GEMINI",
+    "protocol": "GEMINI_GENERATE_CONTENT",
+    "model_id": "gemini-3.8-flash",
+    "call_budget": 10,
+}
+
+
+class _Encoder(TextEncoder):
+    def embed(self, texts: Sequence[str], *, kind: str) -> list[array]:
+        return [array("f", [1.0, 0.0]) for _ in texts]
+
+    def rerank(self, query: str, texts: Sequence[str]) -> list[float] | None:
+        return [1.0] * len(texts)
+
+
+class _BrokenEncoder(_Encoder):
+    def embed(self, texts: Sequence[str], *, kind: str) -> list[array]:
+        raise RuntimeError("encoder down")
+
+
+def _gate_encoder(cls: type[_Encoder] = _Encoder, rerank: str = "http://rerank"):
+    return cls("http://embed", "BAAI/bge-m3", rerank_url=rerank)
+
+
+def _gate_entry(
+    configuration: dict[str, Any] | None = None,
+    benchmark: dict[str, Any] | None = None,
+    **changes: Any,
+) -> dict[str, Any]:
+    encoder = _gate_encoder()
+    run = semantic_gate.RunConfiguration(
+        evaluator_version=semantic.SEMANTIC_EVALUATOR_VERSION,
+        prompt_version=semantic.SEMANTIC_PROMPT_VERSION,
+        prompt_fingerprint=semantic._prompt_fingerprint(),
+        retrieval_version=semantic.SEMANTIC_RETRIEVAL_VERSION,
+        source_ir_version=semantic.SEMANTIC_SOURCE_IR_VERSION,
+        provider=_GATE_ROUTE["provider"],
+        protocol=_GATE_ROUTE["protocol"],
+        model_id=_GATE_ROUTE["model_id"],
+        encoder_model=encoder.model,
+        encoder_fingerprint=encoder.fingerprint,
+        reranker=True,
+    )
+    return {
+        "approval_id": "gate-test",
+        "configuration": {**run.model_dump(), **(configuration or {})},
+        "benchmark": {
+            "fixture": "semantic_citation_annotations.v1.json",
+            "fixture_sha256": "0" * 64,
+            "annotation_status": "AI_CONSENSUS",
+            "pairs": 884,
+            "human_gold_pairs": 0,
+            "double_annotated_fraction": 0.0,
+            "heldout_agreement": 0.9667,
+            "anchor_completeness": 1.0,
+            "structured_success_rate": 0.9968,
+            "macro_f1": 0.9186,
+            "false_accusation_rate": 0.006,
+            "hit_at_3": 0.9498,
+            "measured_with": "test",
+            "report": "docs/benchmarks/report.md",
+            "measured_at": "2026-10-20",
+            **(benchmark or {}),
+        },
+        "approved_by": "Owner",
+        "approved_at": "2026-10-20",
+        **changes,
+    }
+
+
+def _run_gate_job(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    artifact: str | None = None,
+    encoder: _Encoder | None = None,
+    no_encoder: bool = False,
+    injected: bool = False,
+    route: bool = True,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run one cited claim through the job pipeline; returns the job snapshot."""
+    path = tmp_path / "gates.json"
+    path.write_text(
+        (
+            artifact
+            if artifact is not None
+            else json.dumps({"schema_version": 1, "approvals": [_gate_entry()]})
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(semantic_gate, "ARTIFACT_PATH", path)
+    monkeypatch.setattr(semantic, "encoder_from_settings", lambda _settings: None)
+
+    class Model:
+        def evaluate(self, **kwargs: Any) -> dict[str, Any]:
+            return {
+                "verdict": "SUPPORTED",
+                "evidence_passage_ids": [kwargs["passages"][0].passage_id],
+                "supported_parts": ["Prior study establishes the baseline"],
+                "reason_code": "DIRECT_SUPPORT",
+            }
+
+    async def snapshot_model(_db: Any, _job: Any) -> Model:
+        return Model()
+
+    monkeypatch.setattr(semantic, "_snapshot_model", snapshot_model)
+    text = "Prior study establishes the baseline [1]."
+    reference = _reference("ref-1")
+    mention = CitationMention(
+        id="men-1",
+        raw="[1]",
+        page_number=1,
+        element_id="elem-1",
+        start=37,
+        end=40,
+        snippet=text,
+        marker_start=37,
+        marker_end=40,
+        line_start=1,
+        line_end=1,
+        reference_ids=("ref-1",),
+        status=LINKED,
+        parser_status=PARSED,
+    )
+    report = CitationReport(
+        references=[reference],
+        mentions=[mention],
+        parser_status=PARSED,
+        bibliography_status=PARSED,
+    )
+    doc_ir = SimpleNamespace(
+        id="doc-ir-1",
+        content={"paragraphs": [{"id": "elem-1", "text": text, "page_number": 1}]},
+    )
+    criterion = SimpleNamespace(
+        id="crit-1",
+        evaluation_method="CITATION_SEMANTIC",
+        evaluator_config=config or {},
+        semantic_source_repository=lambda ref: _source(
+            passages=[
+                _passage(
+                    text="doi: 10.1000/182. Attention Is All You Need. Vaswani."
+                    " Prior study establishes the baseline."
+                )
+            ]
+        ),
+        semantic_dense_ranker=semantic.EncoderRanker(encoder or _gate_encoder()),
+    )
+    if injected:
+        criterion.semantic_model = Model()
+    if no_encoder:
+        criterion.semantic_dense_ranker = None
+
+    class FakeDB:
+        def add(self, item: Any) -> None:
+            pass
+
+        async def flush(self) -> None:
+            pass
+
+    job = SimpleNamespace(
+        id="job-1", snapshot={"llm_route": _GATE_ROUTE} if route else {}
+    )
+    _run_async(
+        semantic.evaluate_semantic_citations(FakeDB(), job, doc_ir, report, [criterion])
+    )
+    return job.snapshot
+
+
+def test_approved_matching_configuration_passes_gate_and_proposes_score(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = _run_gate_job(tmp_path, monkeypatch)
+    gate = snapshot["semantic_citation"]["quality_gate"]
+    assert gate["passed"] is True
+    assert gate["approval_id"] == "gate-test"
+    assert gate["verified_pairs"] == 884
+    assert gate["domain_approved"] is True
+    assert snapshot["semantic_citation"]["proposed_score"] == 100.0
+    trace = snapshot["semantic_citation_trace"]
+    assert trace["approval_id"] == "gate-test"
+    assert trace["run_configuration"]["model_id"] == "gemini-3.8-flash"
+    assert trace["run_configuration"]["encoder_model"] == "BAAI/bge-m3"
+
+
+@pytest.mark.parametrize(
+    ("case", "reason"),
+    [
+        ("model_id", "no approved benchmark"),
+        ("prompt_fingerprint", "no approved benchmark"),
+        ("reranker", "no approved benchmark"),
+        ("no_encoder", "encoder missing"),
+        ("encoder_failures", "encoder fell back for 1 claims"),
+        ("pending", "approval pending"),
+        ("below_threshold", "below thresholds"),
+        ("injected_model", "no model route"),
+        ("no_route", "no model route"),
+        ("config_claims_passed", "no approved benchmark"),
+    ],
+)
+def test_gate_blocks_each_blocker_with_its_reason(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, case: str, reason: str
+) -> None:
+    entry = _gate_entry()
+    kwargs: dict[str, Any] = {}
+    if case == "model_id":
+        entry = _gate_entry({"model_id": "gemini-other"})
+    elif case == "prompt_fingerprint":
+        entry = _gate_entry({"prompt_fingerprint": "f" * 64})
+    elif case == "reranker":
+        kwargs["encoder"] = _gate_encoder(rerank="")
+    elif case == "no_encoder":
+        kwargs["no_encoder"] = True
+    elif case == "encoder_failures":
+        kwargs["encoder"] = _gate_encoder(_BrokenEncoder)
+    elif case == "pending":
+        entry = _gate_entry(approved_by=None, approved_at=None)
+    elif case == "below_threshold":
+        entry = _gate_entry(benchmark={"macro_f1": 0.79})
+    elif case == "injected_model":
+        kwargs["injected"] = True
+    elif case == "no_route":
+        kwargs["route"] = False
+    elif case == "config_claims_passed":
+        entry = None
+        kwargs["config"] = {
+            "quality_gate": {
+                "passed": True,
+                "human_gold_pairs": 1000,
+                "domain_approved": True,
+            }
+        }
+    artifact = json.dumps({"schema_version": 1, "approvals": [entry] if entry else []})
+    snapshot = _run_gate_job(tmp_path, monkeypatch, artifact=artifact, **kwargs)
+    gate = snapshot["semantic_citation"]["quality_gate"]
+    assert gate["passed"] is False
+    assert reason in gate["reason"]
+    assert snapshot["semantic_citation"]["proposed_score"] is None
+    assert snapshot["semantic_citation"]["semantic_support_score"] == 100.0
+    assert snapshot["semantic_citation_trace"]["quality_gate_passed"] is False
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        "not json",
+        '{"schema_version": 1, "approvals": [{"approval_id": "x"}]}',
+        json.dumps({"schema_version": 1, "approvals": [], "extra": True}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "approvals": [_gate_entry(approved_at="not-a-date")],
+            }
+        ),
+    ],
+)
+def test_malformed_gate_artifact_blocks_without_failing_the_job(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, artifact: str
+) -> None:
+    snapshot = _run_gate_job(tmp_path, monkeypatch, artifact=artifact)
+    assert snapshot["semantic_citation"]["quality_gate"]["passed"] is False
+    assert snapshot["semantic_citation"]["proposed_score"] is None
+    assert snapshot["semantic_citation"]["evaluable_claim_count"] == 1
+
+
+def test_shipped_gate_artifact_parses_and_entry_validates() -> None:
+    raw = json.loads(semantic_gate.ARTIFACT_PATH.read_text(encoding="utf-8"))
+    entries = semantic_gate.load_approvals()
+    assert len(entries) == len(raw["approvals"]) >= 1
+    for entry in entries:
+        assert entry.benchmark.report.startswith("docs/benchmarks/")
