@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from pathlib import Path
 
+from app.models.enums import LLMProvider
+from app.services import semantic_gate
+from app.services.text_encoder import TextEncoder
 from scripts.semantic_citation_v1_benchmark import (
     _FIXTURE,
     EVIDENCE_LABELS,
     LABELS,
     _verdict_metrics,
+    _write_gate_entry,
 )
 
 
@@ -58,3 +64,51 @@ def test_v1_fixture_is_ai_verified_with_disjoint_splits() -> None:
         claims[pair["split"]].add(pair["claim"])
     assert claims["dev"] and claims["test"]
     assert not claims["dev"] & claims["test"]
+
+
+def _write_entry(path: Path, approved_by: str | None = None) -> None:
+    _write_gate_entry(
+        path,
+        provider=LLMProvider.GEMINI,
+        model_id="gemini-3.8-flash",
+        encoder=TextEncoder("x", "BAAI/bge-m3", rerank_url="x"),
+        fixture=_FIXTURE,
+        pairs=884,
+        stage3={"hit_at_3": 0.94981, "retrieval": "precomputed"},
+        stage4={
+            "anchor_completeness": 1.0,
+            "structured_success": 0.9968,
+            "macro_f1": 0.9186,
+            "false_accusation_rate": 0.006,
+        },
+        approved_by=approved_by,
+    )
+
+
+def test_gate_entry_is_written_pending_then_replaced_when_approved(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "gates.json"
+    other = {"approval_id": "other", "configuration": {"model_id": "other"}}
+    path.write_text(json.dumps({"schema_version": 1, "approvals": [other]}))
+
+    _write_entry(path)
+    pending = semantic_gate.load_approvals(path)
+    assert [a.approval_id for a in pending] == [
+        "gemini-gemini-3.8-flash-" + pending[0].benchmark.measured_at.isoformat()
+    ]
+    assert not pending[0].approved
+    assert pending[0].benchmark.hit_at_3 == 0.9498
+    assert json.loads(path.read_text())["approvals"][0] == other  # kept verbatim
+
+    _write_entry(path, approved_by="Owner")
+    entries = semantic_gate.load_approvals(path)
+    assert len(entries) == 1  # same configuration replaced, not duplicated
+    assert entries[0].approved and entries[0].approved_by == "Owner"
+    assert entries[0].meets_thresholds
+
+
+def test_shipped_gate_fixture_hash_matches_committed_fixture() -> None:
+    committed = _FIXTURE.read_bytes().replace(b"\r\n", b"\n")
+    digests = {a.benchmark.fixture_sha256 for a in semantic_gate.load_approvals()}
+    assert digests == {hashlib.sha256(committed).hexdigest()}

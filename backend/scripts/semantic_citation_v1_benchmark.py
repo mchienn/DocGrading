@@ -26,12 +26,14 @@ import sys
 import threading
 import time
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models.enums import LLMProtocol, LLMProvider  # noqa: E402
 from app.services import semantic_citation as semantic  # noqa: E402
+from app.services import semantic_gate  # noqa: E402
 from app.services.citation import (
     LINKED,
     PARSED,
@@ -39,7 +41,7 @@ from app.services.citation import (
     CitationReference,
 )  # noqa: E402
 from app.services.semantic_adapters import HostedSemanticModel  # noqa: E402
-from app.services.text_encoder import encoder_from_settings  # noqa: E402
+from app.services.text_encoder import TextEncoder, encoder_from_settings  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE = _ROOT / "backend/tests/fixtures/semantic_citation_annotations.v1.json"
@@ -54,18 +56,10 @@ LABELS = (
 EVIDENCE_LABELS = {"SUPPORTED", "PARTIALLY_SUPPORTED", "CONTRADICTED"}
 # Gate for the AI-verified set (spec section 7, owner decision 2026-10-20): the
 # human-gold criteria are replaced by >=800 pairs accepted by rule v1.1 whose labels a
-# held-out judge confirms for >=95%. A pass is a benchmark result for one configuration
-# (retrieval, model, prompt); the server still produces no automatic score without a
-# trusted gate artifact.
-GATE = {
-    "pairs": 800,
-    "judge_families": 2,
-    "heldout_agreement": 0.95,
-    "macro_f1": 0.80,
-    "false_accusation": 0.02,
-    "hit_at_3": 0.90,
-    "structured": 0.99,
-}
+# held-out judge confirms for >=95%. Thresholds are defined once in the server's
+# semantic_gate; a pass is a benchmark result for one configuration (retrieval,
+# model, prompt) and can become an approval entry with --gate-artifact.
+GATE = {**semantic_gate.GATE, "judge_families": 2}
 _PROTOCOL = {
     LLMProvider.GEMINI: LLMProtocol.GEMINI_GENERATE_CONTENT,
     LLMProvider.DEEPSEEK: LLMProtocol.OPENAI_CHAT,
@@ -168,6 +162,86 @@ def _verdict_metrics(pairs: list[tuple[str, str]]) -> dict:
     }
 
 
+def _write_gate_entry(
+    path: Path,
+    *,
+    provider: LLMProvider,
+    model_id: str,
+    encoder: TextEncoder,
+    fixture: Path,
+    pairs: int,
+    stage3: dict,
+    stage4: dict,
+    approved_by: str | None,
+) -> None:
+    """Write/replace the approvals entry for this configuration (pending unless
+    approved_by). Server code re-checks every threshold; this only records them."""
+    meta = json.loads(fixture.read_text(encoding="utf-8"))["annotation_set"]
+    today = datetime.now(UTC).date().isoformat()
+    configuration = semantic_gate.RunConfiguration(
+        evaluator_version=semantic.SEMANTIC_EVALUATOR_VERSION,
+        prompt_version=semantic.SEMANTIC_PROMPT_VERSION,
+        prompt_fingerprint=semantic._prompt_fingerprint(),
+        retrieval_version=semantic.SEMANTIC_RETRIEVAL_VERSION,
+        source_ir_version=semantic.SEMANTIC_SOURCE_IR_VERSION,
+        provider=provider.value,
+        protocol=_PROTOCOL[provider].value,
+        model_id=model_id,
+        encoder_model=encoder.model,
+        encoder_fingerprint=encoder.fingerprint,
+        reranker=bool(encoder.rerank_url),
+    ).model_dump()
+    entry = semantic_gate.Approval.model_validate(
+        {
+            "approval_id": f"{provider.value}-{model_id}-{today}".lower(),
+            "configuration": configuration,
+            "benchmark": {
+                "fixture": fixture.name,
+                # Committed bytes use LF; hash them so a CRLF checkout matches.
+                "fixture_sha256": hashlib.sha256(
+                    fixture.read_bytes().replace(b"\r\n", b"\n")
+                ).hexdigest(),
+                "annotation_status": meta.get("annotation_status"),
+                "pairs": pairs,
+                "human_gold_pairs": meta.get("human_gold_pairs", 0),
+                "double_annotated_fraction": meta.get("double_annotated_fraction", 0.0),
+                "heldout_agreement": meta.get("heldout_agreement") or 0.0,
+                "anchor_completeness": stage4["anchor_completeness"],
+                "structured_success_rate": stage4["structured_success"],
+                "macro_f1": stage4["macro_f1"],
+                "false_accusation_rate": stage4["false_accusation_rate"],
+                "hit_at_3": round(stage3["hit_at_3"], 4),
+                "measured_with": "semantic_citation_v1_benchmark.py with "
+                f"HostedSemanticModel; retrieval: {stage3['retrieval']}",
+                "report": _REPORT.relative_to(_ROOT).as_posix(),
+                "measured_at": today,
+            },
+            "approved_by": approved_by,
+            "approved_at": today if approved_by else None,
+        }
+    )
+    artifact = (
+        json.loads(path.read_text(encoding="utf-8"))
+        if path.exists()
+        else {"schema_version": 1, "approvals": []}
+    )
+    artifact["approvals"] = [
+        item
+        for item in artifact["approvals"]
+        if item.get("configuration") != configuration
+    ] + [entry.model_dump(mode="json")]
+    path.write_text(
+        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    print(
+        f"wrote {'approved' if approved_by else 'pending'} entry {entry.approval_id}"
+        f" to {path}",
+        file=sys.stderr,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--fixture", type=Path, default=_FIXTURE)
@@ -187,6 +261,25 @@ def main() -> int:
         help="encoder order per passage source and query, JSON "
         "{source_id: {query: [passage_id, ...]}} written by a GPU EncoderRanker run",
     )
+    parser.add_argument(
+        "--rankings-encoder-model",
+        default="BAAI/bge-m3",
+        help="encoder that produced --rankings (identifies the gate configuration)",
+    )
+    parser.add_argument(
+        "--rankings-reranker",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="--rankings were reranked with the cross-encoder",
+    )
+    parser.add_argument(
+        "--gate-artifact",
+        type=Path,
+        help="when the benchmark gate passes, write/replace this configuration's "
+        "entry in this approvals file (backend/app/services/semantic_quality_gates"
+        ".json); pending unless --approved-by is given",
+    )
+    parser.add_argument("--approved-by", help="owner approving the written entry")
     parser.add_argument("--write-report", action="store_true")
     args = parser.parse_args()
     fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
@@ -224,7 +317,13 @@ def main() -> int:
         if encoder
         else "BM25"
     )
+    gate_encoder = encoder  # identifies the configuration a gate entry covers
     if args.rankings:
+        gate_encoder = TextEncoder(
+            embeddings_url="x",
+            model=args.rankings_encoder_model,
+            rerank_url="x" if args.rankings_reranker else "",
+        )
         cached = json.loads(args.rankings.read_text(encoding="utf-8"))
 
         def ranker(query: str, passages: list) -> list[str] | None:
@@ -280,7 +379,7 @@ def main() -> int:
                 "max_tokens": 512,
             }
         )
-        failed_claims: set[str] = set()
+        failed_claims: dict[str, str] = {}  # claim -> provider failure cause
         pace = threading.Lock()
         next_call = [0.0]
 
@@ -295,8 +394,12 @@ def main() -> int:
                     next_call[0] = time.monotonic() + args.min_interval
                 try:
                     return inner.evaluate(**kwargs)
-                except semantic.SemanticProviderError:
-                    failed_claims.add(kwargs["claim"])
+                except semantic.SemanticProviderError as exc:
+                    cause = exc.__cause__
+                    status = getattr(cause, "code", None)
+                    failed_claims[kwargs["claim"]] = type(cause).__name__ + (
+                        f" {status}" if status else ""
+                    )
                     raise
 
         model = semantic._BudgetedSemanticModel(_RecordingModel(), 10_000)
@@ -309,7 +412,7 @@ def main() -> int:
             )[: args.sample]
         done = [0]
 
-        def judge(pair: dict) -> tuple[str, str]:
+        def judge(pair: dict) -> tuple[str, str, bool]:
             result = semantic.evaluate_claim(
                 _pair(pair),
                 references[pair["source_id"]],
@@ -323,13 +426,17 @@ def main() -> int:
                     print(
                         f"stage 4: {done[0]}/{len(test)}", file=sys.stderr, flush=True
                     )
-            return result.status.value, result.reason_code
+            anchored = result.claim_anchor is not None and (
+                result.status.value not in EVIDENCE_LABELS
+                or bool(result.evidence_passage_ids)
+            )
+            return result.status.value, result.reason_code, anchored
 
         with concurrent.futures.ThreadPoolExecutor(max(1, args.concurrency)) as pool:
             outcomes = list(pool.map(judge, test))
         answered = [
             (pair["label"], status)
-            for pair, (status, _) in zip(test, outcomes, strict=True)
+            for pair, (status, _, _) in zip(test, outcomes, strict=True)
             if pair["claim"] not in failed_claims
         ]
         stage4 = {
@@ -337,11 +444,23 @@ def main() -> int:
             "pairs": len(test),
             "test_pairs": test_size,
             "provider_failures": len(test) - len(answered),
+            "provider_failure_causes": dict(
+                collections.Counter(
+                    failed_claims[pair["claim"]]
+                    for pair in test
+                    if pair["claim"] in failed_claims
+                )
+            ),
+            "anchor_completeness": (
+                round(sum(anchored for *_, anchored in outcomes) / len(test), 4)
+                if test
+                else 0.0
+            ),
             **_verdict_metrics(answered),
             "manual_review_reasons": dict(
                 collections.Counter(
                     reason
-                    for pair, (status, reason) in zip(test, outcomes, strict=True)
+                    for pair, (status, reason, _) in zip(test, outcomes, strict=True)
                     if status == "NEEDS_MANUAL_REVIEW"
                     and pair["claim"] not in failed_claims
                 )
@@ -376,6 +495,7 @@ def main() -> int:
             stage4.get("structured_success", 0) >= GATE["structured"]
         ),
         "no provider failures": stage4.get("provider_failures", 1) == 0,
+        "anchor completeness == 1.0": stage4.get("anchor_completeness", 0) == 1.0,
     }
     results = {
         "pairs": len(pairs),
@@ -385,6 +505,26 @@ def main() -> int:
         "gate": {"passed": all(gate_checks.values()), "checks": gate_checks},
     }
     print(json.dumps(results, indent=2, ensure_ascii=False))
+    if args.gate_artifact:
+        if not results["gate"]["passed"]:
+            print("gate blocked: no approval entry written", file=sys.stderr)
+        elif args.sample or gate_encoder is None:
+            print(
+                "approval entry needs the full test split and an encoder",
+                file=sys.stderr,
+            )
+        else:
+            _write_gate_entry(
+                args.gate_artifact,
+                provider=provider,
+                model_id=args.model,
+                encoder=gate_encoder,
+                fixture=args.fixture,
+                pairs=len(pairs),
+                stage3=stage3,
+                stage4=stage4,
+                approved_by=args.approved_by,
+            )
     if args.write_report:
         counts = collections.Counter(pair["label"] for pair in pairs)
         meta = fixture["annotation_set"]
@@ -397,7 +537,8 @@ def main() -> int:
                 f"`{semantic.SEMANTIC_PROMPT_VERSION}`, "
                 f"retrieval {stage3['retrieval']}); "
                 f"provider failures (429/outage, excluded below) "
-                f"{stage4['provider_failures']}; answered {stage4['answered']}: "
+                f"{stage4['provider_failures']} "
+                f"{stage4['provider_failure_causes']}; answered {stage4['answered']}: "
                 f"accuracy {stage4['accuracy']:.2%}, "
                 f"macro-F1 **{stage4['macro_f1']:.3f}**, "
                 f"false accusation {stage4['false_accusation_rate']:.2%}, "
@@ -436,9 +577,9 @@ def main() -> int:
             ),
             "",
             f"Gate {'passed' if results['gate']['passed'] else 'blocked'} for this "
-            "configuration. Automatic scores also need recorded owner approval and a "
-            "server-side gate artifact (not implemented); labels are AI-verified, "
-            "not human gold.",
+            "configuration. Automatic scores also need an owner-approved entry in "
+            "`backend/app/services/semantic_quality_gates.json` (`--gate-artifact`, "
+            "`--approved-by`); labels are AI-verified, not human gold.",
             "",
             "## Reproduce",
             "",
