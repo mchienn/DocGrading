@@ -271,6 +271,21 @@ def test_crossref_request_retries_rate_limit_but_not_missing_doi(monkeypatch) ->
     assert len(calls) == 3
 
 
+def test_crossref_retry_after_http_date_sets_the_wait() -> None:
+    import email.utils
+    from datetime import UTC, datetime, timedelta
+
+    def date(seconds: int) -> str:
+        when = datetime.now(UTC) + timedelta(seconds=seconds)
+        return email.utils.format_datetime(when, usegmt=True)
+
+    assert 4.0 <= citation._retry_delay(date(6), 0) <= 6.0
+    assert citation._retry_delay(date(3600), 0) == citation._MAX_RETRY_AFTER_SECONDS
+    # A past or unparsable date is no explicit wait: exponential backoff.
+    assert citation._retry_delay(date(-60), 1) == 2.0
+    assert citation._retry_delay("soon", 2) == 4.0
+
+
 class _FakeClock:
     """Monotonic clock that only `sleep` and fake provider calls advance."""
 
