@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import random
+import re
 import ssl
 import threading
 import time
 import urllib.request
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Protocol
 from urllib.parse import quote
 
@@ -142,16 +146,57 @@ def _default_transport(
         _NoRedirect(),
         urllib.request.HTTPSHandler(context=context),
     )
-    try:
-        with opener.open(request, timeout=30) as response:
-            raw = response.read(1_000_001)
-            if len(raw) > 1_000_000:
-                raise SemanticProviderError("semantic provider response too large")
-            return raw
-    except SemanticProviderError:
-        raise
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
-        raise SemanticProviderError("semantic provider unavailable") from exc
+    # Free tiers answer bursts (parallel claims) with 429; wait as the provider asks
+    # (Retry-After header or Gemini's retryDelay) up to a bound, then give up. Up to
+    # a second of jitter keeps parallel claims from retrying in lockstep.
+    for attempt in range(3):
+        try:
+            with opener.open(request, timeout=30) as response:
+                raw = response.read(1_000_001)
+                if len(raw) > 1_000_000:
+                    raise SemanticProviderError("semantic provider response too large")
+                return raw
+        except SemanticProviderError:
+            raise
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (429, 503) or attempt == 2:
+                raise SemanticProviderError("semantic provider unavailable") from exc
+            time.sleep(_retry_delay(exc, attempt) + random.uniform(0.0, 1.0))
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise SemanticProviderError("semantic provider unavailable") from exc
+    raise SemanticProviderError("semantic provider unavailable")
+
+
+_MAX_RETRY_DELAY_SECONDS = 30.0
+
+
+def _retry_delay(error: Any, attempt: int) -> float:
+    """Seconds to wait before retrying a rate-limited request."""
+    delay: float | None = None
+    header = (error.headers.get("Retry-After") or "").strip() if error.headers else ""
+    if header.isdigit():
+        delay = float(header)
+    elif header:
+        try:  # Retry-After may also be an HTTP-date; past or invalid means no wait
+            when = parsedate_to_datetime(header)
+        except (TypeError, ValueError, IndexError):
+            when = None
+        if when is not None:
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=UTC)
+            seconds = (when - datetime.now(UTC)).total_seconds()
+            delay = seconds if seconds > 0 else None
+    if delay is None:
+        try:
+            body = error.read(64_000).decode("utf-8", "replace")
+        except Exception:
+            body = ""
+        match = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', body)
+        if match:
+            delay = float(match.group(1))
+    if delay is None:
+        delay = 2.0 * 2**attempt
+    return min(_MAX_RETRY_DELAY_SECONDS, max(0.0, delay))
 
 
 class HostedSemanticModel:

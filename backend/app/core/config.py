@@ -83,6 +83,8 @@ class Settings(BaseSettings):
     semantic_source_fetch_enabled: bool = False
     semantic_source_cache_prefix: str = ""
     semantic_model_call_budget: int = Field(default=32, ge=1, le=256)
+    # Parallel model calls per job; free tiers with low requests-per-minute need 1.
+    semantic_model_concurrency: int = Field(default=4, ge=1, le=16)
     semantic_coverage_threshold: float = Field(default=1.0, gt=0, le=1)
     semantic_max_source_bytes: int = Field(default=50_000_000, gt=0, le=50_000_000)
     # OpenAI-compatible embeddings endpoint (Text Embeddings Inference, OpenAI,

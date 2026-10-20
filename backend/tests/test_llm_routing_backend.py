@@ -685,6 +685,92 @@ def test_catalog_request_sends_explicit_user_agent(
     assert sent[0].get_header("User-agent") == "DocGrading/1.0"
 
 
+def test_hosted_transport_waits_out_rate_limit_then_gives_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Parallel claims on a free tier get 429; the transport waits as Gemini asks
+    # (retryDelay in the error body) and retries, but not forever.
+    import io
+    import urllib.error
+
+    from app.services import semantic_adapters
+
+    calls: list[str] = []
+    waits: list[float] = []
+    outcomes = [429, "ok", 429, 429, 429]
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class FakeOpener:
+        def open(self, request: urllib.request.Request, timeout: float) -> object:
+            calls.append(request.full_url)
+            outcome = outcomes.pop(0)
+            if outcome == "ok":
+                return FakeResponse(b'{"ok": true}')
+            raise urllib.error.HTTPError(
+                request.full_url,
+                429,
+                "quota",
+                {},
+                io.BytesIO(b'{"error": {"details": [{"retryDelay": "7s"}]}}'),
+            )
+
+    monkeypatch.setattr(
+        semantic_adapters.urllib.request, "build_opener", lambda *_h: FakeOpener()
+    )
+    monkeypatch.setattr(semantic_adapters.time, "sleep", waits.append)
+
+    def send() -> bytes:
+        return semantic_adapters._default_transport(
+            LLMProvider.GEMINI,
+            LLMProtocol.GEMINI_GENERATE_CONTENT,
+            "gemini-test",
+            "key",
+            b"{}",
+        )
+
+    assert send() == b'{"ok": true}'
+    with pytest.raises(SemanticProviderError):
+        send()
+    assert len(calls) == 5
+    assert len(waits) == 3
+    assert all(7.0 <= wait <= 8.0 for wait in waits)  # retryDelay plus <=1 s jitter
+
+
+def test_retry_after_http_date_sets_the_wait() -> None:
+    import email.utils
+    import io
+    import urllib.error
+    from datetime import UTC, datetime, timedelta
+
+    from app.services import semantic_adapters
+
+    def error(retry_after: str) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            "https://example.test",
+            429,
+            "quota",
+            {"Retry-After": retry_after},
+            io.BytesIO(b""),
+        )
+
+    future = email.utils.format_datetime(
+        datetime.now(UTC) + timedelta(seconds=12), usegmt=True
+    )
+    past = email.utils.format_datetime(
+        datetime.now(UTC) - timedelta(seconds=12), usegmt=True
+    )
+    assert 10.0 <= semantic_adapters._retry_delay(error(future), 0) <= 12.0
+    # A past or invalid date is no explicit wait: exponential fallback.
+    assert semantic_adapters._retry_delay(error(past), 1) == 4.0
+    assert semantic_adapters._retry_delay(error("soon"), 0) == 2.0
+
+
 def test_hosted_request_builder_rejects_oversized_body() -> None:
     with pytest.raises(SemanticProviderError, match="semantic request too large"):
         _request(

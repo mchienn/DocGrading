@@ -6,6 +6,8 @@ import asyncio
 import concurrent.futures
 import hashlib
 import json
+import threading
+import time
 import urllib.error
 from collections.abc import Sequence
 from dataclasses import replace
@@ -1445,6 +1447,121 @@ def test_bedrock_converse_contract_and_usage_trace() -> None:
     assert audit["total_tokens"] == 150
     assert audit["latency_ms"] >= 0
     assert audit["estimated_cost_usd"] is None
+
+
+def test_claims_run_in_parallel_and_keep_pair_order() -> None:
+    class FakeDB:
+        def __init__(self) -> None:
+            self.added: list[Any] = []
+
+        def add(self, entity: Any) -> None:
+            self.added.append(entity)
+
+        async def flush(self) -> None:
+            for index, item in enumerate(self.added):
+                if getattr(item, "id", None) is None:
+                    item.id = f"generated-id-{index}"
+
+    class SlowModel:
+        def __init__(self) -> None:
+            self.lock = threading.Lock()
+            self.active = self.peak = 0
+            # Every call waits for a partner: sequential evaluation breaks the
+            # barrier (timeout) and the claim falls to manual review.
+            self.barrier = threading.Barrier(2, timeout=5)
+
+        def evaluate(self, *, claim: str, **_: Any) -> dict[str, Any]:
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            self.barrier.wait()
+            time.sleep(0.05)
+            with self.lock:
+                self.active -= 1
+            # Later claims finish first; results must still follow pair order.
+            return {
+                "verdict": "SUPPORTED" if "Claim 0" in claim else "IRRELEVANT",
+                "evidence_passage_ids": ["p-1"],
+                "reason_code": (
+                    "DIRECT_SUPPORT" if "Claim 0" in claim else "UNRELATED_SOURCE"
+                ),
+            }
+
+    count = 8
+    paragraphs = [
+        {
+            "id": f"paragraph-{i}",
+            "page_number": 1,
+            "text": f"Claim {i} text [1].",
+            "bbox": {"x0": 0.0, "top": 0.0, "x1": 1.0, "bottom": 1.0},
+        }
+        for i in range(count)
+    ]
+    mentions = [
+        CitationMention(
+            id=f"mention-{i}",
+            raw="[1]",
+            page_number=1,
+            element_id=f"paragraph-{i}",
+            start=len(f"Claim {i} text "),
+            end=len(f"Claim {i} text [1]"),
+            snippet=f"Claim {i} text [1].",
+            marker_start=len(f"Claim {i} text "),
+            marker_end=len(f"Claim {i} text [1]"),
+            reference_ids=("ref-1",),
+            status=LINKED,
+            parser_status=PARSED,
+        )
+        for i in range(count)
+    ]
+    report = CitationReport(
+        references=[_reference("ref-1")],
+        mentions=mentions,
+        parser_status=PARSED,
+        bibliography_status=PARSED,
+    )
+    source = _source(
+        passages=[
+            _passage(
+                passage_id="p-1",
+                text="doi: 10.1000/182. Attention Is All You Need. Vaswani. "
+                "Unrelated passage about hardware.",
+            )
+        ]
+    )
+    model = SlowModel()
+    criterion = SimpleNamespace(
+        id="crit-1",
+        evaluation_method="CITATION_SEMANTIC",
+        evaluator_config={},
+        semantic_source_repository=lambda _reference: source,
+        semantic_model=model,
+        semantic_model_call_budget=count,
+    )
+    job = SimpleNamespace(id="job-1", snapshot={})
+
+    _run_async(
+        semantic.evaluate_semantic_citations(
+            FakeDB(),
+            job,
+            SimpleNamespace(
+                id="doc-ir-1", content={"paragraphs": paragraphs, "tables": []}
+            ),
+            report,
+            [criterion],
+        )
+    )
+
+    results = semantic.SemanticCitationReportResponse.model_validate(
+        job.snapshot["semantic_citation"]
+    ).results
+    assert [item.claim for item in results] == [
+        f"Claim {i} text [1]." for i in range(count)
+    ]
+    assert [item.status.value for item in results] == ["SUPPORTED"] + ["IRRELEVANT"] * (
+        count - 1
+    )
+    assert 1 < model.peak <= 4
 
 
 def test_async_evaluator_integration() -> None:
