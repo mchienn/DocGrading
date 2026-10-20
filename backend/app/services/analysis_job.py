@@ -17,10 +17,12 @@ from app.models.course import Course
 from app.models.enums import (
     AnalysisJobStatus,
     DocumentStatus,
+    LLMTask,
     NotificationType,
     UserRole,
 )
 from app.models.identity import User
+from app.models.llm import LLMRoute
 from app.models.submission import DocumentVersion, Submission
 from app.services import course as course_svc
 from app.services import notification as notification_svc
@@ -122,6 +124,43 @@ async def _notify_error(db: AsyncSession, job: AnalysisJob) -> None:
     )
 
 
+async def _llm_route_snapshot(db: AsyncSession) -> dict[str, object] | None:
+    route = await db.scalar(
+        sa.select(LLMRoute)
+        .where(LLMRoute.task == LLMTask.CITATION_SEMANTIC, LLMRoute.active)
+        .options(selectinload(LLMRoute.provider_config))
+        .with_for_update(read=True)
+    )
+    if route is None or route.provider_config is None:
+        return None
+    provider = route.provider_config
+    from app.services.llm_providers import route_response
+
+    if not route_response(route, provider).ready:
+        return None
+    return {
+        "route_id": str(route.id),
+        "route_revision": route.revision,
+        "task": route.task.value,
+        "provider": provider.provider.value,
+        "protocol": route.protocol.value,
+        "model_id": route.model_id,
+        "region": route.region,
+        "geographic_profile": route.geographic_profile,
+        "max_tokens": route.max_tokens,
+        "call_budget": route.call_budget,
+        "credential_revision": provider.credential_revision,
+        "enabled": provider.enabled,
+        "data_policy_approved": provider.data_policy_approved,
+        "quality_approved": route.quality_approved,
+        "catalog_verified_credential_revision": (
+            provider.catalog_verified_credential_revision
+        ),
+        "credential_source": provider.credential_source.value,
+        "environment_key_name": provider.environment_key_name,
+    }
+
+
 async def create_or_get_job(
     db: AsyncSession,
     *,
@@ -141,12 +180,16 @@ async def create_or_get_job(
         if job.status is AnalysisJobStatus.QUEUED:
             await enqueue_analysis_job_dispatch(db, job.id)
         return job
+    route_snapshot = await _llm_route_snapshot(db)
+    snapshot: dict[str, object] = {"pipeline": "pdf-ingestion", "version": 1}
+    if route_snapshot is not None:
+        snapshot["llm_route"] = route_snapshot
     job = AnalysisJob(
         id=uuid.uuid4(),
         document_version_id=document_version_id,
         rubric_version_id=rubric_version_id,
         status=AnalysisJobStatus.QUEUED,
-        snapshot={"pipeline": "pdf-ingestion", "version": 1},
+        snapshot=snapshot,
     )
     db.add(job)
     await db.flush()

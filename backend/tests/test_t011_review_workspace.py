@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -24,6 +25,7 @@ from app.models.enums import UserRole, UserStatus
 from app.models.identity import User
 from app.services.review import (
     acquire_review_lock,
+    get_document_grading_result,
     get_evidence,
     get_review_draft,
     heartbeat_review_lock,
@@ -305,13 +307,22 @@ async def _seed_graph(connection: AsyncConnection, ids: dict[str, uuid.UUID]) ->
                 snapshot, queued_at, finished_at
             ) VALUES (
                 :job, :document, :rubric, 'DONE'::public.analysis_job_status,
-                '{}'::jsonb, :now, :now
+                CAST(:snapshot AS jsonb), :now, :now
             )
         """),
         {
             "job": ids["job"],
             "document": ids["document_1"],
             "rubric": ids["rubric"],
+            "snapshot": json.dumps(
+                {
+                    "semantic_citation": {
+                        "results": [
+                            {"finding_links": [{"finding_id": str(ids["finding"])}]}
+                        ]
+                    }
+                }
+            ),
             "now": now,
         },
     )
@@ -484,6 +495,8 @@ async def _queue_evidence_scenario() -> None:
             QueueStatus.REVIEWED,
             QueueStatus.ERROR,
         ]
+        assert queue.items[0].student_display_name == "Student 1"
+        assert queue.items[0].student_email == f"{ids['student_1']}@test.local"
         errors = await list_submission_queue(
             session,
             course_id=ids["course"],
@@ -517,17 +530,23 @@ async def _queue_evidence_scenario() -> None:
             "document_version_id",
             "findings",
             "citation",
+            "semantic_citation",
         }
         assert payload["citation"] is None
+        assert payload["semantic_citation"] is None
         assert set(payload["findings"][0]) == {
             "id",
             "criterion_version_id",
+            "criterion_code",
+            "criterion_title",
             "severity",
             "description",
             "suggestion",
             "proposed_score",
             "evidence",
         }
+        assert payload["findings"][0]["criterion_code"] == "C1"
+        assert payload["findings"][0]["criterion_title"] == "Criterion"
         assert set(payload["findings"][0]["evidence"][0]) == {
             "document_ir_id",
             "element_id",
@@ -702,6 +721,7 @@ async def _autosave_override_scenario() -> None:
         await _seed_graph(connection, ids)
         owner = _actor(ids["teacher"], "Teacher A", UserRole.TEACHER, UserRole.STUDENT)
         admin = _actor(ids["admin"], "Teacher Admin", UserRole.ADMIN, UserRole.TEACHER)
+        other = _actor(ids["other_teacher"], "Teacher B", UserRole.TEACHER)
         acquired = await acquire_review_lock(
             session,
             submission_id=ids["submission_1"],
@@ -767,14 +787,111 @@ async def _autosave_override_scenario() -> None:
             "decision": "PROPOSED",
             "score": "80.00",
             "analysis_job_id": str(ids["job"]),
+            "semantic_verdict": None,
         }
         assert after == {
             "decision": "EDIT",
             "score": "75.00",
             "analysis_job_id": str(ids["job"]),
+            "semantic_verdict": None,
         }
         assert reason == "Evidence supports a lower score"
         assert actor_user_id == ids["teacher"]
+
+        semantic_saved = await save_review_draft(
+            session,
+            submission_id=ids["submission_1"],
+            user=owner,
+            body=ReviewDraftRequest(
+                document_version_id=ids["document_1"],
+                revision=saved.revision,
+                comment="Teacher comment",
+                decisions=[
+                    {
+                        "finding_id": ids["finding"],
+                        "decision": "EDIT",
+                        "edited_description": "Corrected description",
+                        "final_score": 75,
+                        "edited_semantic_verdict": "CONTRADICTED",
+                        "reason": "The cited passage contradicts the numeric claim",
+                    }
+                ],
+            ),
+        )
+        assert semantic_saved.decisions[0].edited_semantic_verdict == "CONTRADICTED"
+        restored = await save_review_draft(
+            session,
+            submission_id=ids["submission_1"],
+            user=owner,
+            body=ReviewDraftRequest(
+                document_version_id=ids["document_1"],
+                revision=semantic_saved.revision,
+                comment="Teacher comment",
+                decisions=[
+                    {
+                        "finding_id": ids["finding"],
+                        "decision": "ACCEPT",
+                        "reason": "Restore the pipeline verdict and proposed score",
+                    }
+                ],
+            ),
+        )
+        assert restored.decisions[0].edited_semantic_verdict is None
+        semantic_audits = (
+            await session.execute(
+                text("""
+                    SELECT before, after, reason
+                    FROM public.audit_events
+                    WHERE resource_type = 'Finding'
+                      AND resource_id = :finding
+                      AND action = 'FINDING_OVERRIDE'
+                    ORDER BY occurred_at
+                """),
+                {"finding": ids["finding"]},
+            )
+        ).all()
+        assert len(semantic_audits) == 3
+        assert semantic_audits[1].before["semantic_verdict"] is None
+        assert semantic_audits[1].after["semantic_verdict"] == "CONTRADICTED"
+        assert semantic_audits[2].before["semantic_verdict"] == "CONTRADICTED"
+        assert semantic_audits[2].after["semantic_verdict"] is None
+        assert (
+            semantic_audits[2].reason
+            == "Restore the pipeline verdict and proposed score"
+        )
+        await session.execute(
+            text("""
+                UPDATE public.analysis_jobs
+                SET snapshot = '{}'::jsonb
+                WHERE id = :job
+            """),
+            {"job": ids["job"]},
+        )
+        session.expire_all()
+        with pytest.raises(HTTPException) as nonsemantic_error:
+            await save_review_draft(
+                session,
+                submission_id=ids["submission_1"],
+                user=owner,
+                body=ReviewDraftRequest(
+                    document_version_id=ids["document_1"],
+                    revision=restored.revision,
+                    comment="Teacher comment",
+                    decisions=[
+                        {
+                            "finding_id": ids["finding"],
+                            "decision": "EDIT",
+                            "edited_semantic_verdict": "CONTRADICTED",
+                            "reason": "Attempted API bypass",
+                        }
+                    ],
+                ),
+            )
+        assert nonsemantic_error.value.status_code == 422
+        assert (
+            nonsemantic_error.value.detail
+            == "Semantic verdict override requires a semantic finding"
+        )
 
         stale = body.model_copy(update={"comment": "Must not overwrite"})
         with pytest.raises(HTTPException) as error:
@@ -818,7 +935,7 @@ async def _autosave_override_scenario() -> None:
             user=owner,
         )
         assert rolled_over.document_version_id == ids["document_4"]
-        assert rolled_over.revision == saved.revision
+        assert rolled_over.revision == 1
         assert rolled_over.comment == ""
         assert rolled_over.decisions == []
         with pytest.raises(HTTPException) as error:
@@ -842,13 +959,31 @@ async def _autosave_override_scenario() -> None:
             user=owner,
             body=ReviewDraftRequest(
                 document_version_id=ids["document_4"],
-                revision=rolled_over.revision,
+                revision=1,
                 comment="Reviewing latest version",
             ),
         )
         assert reset.document_version_id == ids["document_4"]
-        assert reset.revision == saved.revision + 1
+        assert reset.revision == 2
         assert reset.decisions == []
+        previous_result = await get_document_grading_result(
+            session,
+            document_version_id=ids["document_1"],
+            user=owner,
+        )
+        assert len(previous_result.reviews) == 1
+        assert previous_result.reviews[0].comment == "Teacher comment"
+        assert len(previous_result.reviews[0].decisions) == 1
+        assert previous_result.reviews[0].decisions[0].finding_id == ids["finding"]
+        assert previous_result.status_history[-1].to_status == "AWAITING_REVIEW"
+        assert previous_result.status_history[-1].recorded is True
+        with pytest.raises(HTTPException) as forbidden:
+            await get_document_grading_result(
+                session,
+                document_version_id=ids["document_1"],
+                user=other,
+            )
+        assert forbidden.value.status_code == 404
 
         with pytest.raises(HTTPException) as error:
             await save_review_draft(

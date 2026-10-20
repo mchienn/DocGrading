@@ -12,10 +12,14 @@ import sqlalchemy as sa
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.schemas_submission import (
+    DocumentVersionListItem,
+    DocumentVersionListResponse,
+)
 from app.core.config import get_settings
 from app.models.analysis import AnalysisJob
 from app.models.assignment import Assignment
-from app.models.course import Membership
+from app.models.course import Course, Membership
 from app.models.enums import (
     AnalysisJobStatus,
     AssignmentStatus,
@@ -33,6 +37,10 @@ from app.services.storage import (
     StorageObjectChanged,
     StorageObjectNotFound,
 )
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _fingerprint(
@@ -398,3 +406,99 @@ async def complete_upload(
     )
     await db.flush()
     return version, job
+
+
+async def list_document_versions(
+    db: AsyncSession,
+    *,
+    user: User,
+    status: DocumentStatus | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 25,
+) -> DocumentVersionListResponse:
+    statement = (
+        sa.select(
+            DocumentVersion,
+            Submission,
+            Assignment,
+            Course,
+            User,
+        )
+        .join(Submission, Submission.id == DocumentVersion.submission_id)
+        .join(Assignment, Assignment.id == Submission.assignment_id)
+        .join(Course, Course.id == Assignment.course_id)
+        .join(User, User.id == Submission.student_id)
+    )
+    if UserRole.ADMIN in user.roles:
+        pass
+    elif UserRole.TEACHER in user.roles:
+        statement = statement.where(Course.owner_teacher_id == user.id)
+    elif UserRole.STUDENT in user.roles:
+        statement = statement.where(
+            Submission.student_id == user.id,
+            sa.exists().where(
+                Membership.course_id == Course.id,
+                Membership.user_id == user.id,
+                Membership.role == MembershipRole.STUDENT,
+                Membership.status == MembershipStatus.ACTIVE,
+            ),
+        )
+    else:
+        statement = statement.where(sa.false())
+
+    if status is not None:
+        statement = statement.where(DocumentVersion.status == status)
+    normalized_search = search.strip() if search is not None else ""
+    if normalized_search:
+        pattern = f"%{_escape_like(normalized_search)}%"
+        statement = statement.where(
+            sa.or_(
+                DocumentVersion.original_filename.ilike(pattern, escape="\\"),
+                Course.code.ilike(pattern, escape="\\"),
+                Course.name.ilike(pattern, escape="\\"),
+                Assignment.title.ilike(pattern, escape="\\"),
+                User.display_name.ilike(pattern, escape="\\"),
+            )
+        )
+
+    total = int(
+        await db.scalar(sa.select(sa.func.count()).select_from(statement.subquery()))
+        or 0
+    )
+    rows = (
+        await db.execute(
+            statement.order_by(
+                DocumentVersion.created_at.desc(),
+                DocumentVersion.id.desc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).all()
+    items = [
+        DocumentVersionListItem(
+            document_version_id=document.id,
+            submission_id=submission.id,
+            version_number=document.version_number,
+            filename=document.original_filename,
+            file_size_bytes=document.size_bytes,
+            sha256=document.sha256,
+            document_status=document.status,
+            created_at=document.created_at,
+            course_id=course.id,
+            course_code=course.code,
+            course_name=course.name,
+            assignment_id=assignment.id,
+            assignment_title=assignment.title,
+            student_id=student.id,
+            student_display_name=student.display_name,
+        )
+        for document, submission, assignment, course, student in rows
+    ]
+    return DocumentVersionListResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+    )

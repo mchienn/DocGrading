@@ -1,14 +1,6 @@
 """Pure-function / mock-based tests for T-008 services and API logic.
 
-Tests cover:
-- Rubric publish blocked when total_weight != 100
-- Edit published rubric blocked (409)
-- Ownership deny (teacher B can't touch teacher A's course)
-- Student can't see DRAFT assignments
-- Assignment publish/close lifecycle
-- Role checks
-
-Follows project convention: sync test functions wrapping asyncio.run().
+Tests cover direct rubric CRUD and assignment readiness validation.
 """
 
 from __future__ import annotations
@@ -109,7 +101,7 @@ def _make_criterion_version(
         position=position,
         is_enabled=is_enabled,
         evaluation_method="AI",
-        levels=[],
+        levels=[{"level": level} for level in range(5)],
         evaluator_config={},
         evidence_requirements={},
         revision=1,
@@ -142,161 +134,163 @@ def _mock_db(**overrides: object) -> AsyncMock:
     db = AsyncMock()
     db.flush = AsyncMock()
     db.add = MagicMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    result.scalars.return_value.all.return_value = []
+    db.execute = AsyncMock(return_value=result)
     for k, v in overrides.items():
         setattr(db, k, v)
     return db
 
 
 # ---------------------------------------------------------------------------
-# SC-4: Rubric publish blocks when total_weight != 100
+# Direct rubric editing and assignment readiness
 # ---------------------------------------------------------------------------
 
 
-class TestRubricPublishValidation:
-    """Tests for rubric service publish validation."""
+def _result(*, scalar: object = None, rows: list[object] | None = None) -> MagicMock:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = scalar
+    result.scalars.return_value.all.return_value = rows or []
+    return result
 
-    def test_publish_blocked_when_weight_not_100(self) -> None:
-        """Publish should fail when enabled criteria don't sum to 100."""
 
+class TestRubricDirectEditing:
+    def test_published_legacy_rubric_editable_before_submission(self) -> None:
         async def _run() -> None:
-            from app.services.rubric import publish_rubric_version
+            from app.services.rubric import (
+                add_criterion,
+                delete_criterion,
+                update_criterion,
+                update_rubric_version,
+            )
+
+            rv = _make_rubric_version(status=RubricStatus.PUBLISHED)
+            db = _mock_db()
+            updated = await update_rubric_version(
+                db, rv, actor_user_id=uuid.uuid4(), name="Edited"
+            )
+            assert updated.name == "Edited"
+            rv.description = "Old description"
+            updated = await update_rubric_version(
+                db,
+                rv,
+                actor_user_id=uuid.uuid4(),
+                description=None,
+                description_set=True,
+            )
+            assert updated.description is None
+            criterion = await add_criterion(
+                db,
+                rv,
+                actor_user_id=uuid.uuid4(),
+                code="C1",
+                title="Title",
+                description="Description",
+                weight=Decimal("100.00"),
+                position=1,
+            )
+            criterion.revision = 1
+            edited = await update_criterion(
+                db, rv, criterion, actor_user_id=uuid.uuid4(), title="Edited title"
+            )
+            assert edited.title == "Edited title"
+            await delete_criterion(db, rv, criterion, actor_user_id=uuid.uuid4())
+
+        asyncio.run(_run())
+
+    def test_rubric_mutation_blocked_after_first_submission(self) -> None:
+        async def _run() -> None:
+            from app.services.rubric import update_rubric_version
+
+            rv = _make_rubric_version(status=RubricStatus.PUBLISHED)
+            db = _mock_db(execute=AsyncMock(return_value=_result(scalar=uuid.uuid4())))
+            with pytest.raises(HTTPException) as exc_info:
+                await update_rubric_version(
+                    db, rv, actor_user_id=uuid.uuid4(), name="Blocked"
+                )
+            assert exc_info.value.status_code == 409
+            assert "first assignment submission" in exc_info.value.detail
+
+        asyncio.run(_run())
+
+    def test_direct_delete_succeeds_without_references(self) -> None:
+        async def _run() -> None:
+            from app.services.rubric import delete_rubric_version
 
             rv = _make_rubric_version()
-            cv = _make_criterion_version(rv.id, weight=Decimal("60.00"))
+            db = _mock_db(execute=AsyncMock(side_effect=[_result() for _ in range(5)]))
+            await delete_rubric_version(db, rv, actor_user_id=uuid.uuid4())
+            db.delete.assert_awaited_once_with(rv)
 
-            mock_result = MagicMock()
-            mock_result.scalars.return_value.all.return_value = [cv]
-            db = _mock_db(execute=AsyncMock(return_value=mock_result))
+        asyncio.run(_run())
 
+    def test_delete_referenced_rubric_denied(self) -> None:
+        async def _run() -> None:
+            from app.services.rubric import delete_rubric_version
+
+            rv = _make_rubric_version()
+            db = _mock_db(execute=AsyncMock(return_value=_result(scalar=uuid.uuid4())))
             with pytest.raises(HTTPException) as exc_info:
-                await publish_rubric_version(db, rv, actor_user_id=uuid.uuid4())
+                await delete_rubric_version(db, rv, actor_user_id=uuid.uuid4())
+            assert exc_info.value.status_code == 409
+            assert "referenced" in exc_info.value.detail
+
+        asyncio.run(_run())
+
+
+class TestAssignmentRubricReadiness:
+    def test_publish_accepts_saved_draft_rubric_at_100(self) -> None:
+        async def _run() -> None:
+            from app.services.assignment import publish_assignment
+
+            teacher = _make_user()
+            rv = _make_rubric_version(owner_user_id=teacher.id)
+            assignment = _make_assignment(uuid.uuid4(), rv.id, teacher.id)
+            criteria = [
+                _make_criterion_version(rv.id, weight=Decimal("60.00")),
+                _make_criterion_version(
+                    rv.id, weight=Decimal("40.00"), position=2, code="C2"
+                ),
+            ]
+            db = _mock_db(execute=AsyncMock(return_value=_result(rows=criteria)))
+            result = await publish_assignment(db, assignment, actor_user_id=teacher.id)
+            assert result.status == AssignmentStatus.OPEN
+
+        asyncio.run(_run())
+
+    @pytest.mark.parametrize("criteria", [[], [_make_criterion_version(uuid.uuid4())]])
+    def test_publish_rejects_empty_or_non_100_rubric(
+        self, criteria: list[CriterionVersion]
+    ) -> None:
+        async def _run() -> None:
+            from app.services.assignment import publish_assignment
+
+            teacher = _make_user()
+            rv = _make_rubric_version(owner_user_id=teacher.id)
+            assignment = _make_assignment(uuid.uuid4(), rv.id, teacher.id)
+            db = _mock_db(execute=AsyncMock(return_value=_result(rows=criteria)))
+            with pytest.raises(HTTPException) as exc_info:
+                await publish_assignment(db, assignment, actor_user_id=teacher.id)
             assert exc_info.value.status_code == 422
             assert "100.00" in exc_info.value.detail
 
         asyncio.run(_run())
 
-    def test_publish_succeeds_when_weight_is_100(self) -> None:
-        """Publish should succeed when enabled criteria sum to 100."""
-
+    def test_publish_rejects_incomplete_score_scale(self) -> None:
         async def _run() -> None:
-            from app.services.rubric import publish_rubric_version
+            from app.services.assignment import publish_assignment
 
-            rv = _make_rubric_version()
-            cv1 = _make_criterion_version(
-                rv.id, weight=Decimal("60.00"), position=1, code="C1"
-            )
-            cv2 = _make_criterion_version(
-                rv.id, weight=Decimal("40.00"), position=2, code="C2"
-            )
-
-            mock_result = MagicMock()
-            mock_result.scalars.return_value.all.return_value = [cv1, cv2]
-            db = _mock_db(execute=AsyncMock(return_value=mock_result))
-
-            result = await publish_rubric_version(db, rv, actor_user_id=uuid.uuid4())
-            assert result.status == RubricStatus.PUBLISHED
-            assert result.published_at is not None
-            assert result.total_weight == Decimal("100.00")
-
-        asyncio.run(_run())
-
-    def test_publish_already_published_blocked(self) -> None:
-        """Can't publish an already-published rubric."""
-
-        async def _run() -> None:
-            from app.services.rubric import publish_rubric_version
-
-            rv = _make_rubric_version(status=RubricStatus.PUBLISHED)
-            db = _mock_db()
-
+            teacher = _make_user()
+            rv = _make_rubric_version(owner_user_id=teacher.id)
+            assignment = _make_assignment(uuid.uuid4(), rv.id, teacher.id)
+            criterion = _make_criterion_version(rv.id, weight=Decimal("100.00"))
+            criterion.levels = [{"level": level} for level in range(4)]
+            db = _mock_db(execute=AsyncMock(return_value=_result(rows=[criterion])))
             with pytest.raises(HTTPException) as exc_info:
-                await publish_rubric_version(db, rv, actor_user_id=uuid.uuid4())
-            assert exc_info.value.status_code == 409
-
-        asyncio.run(_run())
-
-
-# ---------------------------------------------------------------------------
-# Edit published rubric is blocked (409)
-# ---------------------------------------------------------------------------
-
-
-class TestRubricImmutability:
-    """Published rubrics cannot be edited."""
-
-    def test_update_published_rubric_blocked(self) -> None:
-        """Updating a PUBLISHED rubric version must raise 409."""
-
-        async def _run() -> None:
-            from app.services.rubric import update_rubric_version
-
-            rv = _make_rubric_version(status=RubricStatus.PUBLISHED)
-            db = _mock_db()
-
-            with pytest.raises(HTTPException) as exc_info:
-                await update_rubric_version(
-                    db, rv, actor_user_id=uuid.uuid4(), name="New Name"
-                )
-            assert exc_info.value.status_code == 409
-            assert "immutable" in exc_info.value.detail.lower()
-
-        asyncio.run(_run())
-
-    def test_add_criterion_to_published_rubric_blocked(self) -> None:
-        """Adding a criterion to a PUBLISHED rubric version must raise 409."""
-
-        async def _run() -> None:
-            from app.services.rubric import add_criterion
-
-            rv = _make_rubric_version(status=RubricStatus.PUBLISHED)
-            db = _mock_db()
-
-            with pytest.raises(HTTPException) as exc_info:
-                await add_criterion(
-                    db,
-                    rv,
-                    actor_user_id=uuid.uuid4(),
-                    code="C1",
-                    title="Title",
-                    description="Desc",
-                    weight=Decimal("50.00"),
-                    position=1,
-                )
-            assert exc_info.value.status_code == 409
-
-        asyncio.run(_run())
-
-    def test_update_criterion_on_published_rubric_blocked(self) -> None:
-        """Updating a criterion on a PUBLISHED rubric must raise 409."""
-
-        async def _run() -> None:
-            from app.services.rubric import update_criterion
-
-            rv = _make_rubric_version(status=RubricStatus.PUBLISHED)
-            cv = _make_criterion_version(rv.id)
-            db = _mock_db()
-
-            with pytest.raises(HTTPException) as exc_info:
-                await update_criterion(
-                    db, rv, cv, actor_user_id=uuid.uuid4(), title="New"
-                )
-            assert exc_info.value.status_code == 409
-
-        asyncio.run(_run())
-
-    def test_delete_criterion_on_published_rubric_blocked(self) -> None:
-        """Deleting a criterion from a PUBLISHED rubric must raise 409."""
-
-        async def _run() -> None:
-            from app.services.rubric import delete_criterion
-
-            rv = _make_rubric_version(status=RubricStatus.PUBLISHED)
-            cv = _make_criterion_version(rv.id)
-            db = _mock_db()
-
-            with pytest.raises(HTTPException) as exc_info:
-                await delete_criterion(db, rv, cv, actor_user_id=uuid.uuid4())
-            assert exc_info.value.status_code == 409
+                await publish_assignment(db, assignment, actor_user_id=teacher.id)
+            assert exc_info.value.status_code == 422
+            assert "levels 0 through 4" in exc_info.value.detail
 
         asyncio.run(_run())
 
@@ -389,44 +383,6 @@ class TestStudentVisibility:
 
 class TestAssignmentLifecycle:
     """Assignment publish and close flow."""
-
-    def test_publish_draft_assignment(self) -> None:
-        """DRAFT assignment can be published when rubric is PUBLISHED."""
-
-        async def _run() -> None:
-            from app.services.assignment import publish_assignment
-
-            teacher = _make_user(UserRole.TEACHER)
-            rv = _make_rubric_version(
-                status=RubricStatus.PUBLISHED, owner_user_id=teacher.id
-            )
-            assignment = _make_assignment(uuid.uuid4(), rv.id, teacher.id)
-
-            db = _mock_db(get=AsyncMock(return_value=rv))
-
-            result = await publish_assignment(db, assignment, actor_user_id=teacher.id)
-            assert result.status == AssignmentStatus.OPEN
-            assert result.published_at is not None
-
-        asyncio.run(_run())
-
-    def test_publish_fails_when_rubric_not_published(self) -> None:
-        """Can't publish assignment if rubric is still DRAFT."""
-
-        async def _run() -> None:
-            from app.services.assignment import publish_assignment
-
-            teacher = _make_user(UserRole.TEACHER)
-            rv = _make_rubric_version(owner_user_id=teacher.id)
-            assignment = _make_assignment(uuid.uuid4(), rv.id, teacher.id)
-
-            db = _mock_db(get=AsyncMock(return_value=rv))
-
-            with pytest.raises(HTTPException) as exc_info:
-                await publish_assignment(db, assignment, actor_user_id=teacher.id)
-            assert exc_info.value.status_code == 422
-
-        asyncio.run(_run())
 
     def test_edit_draft_assignment_can_clear_description(self) -> None:
         async def _run() -> None:
@@ -613,106 +569,6 @@ class TestArchivedAssignmentBranches:
 
 
 # ---------------------------------------------------------------------------
-# ARCHIVED rubric status branches
-# ---------------------------------------------------------------------------
-
-
-class TestArchivedRubricBranches:
-    """ARCHIVED rubrics are locked for edits and publish."""
-
-    def test_publish_archived_rubric_blocked(self) -> None:
-        """Publishing an ARCHIVED rubric must raise 409."""
-
-        async def _run() -> None:
-            from app.services.rubric import publish_rubric_version
-
-            rv = _make_rubric_version(status=RubricStatus.ARCHIVED)
-            db = _mock_db()
-
-            with pytest.raises(HTTPException) as exc_info:
-                await publish_rubric_version(db, rv, actor_user_id=uuid.uuid4())
-            assert exc_info.value.status_code == 409
-
-        asyncio.run(_run())
-
-    def test_update_archived_rubric_blocked(self) -> None:
-        """Updating an ARCHIVED rubric must raise 409."""
-
-        async def _run() -> None:
-            from app.services.rubric import update_rubric_version
-
-            rv = _make_rubric_version(status=RubricStatus.ARCHIVED)
-            db = _mock_db()
-
-            with pytest.raises(HTTPException) as exc_info:
-                await update_rubric_version(
-                    db, rv, actor_user_id=uuid.uuid4(), name="New"
-                )
-            assert exc_info.value.status_code == 409
-
-        asyncio.run(_run())
-
-    def test_add_criterion_to_archived_rubric_blocked(self) -> None:
-        """Adding a criterion to an ARCHIVED rubric must raise 409."""
-
-        async def _run() -> None:
-            from app.services.rubric import add_criterion
-
-            rv = _make_rubric_version(status=RubricStatus.ARCHIVED)
-            db = _mock_db()
-
-            with pytest.raises(HTTPException) as exc_info:
-                await add_criterion(
-                    db,
-                    rv,
-                    actor_user_id=uuid.uuid4(),
-                    code="C1",
-                    title="Title",
-                    description="Desc",
-                    weight=Decimal("50.00"),
-                    position=1,
-                )
-            assert exc_info.value.status_code == 409
-
-        asyncio.run(_run())
-
-    def test_create_new_version_from_archived_allowed(self) -> None:
-        """Creating a new version from an ARCHIVED rubric should succeed."""
-
-        async def _run() -> None:
-            from app.services.rubric import create_new_version_from
-
-            owner = _make_user(UserRole.TEACHER)
-            rv = _make_rubric_version(
-                status=RubricStatus.ARCHIVED, owner_user_id=owner.id
-            )
-
-            # Mock DB: max version query + no criteria
-            mock_version_result = MagicMock()
-            mock_version_result.scalar_one_or_none.return_value = 1
-            mock_criteria_result = MagicMock()
-            mock_criteria_result.scalars.return_value.all.return_value = []
-
-            call_count = 0
-
-            async def _execute(stmt: object) -> object:
-                nonlocal call_count
-                call_count += 1
-                if call_count == 1:
-                    return mock_version_result
-                return mock_criteria_result
-
-            db = _mock_db(execute=AsyncMock(side_effect=_execute))
-
-            new_rv = await create_new_version_from(db, rv, actor_user_id=owner.id)
-            assert new_rv.status == RubricStatus.DRAFT
-            assert new_rv.version_number == 2
-            assert new_rv.source_version_id == rv.id
-
-        asyncio.run(_run())
-
-
-# ---------------------------------------------------------------------------
 # Student rubric visibility denial
 # ---------------------------------------------------------------------------
 
@@ -845,7 +701,12 @@ class TestCourseArchiveLifecycle:
             with patch(
                 "app.services.course.record_audit", new_callable=AsyncMock
             ) as mock_audit:
-                archived = await archive_course(db, course, actor_user_id=teacher.id)
+                archived = await archive_course(
+                    db,
+                    course,
+                    actor_user_id=teacher.id,
+                    expected_revision=1,
+                )
 
             assert archived.status == "ARCHIVED"
             assert archived.revision == 2
@@ -863,10 +724,17 @@ class TestCourseArchiveLifecycle:
             course = _make_course(teacher.id)
             course.status = "ARCHIVED"
             course.revision = 1
-            db = _mock_db()
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = course
+            db = _mock_db(execute=AsyncMock(return_value=result))
 
             with pytest.raises(HTTPException) as exc_info:
-                await archive_course(db, course, actor_user_id=teacher.id)
+                await archive_course(
+                    db,
+                    course,
+                    actor_user_id=teacher.id,
+                    expected_revision=1,
+                )
             assert exc_info.value.status_code == 409
 
         asyncio.run(_run())
@@ -881,11 +749,17 @@ class TestCourseArchiveLifecycle:
             course = _make_course(teacher.id)
             course.status = "ARCHIVED"
             course.revision = 1
-            db = _mock_db()
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = course
+            db = _mock_db(execute=AsyncMock(return_value=result))
 
             with pytest.raises(HTTPException) as exc_info:
                 await update_course(
-                    db, course, actor_user_id=teacher.id, name="Changed"
+                    db,
+                    course,
+                    actor_user_id=teacher.id,
+                    expected_revision=1,
+                    name="Changed",
                 )
             assert exc_info.value.status_code == 409
 
@@ -901,10 +775,17 @@ class TestCourseArchiveLifecycle:
             course = _make_course(teacher.id)
             course.status = "ARCHIVED"
             course.revision = 1
-            db = _mock_db()
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = course
+            db = _mock_db(execute=AsyncMock(return_value=result))
 
             with pytest.raises(HTTPException) as exc_info:
-                await delete_course(db, course, actor_user_id=teacher.id)
+                await delete_course(
+                    db,
+                    course,
+                    actor_user_id=teacher.id,
+                    expected_revision=1,
+                )
             assert exc_info.value.status_code == 409
 
         asyncio.run(_run())
@@ -975,15 +856,15 @@ class TestStudentAssignmentScope:
                 role="STUDENT",
                 status="ACTIVE",
             )
-
-            result = MagicMock()
-            result.scalar_one_or_none.return_value = membership
-            db = _mock_db(
-                get=AsyncMock(return_value=course),
-                execute=AsyncMock(return_value=result),
-            )
+            course_result = MagicMock()
+            course_result.scalar_one_or_none.return_value = course
+            membership_result = MagicMock()
+            membership_result.scalar_one_or_none.return_value = membership
+            execute = AsyncMock(side_effect=[course_result, membership_result])
+            db = _mock_db(execute=execute)
 
             assert await get_accessible_course(course.id, student, db) is course
+            assert execute.await_count == 2
 
         asyncio.run(_run())
 
@@ -1001,16 +882,17 @@ class TestStudentAssignmentScope:
             teacher = _make_user(UserRole.TEACHER)
             student = _make_user(UserRole.STUDENT)
             course = _make_course(teacher.id)
-            result = MagicMock()
-            result.scalar_one_or_none.return_value = None
-            db = _mock_db(
-                get=AsyncMock(return_value=course),
-                execute=AsyncMock(return_value=result),
-            )
+            course_result = MagicMock()
+            course_result.scalar_one_or_none.return_value = course
+            membership_result = MagicMock()
+            membership_result.scalar_one_or_none.return_value = None
+            execute = AsyncMock(side_effect=[course_result, membership_result])
+            db = _mock_db(execute=execute)
 
             with pytest.raises(HTTPException) as exc_info:
                 await get_accessible_course(course.id, student, db)
             assert exc_info.value.status_code == 404
+            assert execute.await_count == 2
 
         asyncio.run(_run())
 
@@ -1028,11 +910,15 @@ class TestStudentAssignmentScope:
             owner = _make_user(UserRole.TEACHER)
             other_teacher = _make_user(UserRole.TEACHER)
             course = _make_course(owner.id)
-            db = _mock_db(get=AsyncMock(return_value=course))
+            course_result = MagicMock()
+            course_result.scalar_one_or_none.return_value = course
+            execute = AsyncMock(return_value=course_result)
+            db = _mock_db(execute=execute)
 
             with pytest.raises(HTTPException) as exc_info:
                 await get_accessible_course(course.id, other_teacher, db)
             assert exc_info.value.status_code == 404
+            assert execute.await_count == 1
 
         asyncio.run(_run())
 
@@ -1046,16 +932,15 @@ class TestStudentAssignmentScope:
             dual_role_user = _make_user(UserRole.TEACHER)
             dual_role_user.roles.append(UserRole.STUDENT)
             course = _make_course(owner.id)
-            execute = AsyncMock()
-            db = _mock_db(
-                get=AsyncMock(return_value=course),
-                execute=execute,
-            )
+            course_result = MagicMock()
+            course_result.scalar_one_or_none.return_value = course
+            execute = AsyncMock(return_value=course_result)
+            db = _mock_db(execute=execute)
 
             with pytest.raises(HTTPException) as exc_info:
                 await get_accessible_course(course.id, dual_role_user, db)
             assert exc_info.value.status_code == 404
-            execute.assert_not_awaited()
+            assert execute.await_count == 1
 
         asyncio.run(_run())
 
@@ -1068,14 +953,13 @@ class TestStudentAssignmentScope:
             owner = _make_user(UserRole.TEACHER)
             owner.roles.append(UserRole.STUDENT)
             course = _make_course(owner.id)
-            execute = AsyncMock()
-            db = _mock_db(
-                get=AsyncMock(return_value=course),
-                execute=execute,
-            )
+            course_result = MagicMock()
+            course_result.scalar_one_or_none.return_value = course
+            execute = AsyncMock(return_value=course_result)
+            db = _mock_db(execute=execute)
 
             assert await get_accessible_course(course.id, owner, db) is course
-            execute.assert_not_awaited()
+            assert execute.await_count == 1
 
         asyncio.run(_run())
 
@@ -1099,47 +983,5 @@ class TestStudentCourseDiscovery:
             assert student.id in params
             assert MembershipRole.STUDENT in params
             assert MembershipStatus.ACTIVE in params
-
-        asyncio.run(_run())
-
-
-# ---------------------------------------------------------------------------
-# Rubric supersession lineage
-# ---------------------------------------------------------------------------
-
-
-class TestRubricSupersession:
-    """A new Draft version preserves an immutable Published source."""
-
-    def test_superseded_source_creates_monotonic_draft_version(self) -> None:
-        """Version lineage is explicit and source status is never mutated."""
-
-        async def _run() -> None:
-            from app.services.rubric import create_new_version_from
-
-            owner = _make_user(UserRole.TEACHER)
-            source = _make_rubric_version(
-                status=RubricStatus.PUBLISHED, owner_user_id=owner.id
-            )
-            source.version_number = 2
-            source.total_weight = Decimal("100.00")
-
-            max_version_result = MagicMock()
-            max_version_result.scalar_one_or_none.return_value = 2
-            criteria_result = MagicMock()
-            criteria_result.scalars.return_value.all.return_value = []
-            db = _mock_db(
-                execute=AsyncMock(side_effect=[max_version_result, criteria_result])
-            )
-
-            new_version = await create_new_version_from(
-                db, source, actor_user_id=owner.id
-            )
-
-            assert new_version.version_number == 3
-            assert new_version.source_version_id == source.id
-            assert new_version.status == RubricStatus.DRAFT
-            assert new_version.total_weight == Decimal("0.00")
-            assert source.status == RubricStatus.PUBLISHED
 
         asyncio.run(_run())

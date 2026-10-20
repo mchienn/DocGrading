@@ -12,6 +12,7 @@ from app.api.routers.assignments import router as assignments_router
 from app.api.routers.auth import router as auth_router
 from app.api.routers.courses import join_router as course_join_router
 from app.api.routers.courses import router as courses_router
+from app.api.routers.llm_operations import router as llm_operations_router
 from app.api.routers.notifications import router as notifications_router
 from app.api.routers.operations import metrics_router
 from app.api.routers.operations import router as operations_router
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     application.include_router(assignments_router, prefix="/api/v1")
     application.include_router(rubrics_router, prefix="/api/v1")
     application.include_router(notifications_router, prefix="/api/v1")
+    application.include_router(llm_operations_router, prefix="/api/v1")
     application.include_router(operations_router, prefix="/api/v1")
     application.include_router(submissions_router, prefix="/api/v1")
     application.include_router(metrics_router)

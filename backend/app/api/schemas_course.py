@@ -21,11 +21,20 @@ class CourseCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=255)
     term: str = Field(min_length=1, max_length=128)
+    owner_teacher_id: uuid.UUID | None = None
 
 
 class CourseUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     term: str | None = Field(None, min_length=1, max_length=128)
+
+
+class CourseOwnerSummary(BaseModel):
+    id: uuid.UUID
+    display_name: str
+    email: str
+
+    model_config = {"extra": "forbid", "from_attributes": True}
 
 
 class CourseResponse(BaseModel):
@@ -35,9 +44,43 @@ class CourseResponse(BaseModel):
     term: str
     status: CourseStatus
     owner_teacher_id: uuid.UUID
+    owner: CourseOwnerSummary
+    created_at: datetime
+    updated_at: datetime
     revision: int
 
     model_config = {"from_attributes": True}
+
+
+class AnnouncementCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    body: str = Field(min_length=1, max_length=10_000)
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("title", "body")
+    @classmethod
+    def trim_nonblank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("text must not be blank")
+        return value
+
+
+class AnnouncementUpdate(AnnouncementCreate):
+    pass
+
+
+class AnnouncementResponse(BaseModel):
+    id: uuid.UUID
+    course_id: uuid.UUID
+    created_by_user_id: uuid.UUID
+    title: str
+    body: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"extra": "forbid", "from_attributes": True}
 
 
 class CourseMemberResponse(BaseModel):

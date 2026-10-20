@@ -7,6 +7,7 @@ from app.db.base import Base
 from app.models import (
     AnalysisJob,
     AnalysisJobDispatch,
+    Announcement,
     Assignment,
     AssignmentRequirement,
     AuditEvent,
@@ -15,10 +16,13 @@ from app.models import (
     CourseJoinCode,
     CriterionVersion,
     DocumentIR,
+    DocumentStatusEvent,
     DocumentVersion,
     EvidenceAnchor,
     Finding,
     JoinRateLimit,
+    LLMProviderConfig,
+    LLMRoute,
     Membership,
     Notification,
     PublishedResultVersion,
@@ -36,6 +40,7 @@ from app.models import (
 
 MODEL_TABLE_MAP: dict[type[Base], str] = {
     User: "users",
+    Announcement: "announcements",
     Course: "courses",
     CourseInvite: "course_invites",
     CourseJoinCode: "course_join_codes",
@@ -47,6 +52,7 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     CriterionVersion: "criterion_versions",
     TemplateVersion: "template_versions",
     Submission: "submissions",
+    DocumentStatusEvent: "document_status_events",
     DocumentVersion: "document_versions",
     DocumentIR: "document_irs",
     AnalysisJob: "analysis_jobs",
@@ -61,6 +67,8 @@ MODEL_TABLE_MAP: dict[type[Base], str] = {
     ReviewDecision: "review_decisions",
     ReviewRequest: "review_requests",
     Notification: "notifications",
+    LLMProviderConfig: "llm_provider_configs",
+    LLMRoute: "llm_routes",
     Session: "sessions",
 }
 
@@ -139,6 +147,9 @@ def test_ownership_and_version_foreign_keys_are_explicit() -> None:
         "findings.id",
     } <= foreign_key_targets(ReviewRequest)
     assert "users.id" in foreign_key_targets(Notification)
+    assert "llm_provider_configs.id" in foreign_key_targets(LLMRoute)
+    assert {"users.id"} <= foreign_key_targets(LLMProviderConfig)
+    assert {"users.id"} <= foreign_key_targets(LLMRoute)
 
 
 def test_critical_constraints_and_indexes_have_stable_names() -> None:
@@ -212,6 +223,29 @@ def test_critical_constraints_and_indexes_have_stable_names() -> None:
         if isinstance(constraint, sa.UniqueConstraint)
     }
     assert "uq_document_irs_document_version_id" in document_irs_unique
+    llm_provider_checks = {
+        c.name
+        for c in Base.metadata.tables["llm_provider_configs"].constraints
+        if isinstance(c, CheckConstraint)
+    }
+    assert {
+        "ck_llm_provider_configs_policy_approval",
+        "ck_llm_provider_configs_policy_actor",
+        "ck_llm_provider_configs_policy_time",
+    } <= llm_provider_checks
+    llm_route_checks = {
+        c.name
+        for c in Base.metadata.tables["llm_routes"].constraints
+        if isinstance(c, CheckConstraint)
+    }
+    assert {
+        "ck_llm_routes_quality_actor",
+        "ck_llm_routes_quality_time",
+        "ck_llm_routes_quality_clear",
+        "ck_llm_routes_active_actor",
+        "ck_llm_routes_active_time",
+        "ck_llm_routes_active_clear",
+    } <= llm_route_checks
 
 
 def test_required_text_columns_have_stable_nonblank_constraints() -> None:

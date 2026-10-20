@@ -119,7 +119,7 @@ async def get_owned_course(
     db: AsyncSession = Depends(get_db_session),
 ) -> Course:
     """Load a course and verify that *user* is its owner (or Admin)."""
-    course = await db.get(Course, course_id)
+    course = await course_svc.get_course(db, course_id)
     if course is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -147,7 +147,7 @@ async def get_accessible_course(
     db: AsyncSession = Depends(get_db_session),
 ) -> Course:
     """Load a Course readable by its owner/Admin or an active Student member."""
-    course = await db.get(Course, course_id)
+    course = await course_svc.get_course(db, course_id)
     if course is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -170,15 +170,13 @@ async def get_accessible_course(
                 ),
             )
         )
-        if result.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Course not found",
-            )
-        return course
+        if result.scalar_one_or_none() is not None:
+            return course
 
-    check_roles(user, {UserRole.TEACHER})
-    return course
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Course not found",
+    )
 
 
 async def get_visible_assignments(

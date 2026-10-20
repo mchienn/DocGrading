@@ -541,6 +541,7 @@ async def _delete_downgrade_guard_rows(
         )
 
 
+@pytest.mark.usefixtures("isolated_postgres_database")
 def test_t017_migration_roundtrip_lossy_guard_and_append_only_guards() -> None:
     config = _config()
     engine = create_async_engine(get_settings().database_url, poolclass=NullPool)
@@ -550,6 +551,7 @@ def test_t017_migration_roundtrip_lossy_guard_and_append_only_guards() -> None:
         command.upgrade(config, "head")
         assert asyncio.run(_table_exists(engine, "notifications"))
         asyncio.run(_assert_append_only_guards(engine))
+        command.downgrade(config, "20260912_0012")
         asyncio.run(
             _insert_downgrade_guard_rows(
                 engine,

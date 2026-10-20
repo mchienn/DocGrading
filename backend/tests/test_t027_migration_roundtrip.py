@@ -67,6 +67,7 @@ async def _indexes(engine: AsyncEngine) -> set[str]:
 
 
 async def _prove_lossy_downgrade_guard(engine: AsyncEngine, config: Config) -> None:
+    await asyncio.to_thread(command.downgrade, config, "20260916_0015")
     teacher_id = uuid.uuid4()
     course_id = uuid.uuid4()
     code_id = uuid.uuid4()
@@ -121,6 +122,7 @@ async def _prove_lossy_downgrade_guard(engine: AsyncEngine, config: Config) -> N
             )
 
 
+@pytest.mark.usefixtures("isolated_postgres_database")
 def test_t027_real_postgresql_roundtrip_and_append_only_guards() -> None:
     config = _config()
     engine = create_async_engine(get_settings().database_url, poolclass=NullPool)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.models.enums import (
     AnalysisJobStatus,
     AuditActorType,
+    ReviewRequestStatus,
     UserRole,
     UserStatus,
 )
@@ -108,7 +109,11 @@ class AdminAnalysisJobListItem(BaseModel):
     course_code: str
     course_name: str
     assignment_id: uuid.UUID
+    assignment_title: str
     submission_id: uuid.UUID
+    filename: str
+    student_display_name: str
+    student_email: str
     document_version_id: uuid.UUID
     rubric_version_id: uuid.UUID
     status: AnalysisJobStatus
@@ -144,6 +149,8 @@ class AdminAuditEventResponse(BaseModel):
     action: str
     actor_type: AuditActorType
     actor_user_id: uuid.UUID | None
+    actor_display_name: str | None = None
+    actor_email: str | None = None
     before: dict[str, Any] | None
     after: dict[str, Any] | None
     reason: str
@@ -170,9 +177,22 @@ class CourseSubmissionCount(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class AdminJobTrendPoint(BaseModel):
+    day: date
+    total_jobs: int = Field(ge=0)
+    error_jobs: int = Field(ge=0)
+    average_processing_seconds: float = Field(ge=0)
+
+    model_config = {"extra": "forbid"}
+
+
 class AdminDashboardResponse(BaseModel):
     jobs_by_status: dict[AnalysisJobStatus, int]
     submissions_by_course: list[CourseSubmissionCount]
     open_review_requests: int
+    total_users: int = Field(ge=0)
+    average_active_job_age_seconds: float = Field(ge=0)
+    jobs_last_7_days: list[AdminJobTrendPoint] = Field(min_length=7, max_length=7)
+    review_requests_by_status: dict[ReviewRequestStatus, int]
 
     model_config = {"extra": "forbid"}

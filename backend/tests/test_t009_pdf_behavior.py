@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from pypdf import PdfWriter
 
@@ -18,8 +19,14 @@ from app.models.enums import (
 )
 from app.services import analysis_job as job_service
 from app.services import pdf_validation
+from app.services import review as review_service
 from app.services.pdf_validation import PDFValidationError, validate_pdf
-from app.services.storage import ObjectHead, S3Storage, StorageObjectChanged
+from app.services.storage import (
+    ObjectHead,
+    S3Storage,
+    StorageObjectChanged,
+    StorageObjectNotFound,
+)
 from app.services.submission import _reused_response, complete_upload, initiate_upload
 
 
@@ -202,6 +209,204 @@ def test_download_presign_is_inline_pdf_and_short_lived() -> None:
             300,
         )
     ]
+
+
+def test_missing_document_is_reported_before_presign(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = SimpleNamespace(
+        submission_id=uuid.uuid4(),
+        storage_key="documents/missing.pdf",
+        status=DocumentStatus.AWAITING_REVIEW,
+    )
+    db = SimpleNamespace(get=AsyncMock(return_value=version))
+    monkeypatch.setattr(
+        review_service,
+        "_submission_for_read",
+        AsyncMock(return_value=(SimpleNamespace(), SimpleNamespace(), True)),
+    )
+
+    class MissingStorage:
+        expiry_seconds = 300
+
+        def head(self, _key: str) -> ObjectHead:
+            raise StorageObjectNotFound
+
+        def create_presigned_get(self, _key: str) -> str:
+            raise AssertionError("missing object must not be presigned")
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            review_service.get_document_download(
+                db,
+                version_id=uuid.uuid4(),
+                user=SimpleNamespace(),
+                storage=MissingStorage(),
+            )
+        )
+    assert exc_info.value.status_code == 410
+    assert "Re-upload" in exc_info.value.detail
+
+
+def test_upload_still_in_progress_is_never_presigned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = SimpleNamespace(
+        submission_id=uuid.uuid4(),
+        storage_key=f"uploads/{uuid.uuid4()}/{uuid.uuid4()}.pdf",
+        status=DocumentStatus.UPLOADING,
+    )
+    db = SimpleNamespace(get=AsyncMock(return_value=version))
+    monkeypatch.setattr(
+        review_service,
+        "_submission_for_read",
+        AsyncMock(return_value=(SimpleNamespace(), SimpleNamespace(), True)),
+    )
+
+    class StagingStorage:
+        expiry_seconds = 300
+
+        def head(self, _key: str) -> ObjectHead:
+            raise AssertionError("staging object must not be inspected")
+
+        def create_presigned_get(self, _key: str) -> str:
+            raise AssertionError("staging object must not be presigned")
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            review_service.get_document_download(
+                db,
+                version_id=uuid.uuid4(),
+                user=SimpleNamespace(),
+                storage=StagingStorage(),
+            )
+        )
+    assert exc_info.value.status_code == 409
+
+
+def test_recovery_copy_restores_missing_local_storage_object(tmp_path) -> None:
+    content = _blank_pdf()
+
+    class Client:
+        objects = {"documents/version.pdf": content}
+
+        def get_object(self, *, Bucket: str, Key: str) -> dict[str, object]:
+            assert Bucket == "docgrading"
+            return {"Body": BytesIO(self.objects[Key])}
+
+        def head_object(self, *, Bucket: str, Key: str) -> dict[str, object]:
+            assert Bucket == "docgrading"
+            if Key not in self.objects:
+                raise ClientError(
+                    {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+                    "HeadObject",
+                )
+            return {
+                "ContentType": "application/pdf",
+                "ContentLength": len(self.objects[Key]),
+                "ETag": '"restored"',
+            }
+
+        def put_object(
+            self,
+            *,
+            Bucket: str,
+            Key: str,
+            Body,
+            ContentType: str,
+        ) -> None:
+            assert Bucket == "docgrading"
+            assert ContentType == "application/pdf"
+            self.objects[Key] = Body.read()
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage._internal = Client()
+    storage._recovery_dir = tmp_path
+    with pytest.raises(ValueError, match="safe relative path"):
+        storage._recovery_path(r"..\outside.pdf")
+    storage._backup("documents/version.pdf")
+    storage._internal.objects.clear()
+
+    restored = storage.head("documents/version.pdf")
+
+    assert restored.content_length == len(content)
+    assert storage._internal.objects["documents/version.pdf"] == content
+
+
+def test_recovery_recreates_local_bucket_with_browser_upload_cors(tmp_path) -> None:
+    content = _blank_pdf()
+    recovery_file = tmp_path / "documents" / "version.pdf"
+    recovery_file.parent.mkdir(parents=True)
+    recovery_file.write_bytes(content)
+
+    class Client:
+        bucket_exists = False
+        objects: dict[str, bytes] = {}
+        cors: dict[str, object] | None = None
+        lifecycle: dict[str, object] | None = None
+
+        def head_object(self, *, Bucket: str, Key: str) -> dict[str, object]:
+            if not self.bucket_exists:
+                raise ClientError(
+                    {"Error": {"Code": "NoSuchBucket", "Message": "missing"}},
+                    "HeadObject",
+                )
+            return {
+                "ContentType": "application/pdf",
+                "ContentLength": len(self.objects[Key]),
+                "ETag": '"restored"',
+            }
+
+        def put_object(
+            self,
+            *,
+            Bucket: str,
+            Key: str,
+            Body,
+            ContentType: str,
+        ) -> None:
+            if not self.bucket_exists:
+                raise ClientError(
+                    {"Error": {"Code": "NoSuchBucket", "Message": "missing"}},
+                    "PutObject",
+                )
+            self.objects[Key] = Body.read()
+
+        def create_bucket(self, *, Bucket: str) -> None:
+            self.bucket_exists = True
+
+        def put_bucket_cors(
+            self,
+            *,
+            Bucket: str,
+            CORSConfiguration: dict[str, object],
+        ) -> None:
+            self.cors = CORSConfiguration
+
+        def put_bucket_lifecycle_configuration(
+            self,
+            *,
+            Bucket: str,
+            LifecycleConfiguration: dict[str, object],
+        ) -> None:
+            self.lifecycle = LifecycleConfiguration
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage._internal = Client()
+    storage._recovery_dir = tmp_path
+    storage._recovery_cors_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+    restored = storage.head("documents/version.pdf")
+
+    rules = storage._internal.cors["CORSRules"]
+    assert restored.content_length == len(content)
+    assert rules[0]["AllowedOrigins"] == storage._recovery_cors_origins
+    assert storage._internal.lifecycle is not None
 
 
 def test_seal_upload_conditionally_copies_to_uncredentialed_key() -> None:
@@ -749,3 +954,53 @@ def test_retry_reuses_same_job_row_and_preserves_attempt_count(
     assert result.error_code is None
     assert document.status is DocumentStatus.QUEUED
     assert added == []
+
+
+def test_seal_upload_survives_local_recovery_copy_failure(tmp_path) -> None:
+    class InternalClient:
+        def copy_object(self, **_kwargs: object) -> None:
+            return None
+
+        def head_object(self, **_kwargs: object) -> dict[str, object]:
+            return {
+                "ContentType": "application/pdf",
+                "ContentLength": 128,
+                "ETag": '"sealed-etag"',
+            }
+
+        def get_object(self, **_kwargs: object) -> dict[str, object]:
+            raise OSError("transient read failure")
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage._internal = InternalClient()
+    storage._recovery_dir = tmp_path
+
+    head = storage.seal_upload("uploads/staging.pdf", "documents/sealed.pdf", '"e"')
+
+    assert head.etag == '"sealed-etag"'
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [("NoSuchKey", StorageObjectNotFound), ("NoSuchBucket", ClientError)],
+)
+def test_unrestorable_missing_object_keeps_storage_failure_for_missing_bucket(
+    code: str, expected: type[Exception], tmp_path
+) -> None:
+    class InternalClient:
+        def head_object(self, **_kwargs: object) -> dict[str, object]:
+            raise ClientError({"Error": {"Code": code, "Message": "x"}}, "HeadObject")
+
+        def get_object(self, **_kwargs: object) -> dict[str, object]:
+            raise ClientError({"Error": {"Code": code, "Message": "x"}}, "GetObject")
+
+    storage = object.__new__(S3Storage)
+    storage.bucket = "docgrading"
+    storage._internal = InternalClient()
+    storage._recovery_dir = tmp_path  # no recovery copy exists
+
+    with pytest.raises(expected):
+        storage.head("documents/gone.pdf")
+    with pytest.raises(expected):
+        storage.get_bounded("documents/gone.pdf", 10)

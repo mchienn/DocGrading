@@ -1,7 +1,9 @@
+import re
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -18,6 +20,7 @@ KNOWN_STORAGE_PLACEHOLDERS = frozenset(
     }
 )
 JOIN_RATE_LIMIT_HASH_SECRET_PLACEHOLDER = "change-me-for-local-development-only"
+POSTGRES_PASSWORD_PLACEHOLDER = "change-me-for-local-development"
 
 
 class Settings(BaseSettings):
@@ -51,6 +54,7 @@ class Settings(BaseSettings):
     login_max_failed_attempts: int = Field(default=5, ge=1)
     login_failure_window_seconds: int = Field(default=900, gt=0)
     login_lockout_seconds: int = Field(default=900, gt=0)
+    login_ip_max_failed_attempts: int = Field(default=30, ge=1)
 
     storage_bucket: str = "docgrading"
     storage_endpoint_url: str = "http://localhost:9000"
@@ -64,10 +68,27 @@ class Settings(BaseSettings):
         default="local-development-secret-key", min_length=1
     )
     storage_presign_expiry_seconds: int = Field(default=300, ge=1, le=300)
+    storage_recovery_dir: str = ""
     pdf_max_size_bytes: int = Field(default=100_000_000, gt=0)
     pdf_max_decoded_bytes: int = Field(default=50_000_000, gt=0)
     pdf_max_page_count: int = Field(default=100, gt=0)
     pdf_ir_max_nodes: int = Field(default=100_000, gt=0)
+    # Download verified sources (arXiv, OpenAlex open-access PDFs) into the cache.
+    semantic_source_fetch_enabled: bool = False
+    semantic_source_cache_prefix: str = ""
+    semantic_model_call_budget: int = Field(default=32, ge=1, le=256)
+    semantic_coverage_threshold: float = Field(default=1.0, gt=0, le=1)
+    semantic_max_source_bytes: int = Field(default=50_000_000, gt=0, le=50_000_000)
+    # OpenAI-compatible embeddings endpoint (Text Embeddings Inference, OpenAI,
+    # Gemini...) and optional TEI reranker; empty keeps BM25 retrieval.
+    semantic_encoder_url: str = ""
+    semantic_encoder_model: str = ""
+    semantic_encoder_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    semantic_encoder_query_prefix: str = ""
+    semantic_encoder_document_prefix: str = ""
+    semantic_reranker_url: str = ""
+    llm_credential_keyring: SecretStr = Field(default=SecretStr(""), repr=False)
+    llm_credential_active_key_id: str = ""
 
     analysis_job_lease_seconds: int = Field(default=300, gt=0)
     analysis_job_heartbeat_seconds: int = Field(default=30, gt=0)
@@ -79,6 +100,15 @@ class Settings(BaseSettings):
                 "analysis_job_heartbeat_seconds must be strictly shorter than "
                 "analysis_job_lease_seconds"
             )
+        recovery_dir = self.storage_recovery_dir.strip()
+        if self.app_env == "development" and not recovery_dir:
+            recovery_dir = "storage"
+        self.storage_recovery_dir = recovery_dir
+        if self.app_env != "development" and recovery_dir:
+            # A local copy re-uploads objects that were deleted from the bucket.
+            raise ValueError(
+                "Local storage recovery is only allowed in development environment"
+            )
         if self.app_env != "development" and (
             self.storage_access_key_id.strip().lower() in KNOWN_STORAGE_PLACEHOLDERS
             or self.storage_secret_access_key.strip().lower()
@@ -86,6 +116,14 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "Known placeholder storage credentials are not allowed outside "
+                "development environment"
+            )
+        if (
+            self.app_env != "development"
+            and self.postgres_password.strip().lower() == POSTGRES_PASSWORD_PLACEHOLDER
+        ):
+            raise ValueError(
+                "Default PostgreSQL password is not allowed outside "
                 "development environment"
             )
         rate_limit_secret = self.join_rate_limit_hash_secret.strip()
@@ -103,6 +141,51 @@ class Settings(BaseSettings):
                 "Default join rate-limit hash secret is not allowed outside "
                 "development environment"
             )
+        if (
+            self.app_env != "development"
+            and urlsplit(self.storage_public_endpoint_url.strip()).scheme.lower()
+            != "https"
+        ):
+            raise ValueError(
+                "Public storage endpoint must use HTTPS outside development "
+                "environment"
+            )
+        prefix = self.semantic_source_cache_prefix.strip()
+        if prefix:
+            if (
+                prefix.startswith("/")
+                or ".." in prefix
+                or "//" in prefix
+                or not re.fullmatch(r"[a-zA-Z0-9_\-\./]+", prefix)
+            ):
+                raise ValueError(
+                    "semantic_source_cache_prefix must be a safe relative S3 prefix"
+                )
+            self.semantic_source_cache_prefix = prefix.strip("/")
+        else:
+            self.semantic_source_cache_prefix = ""
+        for name in ("semantic_encoder_url", "semantic_reranker_url"):
+            url = getattr(self, name).strip()
+            parts = urlsplit(url)
+            if url and (
+                parts.scheme not in {"http", "https"}
+                or not parts.hostname
+                or parts.username
+                or parts.password
+                or parts.query
+                or parts.fragment
+            ):
+                raise ValueError(f"{name} must be a plain http(s) URL")
+            setattr(self, name, url.rstrip("/"))
+        if self.semantic_encoder_url and not self.semantic_encoder_model.strip():
+            raise ValueError("semantic_encoder_model is required with an encoder URL")
+        if self.semantic_reranker_url and not self.semantic_encoder_url:
+            raise ValueError("semantic_reranker_url requires semantic_encoder_url")
+        if (
+            self.semantic_encoder_api_key.get_secret_value()
+            and urlsplit(self.semantic_encoder_url).scheme != "https"
+        ):
+            raise ValueError("an encoder API key requires an HTTPS encoder URL")
         return self
 
     @property

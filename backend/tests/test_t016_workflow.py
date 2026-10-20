@@ -41,7 +41,7 @@ async def _publish_seed(
         f'{ids["criterion"]}'
         '","finding_id":"'
         f'{ids["finding"]}'
-        '"}]}'
+        '","description":"Published finding text"}]}'
         if document_id == ids["document_1"]
         else '{"comment":"public", "findings":[]}'
     )
@@ -257,6 +257,13 @@ async def _workflow() -> None:
             )
         assert replay.value.status_code == 409
 
+        await connection.execute(
+            text(
+                "UPDATE public.findings SET description = 'Changed analysis text' "
+                "WHERE id = :finding"
+            ),
+            {"finding": ids["finding"]},
+        )
         finding_request = await create_review_request(
             session,
             published_result_id=result_id,
@@ -270,6 +277,7 @@ async def _workflow() -> None:
         assert finding_request.finding_id == ids["finding"]
         assert finding_request.published_result_id == result_id
         assert finding_request.criterion_id is None
+        assert finding_request.finding_description == "Published finding text"
         with pytest.raises(HTTPException) as foreign_list:
             await list_review_requests(
                 session,
@@ -491,13 +499,22 @@ ReviewRequestResponseFields = {
     "published_result_id",
     "submission_id",
     "student_id",
+    "student_display_name",
+    "student_email",
     "criterion_id",
+    "criterion_code",
+    "criterion_title",
     "finding_id",
+    "finding_description",
     "status",
     "reason",
     "response",
     "responded_by_user_id",
+    "responded_by_display_name",
     "responded_at",
+    "assignment_title",
+    "course_code",
+    "course_name",
     "created_at",
     "updated_at",
 }

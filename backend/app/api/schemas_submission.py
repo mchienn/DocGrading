@@ -9,7 +9,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.enums import AnalysisJobStatus, ReviewDecisionType, ReviewRequestStatus
+from app.models.enums import (
+    AnalysisJobStatus,
+    DocumentStatus,
+    ReviewDecisionType,
+    ReviewRequestStatus,
+)
+from app.services.semantic_citation import (
+    SemanticCitationReportResponse,
+    SemanticPipelineStatus,
+)
 
 
 class PresignRequest(BaseModel):
@@ -48,6 +57,35 @@ class CompletionResponse(BaseModel):
 class DocumentDownloadResponse(BaseModel):
     url: str = Field(min_length=1)
     expires_in: int = Field(ge=1, le=300)
+
+
+class DocumentVersionListItem(BaseModel):
+    document_version_id: uuid.UUID
+    submission_id: uuid.UUID
+    version_number: int
+    filename: str
+    file_size_bytes: int = Field(ge=1)
+    sha256: str
+    document_status: DocumentStatus
+    created_at: datetime
+    course_id: uuid.UUID
+    course_code: str
+    course_name: str
+    assignment_id: uuid.UUID
+    assignment_title: str
+    student_id: uuid.UUID
+    student_display_name: str
+
+    model_config = {"extra": "forbid"}
+
+
+class DocumentVersionListResponse(BaseModel):
+    items: list[DocumentVersionListItem]
+    page: int
+    page_size: int
+    total: int
+
+    model_config = {"extra": "forbid"}
 
 
 class AnalysisJobResponse(BaseModel):
@@ -211,6 +249,8 @@ class EvidenceResponse(BaseModel):
 class FindingResponse(BaseModel):
     id: uuid.UUID
     criterion_version_id: uuid.UUID
+    criterion_code: str
+    criterion_title: str
     severity: str
     description: str
     suggestion: str | None
@@ -223,6 +263,7 @@ class EvidenceWorkspaceResponse(BaseModel):
     document_version_id: uuid.UUID
     findings: list[FindingResponse]
     citation: CitationReportResponse | None = None
+    semantic_citation: SemanticCitationReportResponse | None = None
 
 
 class QueueLockResponse(BaseModel):
@@ -235,6 +276,8 @@ class SubmissionQueueItem(BaseModel):
     submission_id: uuid.UUID
     document_version_id: uuid.UUID | None
     student_id: uuid.UUID
+    student_display_name: str
+    student_email: str
     document_status: str | None
     queue_status: QueueStatus
     submitted_at: datetime
@@ -243,6 +286,26 @@ class SubmissionQueueItem(BaseModel):
 
 class SubmissionQueueResponse(BaseModel):
     items: list[SubmissionQueueItem]
+    page: int
+    page_size: int
+    total: int
+
+
+class AssignmentSubmissionItem(BaseModel):
+    submission_id: uuid.UUID
+    student_id: uuid.UUID
+    student_display_name: str
+    student_email: str
+    attempt_count: int = Field(ge=0)
+    document_version_id: uuid.UUID | None
+    filename: str | None
+    file_size_bytes: int | None = Field(default=None, ge=1)
+    document_status: str | None
+    submitted_at: datetime | None
+
+
+class AssignmentSubmissionListResponse(BaseModel):
+    items: list[AssignmentSubmissionItem]
     page: int
     page_size: int
     total: int
@@ -267,6 +330,7 @@ class ReviewDecisionRequest(BaseModel):
         max_digits=5,
         decimal_places=2,
     )
+    edited_semantic_verdict: SemanticPipelineStatus | None = None
     reason: str | None = Field(default=None, max_length=2_000)
 
     @field_validator("edited_description", "reason")
@@ -278,20 +342,25 @@ class ReviewDecisionRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_shape(self) -> ReviewDecisionRequest:
+        edit_values = (
+            self.edited_description,
+            self.final_score,
+            self.edited_semantic_verdict,
+        )
         if self.decision is ReviewDecisionType.ACCEPT and any(
-            value is not None for value in (self.edited_description, self.final_score)
+            value is not None for value in edit_values
         ):
-            raise ValueError("ACCEPT cannot include edit or score")
-        if (
-            self.decision is ReviewDecisionType.EDIT
-            and self.edited_description is None
-            and self.final_score is None
+            raise ValueError("ACCEPT cannot include edit, score, or semantic verdict")
+        if self.decision is ReviewDecisionType.EDIT and all(
+            value is None for value in edit_values
         ):
-            raise ValueError("EDIT requires edited description or final score")
+            raise ValueError(
+                "EDIT requires edited description, final score, or semantic verdict"
+            )
         if self.decision is ReviewDecisionType.REJECT and any(
-            value is not None for value in (self.edited_description, self.final_score)
+            value is not None for value in edit_values
         ):
-            raise ValueError("REJECT cannot include edit or score")
+            raise ValueError("REJECT cannot include edit, score, or semantic verdict")
         return self
 
 
@@ -319,6 +388,7 @@ class ReviewDecisionResponse(BaseModel):
     decision: ReviewDecisionType
     edited_description: str | None
     final_score: Decimal | None
+    edited_semantic_verdict: SemanticPipelineStatus | None
     reason: str | None
 
 
@@ -373,6 +443,8 @@ class UnpublishRequest(PublishRequest):
 
 class PublishedFindingResponse(BaseModel):
     criterion_version_id: uuid.UUID
+    criterion_code: str
+    criterion_title: str
     finding_id: uuid.UUID
     score: Decimal | None
     description: str
@@ -390,6 +462,75 @@ class PublishedResultResponse(BaseModel):
     findings: list[PublishedFindingResponse]
 
 
+class GradingAnalysisJobResponse(BaseModel):
+    id: uuid.UUID
+    status: AnalysisJobStatus
+    attempt_count: int = Field(ge=0)
+    max_attempts: int = Field(gt=0)
+    queued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_code: str | None
+
+
+class GradingReviewDecisionResponse(ReviewDecisionResponse):
+    created_at: datetime
+    updated_at: datetime
+
+
+class GradingReviewResponse(BaseModel):
+    id: uuid.UUID
+    reviewer_user_id: uuid.UUID
+    reviewer_display_name: str
+    revision: int = Field(gt=0)
+    comment: str
+    created_at: datetime
+    updated_at: datetime
+    decisions: list[GradingReviewDecisionResponse]
+
+
+class GradingStatusEventResponse(BaseModel):
+    from_status: str | None
+    to_status: str
+    changed_at: datetime
+    recorded: bool
+
+
+class GradingActionResponse(BaseModel):
+    id: uuid.UUID
+    resource_type: Literal["DocumentVersion", "Finding"]
+    resource_id: uuid.UUID
+    action: str
+    actor_display_name: str
+    reason: str
+    occurred_at: datetime
+    before: dict[str, str | None]
+    after: dict[str, str | None]
+
+
+class DocumentGradingResultResponse(BaseModel):
+    submission_id: uuid.UUID
+    document_version_id: uuid.UUID
+    version_number: int = Field(gt=0)
+    filename: str
+    file_size_bytes: int = Field(gt=0)
+    submitted_at: datetime
+    current_status: str
+    failure_code: str | None
+    assignment_title: str
+    student_id: uuid.UUID
+    student_display_name: str
+    student_email: str
+    analysis_jobs: list[GradingAnalysisJobResponse]
+    findings: list[FindingResponse]
+    citation: CitationReportResponse | None = None
+    semantic_citation: SemanticCitationReportResponse | None = None
+    reviews: list[GradingReviewResponse]
+    published_results: list[PublishedResultResponse]
+    status_history: list[GradingStatusEventResponse]
+    actions: list[GradingActionResponse]
+
+
 class BulkPublishResponse(BaseModel):
     results: list[PublishedResultResponse]
 
@@ -398,6 +539,8 @@ class SubmissionVersionResponse(BaseModel):
     document_version_id: uuid.UUID
     version_number: int
     created_at: datetime
+    filename: str
+    file_size_bytes: int = Field(ge=1)
     processing_status: VersionProcessingStatus
     publication_status: VersionPublicationStatus | None = None
     published_result_id: uuid.UUID | None = None
@@ -454,13 +597,22 @@ class ReviewRequestResponse(BaseModel):
     published_result_id: uuid.UUID
     submission_id: uuid.UUID
     student_id: uuid.UUID
+    student_display_name: str
+    student_email: str
     criterion_id: uuid.UUID | None = None
+    criterion_code: str
+    criterion_title: str
     finding_id: uuid.UUID | None = None
+    finding_description: str | None = None
     status: ReviewRequestStatus
     reason: str
     response: str | None = None
     responded_by_user_id: uuid.UUID | None = None
+    responded_by_display_name: str | None = None
     responded_at: datetime | None = None
+    assignment_title: str
+    course_code: str
+    course_name: str
     created_at: datetime
     updated_at: datetime
 

@@ -6,7 +6,16 @@ from app.main import app
 
 OPENAPI = app.openapi()
 PAGED_FIELDS = {"items", "page", "page_size", "total"}
-USER_FIELDS = {"id", "email", "display_name", "roles", "status"}
+USER_FIELDS = {
+    "id",
+    "email",
+    "display_name",
+    "roles",
+    "status",
+    "revision",
+    "created_at",
+}
+COURSE_OWNER_FIELDS = {"id", "display_name", "email"}
 COURSE_FIELDS = {
     "id",
     "code",
@@ -14,6 +23,9 @@ COURSE_FIELDS = {
     "term",
     "status",
     "owner_teacher_id",
+    "owner",
+    "created_at",
+    "updated_at",
     "revision",
 }
 RUBRIC_FIELDS = {
@@ -61,6 +73,8 @@ ASSIGNMENT_FIELDS = {
     "published_at",
     "closed_at",
     "revision",
+    "student_submission_id",
+    "student_attempts_used",
 }
 PRESIGN_FIELDS = {
     "submission_id",
@@ -97,6 +111,8 @@ QUEUE_ITEM_FIELDS = {
     "submission_id",
     "document_version_id",
     "student_id",
+    "student_display_name",
+    "student_email",
     "document_status",
     "queue_status",
     "submitted_at",
@@ -107,10 +123,13 @@ EVIDENCE_WORKSPACE_FIELDS = {
     "document_version_id",
     "findings",
     "citation",
+    "semantic_citation",
 }
 FINDING_FIELDS = {
     "id",
     "criterion_version_id",
+    "criterion_code",
+    "criterion_title",
     "severity",
     "description",
     "suggestion",
@@ -146,6 +165,8 @@ PUBLISHED_RESULT_FIELDS = {
 }
 PUBLISHED_FINDING_FIELDS = {
     "criterion_version_id",
+    "criterion_code",
+    "criterion_title",
     "finding_id",
     "score",
     "description",
@@ -157,12 +178,21 @@ REVIEW_REQUEST_FIELDS = {
     "published_result_id",
     "submission_id",
     "student_id",
+    "student_display_name",
+    "student_email",
+    "course_code",
+    "course_name",
+    "assignment_title",
     "criterion_id",
     "finding_id",
+    "criterion_code",
+    "criterion_title",
+    "finding_description",
     "status",
     "reason",
     "response",
     "responded_by_user_id",
+    "responded_by_display_name",
     "responded_at",
     "created_at",
     "updated_at",
@@ -172,6 +202,8 @@ SUBMISSION_VERSION_FIELDS = {
     "document_version_id",
     "version_number",
     "created_at",
+    "filename",
+    "file_size_bytes",
     "processing_status",
     "publication_status",
     "published_result_id",
@@ -202,8 +234,12 @@ ADMIN_JOB_LIST_ITEM_FIELDS = {
     "course_code",
     "course_name",
     "assignment_id",
+    "assignment_title",
     "submission_id",
+    "student_display_name",
+    "student_email",
     "document_version_id",
+    "filename",
     "rubric_version_id",
     "status",
     "attempt_count",
@@ -223,6 +259,8 @@ AUDIT_EVENT_FIELDS = {
     "action",
     "actor_type",
     "actor_user_id",
+    "actor_display_name",
+    "actor_email",
     "before",
     "after",
     "reason",
@@ -232,6 +270,10 @@ DASHBOARD_FIELDS = {
     "jobs_by_status",
     "submissions_by_course",
     "open_review_requests",
+    "total_users",
+    "review_requests_by_status",
+    "average_active_job_age_seconds",
+    "jobs_last_7_days",
 }
 COURSE_COUNT_FIELDS = {"course_id", "course_code", "course_name", "submission_count"}
 
@@ -303,7 +345,6 @@ def test_step_1_teacher_setup_contracts() -> None:
             201,
             CRITERION_FIELDS,
         ),
-        ("/api/v1/rubrics/{rubric_id}/publish", "post", 200, RUBRIC_FIELDS),
         (
             "/api/v1/courses/{course_id}/assignments",
             "post",
@@ -323,8 +364,21 @@ def test_step_1_teacher_setup_contracts() -> None:
             PAGED_FIELDS,
         ),
     )
+    rubric_path = "/api/v1/rubrics/{rubric_id}"
+    assert "delete" in OPENAPI["paths"][rubric_path]
+    assert set(OPENAPI["paths"][rubric_path]["delete"]["responses"]) == {"204", "422"}
+    assert "content" not in OPENAPI["paths"][rubric_path]["delete"]["responses"]["204"]
+    assert "/api/v1/rubrics/{rubric_id}/publish" not in OPENAPI["paths"]
+    assert "/api/v1/rubrics/{rubric_id}/new-version" not in OPENAPI["paths"]
     for contract in contracts:
         _assert_contract(*contract)
+    _assert_nested_fields(
+        "/api/v1/courses",
+        "post",
+        201,
+        ("owner",),
+        COURSE_OWNER_FIELDS,
+    )
     _assert_nested_fields(
         "/api/v1/courses/{course_id}/submission-queue",
         "get",

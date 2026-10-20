@@ -37,5 +37,7 @@ class AssignmentResponse(BaseModel):
     published_at: datetime | None
     closed_at: datetime | None
     revision: int
+    student_submission_id: uuid.UUID | None = None
+    student_attempts_used: int | None = Field(default=None, ge=0)
 
     model_config = {"from_attributes": True}

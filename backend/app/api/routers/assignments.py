@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,9 +26,63 @@ from app.models.assignment import Assignment
 from app.models.course import Course
 from app.models.enums import UserRole
 from app.models.identity import User
+from app.models.submission import DocumentVersion, Submission
 from app.services import assignment as assignment_svc
 
 router = APIRouter(prefix="/courses/{course_id}/assignments", tags=["assignments"])
+
+
+def _student_only(user: User) -> bool:
+    return (
+        UserRole.STUDENT in user.roles
+        and UserRole.ADMIN not in user.roles
+        and UserRole.TEACHER not in user.roles
+    )
+
+
+async def _assignment_responses(
+    assignments: list[Assignment],
+    *,
+    user: User,
+    db: AsyncSession,
+) -> list[AssignmentResponse]:
+    attempts: dict[uuid.UUID, tuple[uuid.UUID, int]] = {}
+    if assignments and _student_only(user):
+        rows = await db.execute(
+            sa.select(
+                Submission.assignment_id,
+                Submission.id,
+                sa.func.count(DocumentVersion.id),
+            )
+            .outerjoin(
+                DocumentVersion,
+                DocumentVersion.submission_id == Submission.id,
+            )
+            .where(
+                Submission.student_id == user.id,
+                Submission.assignment_id.in_(
+                    [assignment.id for assignment in assignments]
+                ),
+            )
+            .group_by(Submission.assignment_id, Submission.id)
+        )
+        attempts = {
+            assignment_id: (submission_id, int(count))
+            for assignment_id, submission_id, count in rows
+        }
+    return [
+        (
+            AssignmentResponse.model_validate(assignment).model_copy(
+                update={
+                    "student_submission_id": attempts.get(assignment.id, (None, 0))[0],
+                    "student_attempts_used": attempts.get(assignment.id, (None, 0))[1],
+                }
+            )
+            if _student_only(user)
+            else AssignmentResponse.model_validate(assignment)
+        )
+        for assignment in assignments
+    ]
 
 
 @router.post("", response_model=AssignmentResponse, status_code=201)
@@ -57,9 +112,11 @@ async def create_assignment(
 @router.get("", response_model=list[AssignmentResponse])
 async def list_assignments(
     assignments: list[Assignment] = Depends(get_visible_assignments),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
 ) -> list[AssignmentResponse]:
     """List assignments visible to the current user."""
-    return [AssignmentResponse.model_validate(a) for a in assignments]
+    return await _assignment_responses(assignments, user=user, db=db)
 
 
 async def _get_assignment_with_ownership(
@@ -101,7 +158,7 @@ async def get_assignment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assignment not found",
         )
-    return AssignmentResponse.model_validate(assignment)
+    return (await _assignment_responses([assignment], user=user, db=db))[0]
 
 
 @router.put("/{assignment_id}", response_model=AssignmentResponse)
@@ -126,6 +183,17 @@ async def update_assignment(
     )
     await db.commit()
     return AssignmentResponse.model_validate(assignment)
+
+
+@router.delete("/{assignment_id}", status_code=204)
+async def delete_assignment(
+    assignment: Assignment = Depends(_get_assignment_with_ownership),
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    """Delete a DRAFT assignment without submissions."""
+    await assignment_svc.delete_assignment(db, assignment, actor_user_id=user.id)
+    await db.commit()
 
 
 @router.post(

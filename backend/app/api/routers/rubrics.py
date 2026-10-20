@@ -1,4 +1,4 @@
-"""Rubric CRUD, publish, versioning, and criteria management endpoints."""
+"""Rubric CRUD and criteria management endpoints."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ async def create_rubric(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> RubricVersionResponse:
-    """Create a new rubric version (Teacher/Admin)."""
+    """Create a rubric (Teacher/Admin)."""
     rv = await rubric_svc.create_rubric_version(
         db,
         owner_user_id=user.id,
@@ -55,7 +55,7 @@ async def list_rubrics(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> list[RubricVersionResponse]:
-    """List rubric versions. Admin sees all; Teacher sees own."""
+    """List rubrics. Admin sees all; Teacher sees own."""
     owner_id = None if UserRole.ADMIN in user.roles else user.id
     rubrics = await rubric_svc.list_rubric_versions(db, owner_user_id=owner_id)
     return [RubricVersionResponse.model_validate(r) for r in rubrics]
@@ -66,12 +66,12 @@ async def _get_owned_rubric(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> RubricVersion:
-    """Load rubric version and verify ownership."""
+    """Load rubric and verify ownership."""
     rv = await rubric_svc.get_rubric_version(db, rubric_id)
     if rv is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rubric version not found",
+            detail="Rubric not found",
         )
     _check_rubric_ownership(rv, user.id, [r.value for r in user.roles])
     return rv
@@ -81,7 +81,7 @@ async def _get_owned_rubric(
 async def get_rubric(
     rv: RubricVersion = Depends(_get_owned_rubric),
 ) -> RubricVersionResponse:
-    """Get a single rubric version (owner/Admin)."""
+    """Get one rubric (owner/Admin)."""
     return RubricVersionResponse.model_validate(rv)
 
 
@@ -92,41 +92,29 @@ async def update_rubric(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> RubricVersionResponse:
-    """Update a DRAFT rubric version (owner/Admin)."""
+    """Update a rubric (owner/Admin)."""
     rv = await rubric_svc.update_rubric_version(
         db,
         rv,
         actor_user_id=user.id,
         name=body.name,
         description=body.description,
+        description_set="description" in body.model_fields_set,
         calculation_method=body.calculation_method,
     )
     await db.commit()
     return RubricVersionResponse.model_validate(rv)
 
 
-@router.post("/{rubric_id}/publish", response_model=RubricVersionResponse)
-async def publish_rubric(
+@router.delete("/{rubric_id}", status_code=204)
+async def delete_rubric(
     rv: RubricVersion = Depends(_get_owned_rubric),
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
-) -> RubricVersionResponse:
-    """Publish a DRAFT rubric version."""
-    rv = await rubric_svc.publish_rubric_version(db, rv, actor_user_id=user.id)
+) -> None:
+    """Delete an unreferenced rubric (owner/Admin)."""
+    await rubric_svc.delete_rubric_version(db, rv, actor_user_id=user.id)
     await db.commit()
-    return RubricVersionResponse.model_validate(rv)
-
-
-@router.post("/{rubric_id}/new-version", response_model=RubricVersionResponse)
-async def create_new_version(
-    rv: RubricVersion = Depends(_get_owned_rubric),
-    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
-    db: AsyncSession = Depends(get_db_session),
-) -> RubricVersionResponse:
-    """Create a new DRAFT version from a published rubric."""
-    new_rv = await rubric_svc.create_new_version_from(db, rv, actor_user_id=user.id)
-    await db.commit()
-    return RubricVersionResponse.model_validate(new_rv)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +133,7 @@ async def add_criterion(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> CriterionResponse:
-    """Add a criterion to a DRAFT rubric version."""
+    """Add a criterion to a rubric."""
     cv = await rubric_svc.add_criterion(
         db,
         rv,
@@ -171,7 +159,7 @@ async def list_criteria(
     rv: RubricVersion = Depends(_get_owned_rubric),
     db: AsyncSession = Depends(get_db_session),
 ) -> list[CriterionResponse]:
-    """List criteria for a rubric version."""
+    """List criteria for a rubric."""
     criteria = await rubric_svc.list_criteria(db, rv.id)
     return [CriterionResponse.model_validate(c) for c in criteria]
 
@@ -201,7 +189,7 @@ async def update_criterion(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> CriterionResponse:
-    """Update a criterion on a DRAFT rubric version."""
+    """Update a criterion on a rubric."""
     rv, cv = rv_cv
     cv = await rubric_svc.update_criterion(
         db,
@@ -229,7 +217,7 @@ async def delete_criterion(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> None:
-    """Delete a criterion from a DRAFT rubric version."""
+    """Delete a criterion from a rubric."""
     rv, cv = rv_cv
     await rubric_svc.delete_criterion(db, rv, cv, actor_user_id=user.id)
     await db.commit()

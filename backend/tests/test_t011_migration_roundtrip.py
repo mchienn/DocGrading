@@ -77,6 +77,7 @@ async def _assert_audit_truncate_rejected(engine: AsyncEngine) -> None:
             await transaction.rollback()
 
 
+@pytest.mark.usefixtures("isolated_postgres_database")
 def test_migration_0009_real_postgresql_roundtrip() -> None:
     backend_dir = Path(__file__).resolve().parents[1]
     config = Config(str(backend_dir / "alembic.ini"))
@@ -109,6 +110,7 @@ def test_migration_0009_real_postgresql_roundtrip() -> None:
         asyncio.run(engine.dispose())
 
 
+@pytest.mark.usefixtures("isolated_postgres_database")
 def test_migration_0009_refuses_nonempty_finding_downgrade() -> None:
     from tests.test_t011_review_workspace import _cleanup_graph, _ids, _seed_graph
 
@@ -142,6 +144,7 @@ def test_migration_0009_refuses_nonempty_finding_downgrade() -> None:
 
     try:
         command.upgrade(config, "head")
+        command.downgrade(config, "20260910_0009")
         asyncio.run(exercise_guard())
     finally:
         with contextlib.suppress(Exception):
