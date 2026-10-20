@@ -8,6 +8,7 @@ import {
   ApiError,
   api,
   apiData,
+  apiVoid,
   broadcastAuthChange,
   getErrorMessage,
   type AuthChangeKind,
@@ -17,10 +18,12 @@ import { AdminDashboardView } from '../components/admin/AdminDashboardView';
 import { UserManagementView } from '../components/admin/UserManagementView';
 import { JobMonitoringView } from '../components/admin/JobMonitoringView';
 import { AuditLogView } from '../components/admin/AuditLogView';
+import { LLMProviderSettingsView } from '../components/admin/LLMProviderSettingsView';
 import { AppSidebar } from '../components/common/AppSidebar';
 import { AuthShell } from '../components/auth/AuthShell';
 import { CourseListView } from '../components/teacher/CourseListView';
 import { CourseWorkspaceView } from '../components/teacher/CourseWorkspaceView';
+import { DocumentGradingResultView } from '../components/teacher/DocumentGradingResultView';
 import { CourseRosterView } from '../components/teacher/CourseRosterView';
 import { RubricTemplatesView } from '../components/teacher/RubricTemplatesView';
 import { SubmissionQueueView } from '../components/teacher/SubmissionQueueView';
@@ -32,12 +35,17 @@ import { StudentAssignmentsView } from '../components/student/StudentAssignments
 import { StudentJoinCourseView } from '../components/student/StudentJoinCourseView';
 import { StudentUploadView } from '../components/student/StudentUploadView';
 import { StudentStatusTimelineView } from '../components/student/StudentStatusTimelineView';
+import { AccountProfileView } from '../components/account/AccountProfileView';
+import { AccountNotificationsView } from '../components/account/AccountNotificationsView';
+import { AccountFilesView } from '../components/account/AccountFilesView';
+import { AccountSettingsView } from '../components/account/AccountSettingsView';
 import { LoginPage } from '../pages/LoginPage';
 import { authService } from '../services/authService';
 import type { UserSession } from '../types/auth';
-import { strongestRole, type WorkspaceRole } from '../types/api';
+import { strongestRole, type ApiCourse, type ApiUser, type WorkspaceRole } from '../types/api';
 
 type AssignmentInput = components['schemas']['AssignmentCreate'];
+type AnnouncementInput = components['schemas']['AnnouncementCreate'];
 
 function defaultPath(role: WorkspaceRole): string {
   if (role === 'admin') return '/admin/dashboard';
@@ -57,35 +65,91 @@ const CoursesPage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
     queryKey: ['courses'],
     queryFn: () => apiData(api.GET('/api/v1/courses')),
   });
+  const teachersQuery = useQuery({
+    queryKey: ['admin-users', 'course-owners'],
+    queryFn: async () => {
+      const loadPage = (page: number) => apiData(api.GET('/api/v1/users', {
+        params: {
+          query: {
+            role: 'TEACHER',
+            status: 'ACTIVE',
+            page,
+            page_size: 100,
+          },
+        },
+      }));
+      const firstPage = await loadPage(1);
+      const owners: ApiUser[] = [...firstPage.items];
+      for (let page = 2; page <= Math.ceil(firstPage.total / 100); page += 1) {
+        owners.push(...(await loadPage(page)).items);
+      }
+      return owners;
+    },
+    enabled: role === 'admin',
+  });
 
-  const saveCourse = async (input: { code: string; name: string; term: string }, courseId?: string) => {
-    if (courseId) {
+  const saveCourse = async (
+    input: { code: string; name: string; term: string; ownerTeacherId?: string },
+    course?: ApiCourse,
+  ) => {
+    if (course) {
       await apiData(api.PUT('/api/v1/courses/{course_id}', {
-        params: { path: { course_id: courseId } },
+        params: {
+          path: { course_id: course.id },
+          header: { 'If-Match': `"rev-${course.revision}"` },
+        },
         body: { name: input.name, term: input.term },
       }));
     } else {
-      await apiData(api.POST('/api/v1/courses', { body: input }));
+      await apiData(api.POST('/api/v1/courses', {
+        body: {
+          code: input.code,
+          name: input.name,
+          term: input.term,
+          owner_teacher_id: input.ownerTeacherId,
+        },
+      }));
     }
     await queryClient.invalidateQueries({ queryKey: ['courses'] });
   };
 
-  const archiveCourse = async (courseId: string) => {
+  const archiveCourse = async (course: ApiCourse) => {
     await apiData(api.POST('/api/v1/courses/{course_id}/archive', {
-      params: { path: { course_id: courseId } },
+      params: {
+        path: { course_id: course.id },
+        header: { 'If-Match': `"rev-${course.revision}"` },
+      },
+    }));
+    await queryClient.invalidateQueries({ queryKey: ['courses'] });
+  };
+
+  const deleteCourse = async (course: ApiCourse) => {
+    await apiVoid(api.DELETE('/api/v1/courses/{course_id}', {
+      params: {
+        path: { course_id: course.id },
+        header: { 'If-Match': `"rev-${course.revision}"` },
+      },
     }));
     await queryClient.invalidateQueries({ queryKey: ['courses'] });
   };
 
   return (
     <CourseListView
+      role={role}
+      ownerOptions={role === 'admin' ? teachersQuery.data ?? [] : undefined}
       courses={coursesQuery.data ?? []}
-      canCreate={role === 'teacher'}
+      canCreate={role === 'teacher' || role === 'admin'}
+      canDelete={role === 'admin'}
       loading={coursesQuery.isLoading}
-      error={coursesQuery.error ? getErrorMessage(coursesQuery.error) : undefined}
+      error={
+        coursesQuery.error || teachersQuery.error
+          ? getErrorMessage(coursesQuery.error ?? teachersQuery.error)
+          : undefined
+      }
       onSelectCourse={(course) => navigate(`/${role}/courses/${course.id}`)}
       onSave={saveCourse}
       onArchive={archiveCourse}
+      onDelete={deleteCourse}
     />
   );
 };
@@ -104,6 +168,13 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
   const assignmentsQuery = useQuery({
     queryKey: ['assignments', courseId],
     queryFn: () => apiData(api.GET('/api/v1/courses/{course_id}/assignments', {
+      params: { path: { course_id: courseId } },
+    })),
+    enabled: Boolean(courseId),
+  });
+  const announcementsQuery = useQuery({
+    queryKey: ['announcements', courseId],
+    queryFn: () => apiData(api.GET('/api/v1/courses/{course_id}/announcements', {
       params: { path: { course_id: courseId } },
     })),
     enabled: Boolean(courseId),
@@ -132,6 +203,35 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
     await refreshAssignments();
   };
 
+  const deleteAssignment = async (assignmentId: string) => {
+    await apiVoid(api.DELETE('/api/v1/courses/{course_id}/assignments/{assignment_id}', {
+      params: { path: { course_id: courseId, assignment_id: assignmentId } },
+    }));
+    await refreshAssignments();
+  };
+
+  const saveAnnouncement = async (input: AnnouncementInput, announcementId?: string) => {
+    if (announcementId) {
+      await apiData(api.PUT('/api/v1/courses/{course_id}/announcements/{announcement_id}', {
+        params: { path: { course_id: courseId, announcement_id: announcementId } },
+        body: input,
+      }));
+    } else {
+      await apiData(api.POST('/api/v1/courses/{course_id}/announcements', {
+        params: { path: { course_id: courseId } },
+        body: input,
+      }));
+    }
+    await queryClient.invalidateQueries({ queryKey: ['announcements', courseId] });
+  };
+
+  const deleteAnnouncement = async (announcementId: string) => {
+    await apiVoid(api.DELETE('/api/v1/courses/{course_id}/announcements/{announcement_id}', {
+      params: { path: { course_id: courseId, announcement_id: announcementId } },
+    }));
+    await queryClient.invalidateQueries({ queryKey: ['announcements', courseId] });
+  };
+
   const publishAssignment = async (assignmentId: string) => {
     await apiData(api.POST('/api/v1/courses/{course_id}/assignments/{assignment_id}/publish', {
       params: { path: { course_id: courseId, assignment_id: assignmentId } },
@@ -155,15 +255,28 @@ const CoursePage: React.FC<{ role: 'teacher' | 'admin' }> = ({ role }) => {
     <CourseWorkspaceView
       course={courseQuery.data}
       assignments={assignmentsQuery.data ?? []}
-      rubrics={(rubricsQuery.data ?? []).filter((rubric) => rubric.status === 'PUBLISHED')}
-      loading={assignmentsQuery.isLoading || rubricsQuery.isLoading}
-      error={assignmentsQuery.error || rubricsQuery.error ? getErrorMessage(assignmentsQuery.error ?? rubricsQuery.error) : undefined}
+      rubrics={rubricsQuery.data ?? []}
+      announcements={announcementsQuery.data ?? []}
+      loading={assignmentsQuery.isLoading || rubricsQuery.isLoading || announcementsQuery.isLoading}
+      error={assignmentsQuery.error || rubricsQuery.error || announcementsQuery.error
+        ? getErrorMessage(assignmentsQuery.error ?? rubricsQuery.error ?? announcementsQuery.error)
+        : undefined}
       onBack={() => navigate(`/${role}/courses`)}
       onOpenSubmissionQueue={() => navigate(`/${role}/courses/${courseId}/submissions`)}
       onOpenRoster={() => navigate(`/${role}/courses/${courseId}/roster`)}
       onSaveAssignment={saveAssignment}
+      onOpenSubmission={(submissionId, documentStatus) => navigate(
+        `/${role}/courses/${courseId}/submissions/${submissionId}`,
+        { state: { documentStatus } },
+      )}
+      onOpenVersionResult={(versionId) => navigate(
+        `/${role}/courses/${courseId}/document-versions/${versionId}/result`,
+      )}
       onPublishAssignment={publishAssignment}
+      onDeleteAssignment={deleteAssignment}
       onCloseAssignment={closeAssignment}
+      onSaveAnnouncement={saveAnnouncement}
+      onDeleteAnnouncement={deleteAnnouncement}
     />
   );
 };
@@ -201,7 +314,9 @@ export const App: React.FC = () => {
       clearUserData(queryClient);
       if (event.data === 'signed-in') {
         setAuthExpired(false);
-        void sessionQuery.refetch();
+        // Drop the previous user's session before refetching, so no shell renders
+        // with the old identity while the new cookie's session loads.
+        void queryClient.resetQueries({ queryKey: ['session'] });
         return;
       }
       setAuthExpired(true);
@@ -212,7 +327,7 @@ export const App: React.FC = () => {
       window.removeEventListener(AUTH_EXPIRED_EVENT, expire);
       authChannel.removeEventListener('message', onAuthChange);
     };
-  }, [queryClient, sessionQuery]);
+  }, [queryClient]);
 
   if (sessionQuery.isLoading && !authExpired) {
     return <div className="min-h-screen grid place-items-center text-sm text-slate-500">Loading session...</div>;
@@ -251,13 +366,24 @@ export const App: React.FC = () => {
   const activeRole = strongestRole(user.roles);
   const home = defaultPath(activeRole);
   const adminTitles: Record<string, string> = {
-    '/admin/dashboard': 'Admin dashboard',
+    '/admin/dashboard': 'Analysis',
     '/admin/users': 'Users',
-    '/admin/jobs': 'Analysis jobs',
+    '/admin/jobs': 'Monitoring',
     '/admin/audit': 'Audit trail',
     '/admin/appeals': 'Appeals',
+    '/admin/ai-providers': 'AI providers',
   };
-  const title = location.pathname.endsWith('/roster') ? 'Course roster' : (
+  const title = location.pathname.endsWith('/profile')
+    ? 'Profile'
+    : location.pathname.endsWith('/notifications')
+    ? 'Notifications'
+    : location.pathname.endsWith('/files')
+    ? 'Files'
+    : location.pathname.endsWith('/settings')
+    ? 'Settings'
+    : location.pathname.endsWith('/roster')
+    ? 'Course roster'
+    : (
     adminTitles[location.pathname] ?? (
       location.pathname.startsWith('/teacher/appeals') || location.pathname.startsWith('/admin/appeals')
         ? 'Appeals'
@@ -316,22 +442,37 @@ export const App: React.FC = () => {
             <Route path="/teacher/appeals" element={activeRole === 'teacher' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions" element={activeRole === 'teacher' ? <SubmissionQueueView role="teacher" /> : <Navigate to={home} replace />} />
             <Route path="/teacher/courses/:courseId/submissions/:submissionId" element={activeRole === 'teacher' ? <ReviewWorkspaceView role="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/courses/:courseId/document-versions/:versionId/result" element={activeRole === 'teacher' ? <DocumentGradingResultView /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/profile" element={activeRole === 'teacher' ? <AccountProfileView activeRole="teacher" user={user} /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/notifications" element={activeRole === 'teacher' ? <AccountNotificationsView activeRole="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/files" element={activeRole === 'teacher' ? <AccountFilesView activeRole="teacher" /> : <Navigate to={home} replace />} />
+            <Route path="/teacher/settings" element={activeRole === 'teacher' ? <AccountSettingsView activeRole="teacher" user={user} /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses" element={activeRole === 'admin' ? <CoursesPage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/dashboard" element={activeRole === 'admin' ? <AdminDashboardView /> : <Navigate to={home} replace />} />
             <Route path="/admin/users" element={activeRole === 'admin' ? <UserManagementView currentUserId={user.id} /> : <Navigate to={home} replace />} />
             <Route path="/admin/jobs" element={activeRole === 'admin' ? <JobMonitoringView /> : <Navigate to={home} replace />} />
             <Route path="/admin/audit" element={activeRole === 'admin' ? <AuditLogView /> : <Navigate to={home} replace />} />
             <Route path="/admin/appeals" element={activeRole === 'admin' ? <AppealsInboxView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/ai-providers" element={activeRole === 'admin' ? <LLMProviderSettingsView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId" element={activeRole === 'admin' ? <CoursePage role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/roster" element={activeRole === 'admin' ? <CourseRosterView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/rubrics" element={activeRole === 'admin' ? <RubricTemplatesView /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions" element={activeRole === 'admin' ? <SubmissionQueueView role="admin" /> : <Navigate to={home} replace />} />
             <Route path="/admin/courses/:courseId/submissions/:submissionId" element={activeRole === 'admin' ? <ReviewWorkspaceView role="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/courses/:courseId/document-versions/:versionId/result" element={activeRole === 'admin' ? <DocumentGradingResultView /> : <Navigate to={home} replace />} />
+            <Route path="/admin/profile" element={activeRole === 'admin' ? <AccountProfileView activeRole="admin" user={user} /> : <Navigate to={home} replace />} />
+            <Route path="/admin/notifications" element={activeRole === 'admin' ? <AccountNotificationsView activeRole="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/files" element={activeRole === 'admin' ? <AccountFilesView activeRole="admin" /> : <Navigate to={home} replace />} />
+            <Route path="/admin/settings" element={activeRole === 'admin' ? <AccountSettingsView activeRole="admin" user={user} /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments" element={activeRole === 'student' ? <StudentAssignmentsView /> : <Navigate to={home} replace />} />
             <Route path="/student/join" element={activeRole === 'student' ? <StudentJoinCourseView /> : <Navigate to={home} replace />} />
             <Route path="/student/assignments/:courseId/:assignmentId/upload" element={activeRole === 'student' ? <StudentUploadView /> : <Navigate to={home} replace />} />
             <Route path="/student/submissions/:submissionId/result" element={activeRole === 'student' ? <StudentPublishedResultView /> : <Navigate to={home} replace />} />
             <Route path="/student/appeals/:requestId" element={activeRole === 'student' ? <StudentAppealDetailView /> : <Navigate to={home} replace />} />
+            <Route path="/student/profile" element={activeRole === 'student' ? <AccountProfileView activeRole="student" user={user} /> : <Navigate to={home} replace />} />
+            <Route path="/student/notifications" element={activeRole === 'student' ? <AccountNotificationsView activeRole="student" /> : <Navigate to={home} replace />} />
+            <Route path="/student/files" element={activeRole === 'student' ? <AccountFilesView activeRole="student" /> : <Navigate to={home} replace />} />
+            <Route path="/student/settings" element={activeRole === 'student' ? <AccountSettingsView activeRole="student" user={user} /> : <Navigate to={home} replace />} />
             <Route path="/jobs/:jobId" element={<StudentStatusTimelineView activeRole={activeRole} />} />
             <Route path="*" element={<Navigate to={home} replace />} />
           </Routes>

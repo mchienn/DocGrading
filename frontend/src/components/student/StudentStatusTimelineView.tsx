@@ -61,7 +61,7 @@ const diagnosticActions: Record<string, string> = {
   'pdf.remove_attachments': 'Remove embedded attachments.',
   'pdf.run_ocr': 'Run OCR and export a searchable PDF.',
   'pdf.export_searchable_copy': 'Export a searchable PDF with a usable text layer.',
-  'pdf.retry_or_contact_support': 'Retry later or contact support with the job ID.',
+  'pdf.retry_or_contact_support': 'Retry later or contact support.',
   'pdf.review_link_target': 'Review the visible link label and destination.',
 };
 
@@ -151,8 +151,8 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
     }
     if (job.status === 'ERROR') {
       const detail = job.error_code
-        ? friendlyErrors[job.error_code] ?? 'PDF processing failed. Contact support with job ID.'
-        : 'PDF processing failed. Contact support with job ID.';
+        ? friendlyErrors[job.error_code] ?? 'PDF processing failed. Retry later or contact support.'
+        : 'PDF processing failed. Retry later or contact support.';
       const isValidationError = !['PDF_STORAGE_ERROR', 'PDF_IR_EXTRACTION_FAILED', 'FILE_INTEGRITY_EVALUATION_FAILED'].includes(job.error_code ?? '');
       return {
         icon: <AlertCircle className="w-10 h-10 text-rose-600" />,
@@ -204,7 +204,6 @@ export const StudentStatusTimelineView: React.FC<StudentStatusTimelineViewProps>
       </button>
       <div className="border-b border-slate-200 pb-5">
         <h1 className="text-2xl font-bold text-slate-900">Processing status</h1>
-        <p className="text-sm text-slate-500 mt-1 font-mono break-all">Job {jobId}</p>
       </div>
 
       {(jobQuery.error || retryError) && (
