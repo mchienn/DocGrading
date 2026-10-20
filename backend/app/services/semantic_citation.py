@@ -507,8 +507,41 @@ def _sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     return sentence_start, forced_end or min(right or [len(text)])
 
 
+# Inferred markers must look like numeric citations: [1], [1, 3], [1-4], [1;2].
+# Other styles come from parsed mention spans; "[CLS]" or "[MASK]" are plain text.
+_BRACKET_MARKER = re.compile(r"\[\d+(?:\s*[-\u2013,;]\s*\d+)*\]")
+
+
+def _marker_groups(
+    text: str, start: int, end: int, spans: Sequence[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    """Citation marker groups inside text[start:end].
+
+    Markers come from parsed mentions plus bracketed markers; parentheses such as
+    "(DNN)" are not markers. Markers separated only by spaces, commas or semicolons
+    ("[7] [11]", "[7], [11]") form one group: they cite the same statement.
+    """
+    found = {(left, right) for left, right in spans if start <= left and right <= end}
+    found |= {
+        (item.start(), item.end())
+        for item in _BRACKET_MARKER.finditer(text, start, end)
+    }
+    groups: list[tuple[int, int]] = []
+    for left, right in sorted(found):
+        if groups and (
+            left <= groups[-1][1] or not text[groups[-1][1] : left].strip(" ,;")
+        ):
+            groups[-1] = (groups[-1][0], max(groups[-1][1], right))
+        else:
+            groups.append((left, right))
+    return groups
+
+
 def _claim_scope(
-    text: str, marker_start: int, marker_end: int
+    text: str,
+    marker_start: int,
+    marker_end: int,
+    marker_spans: Sequence[tuple[int, int]] = (),
 ) -> tuple[str, int, int, ExtractionMethod, str | None]:
     sentence_start, sentence_end = _sentence_bounds(text, marker_start, marker_end)
     sentence = text[sentence_start:sentence_end]
@@ -518,20 +551,42 @@ def _claim_scope(
         for item in parts
         if item.start() <= marker_start - sentence_start < item.end()
     ]
-    if len(parts) > 1 and len(containing) == 1:
+    in_clause = len(parts) > 1 and len(containing) == 1
+    scope_start, scope_end = sentence_start, sentence_end
+    if in_clause:
         part = containing[0]
-        start, end = sentence_start + part.start(), sentence_start + part.end()
-        trimmed = text[start:end].strip()
-        start += len(text[start:end]) - len(text[start:end].lstrip())
-        return trimmed, start, start + len(trimmed), ExtractionMethod.CLAUSE, None
-    if len(re.findall(r"\[[^\]]+\]|\([^()]+\)", sentence)) > 1:
-        return (
-            sentence.strip(),
-            sentence_start + len(sentence) - len(sentence.lstrip()),
-            sentence_start + len(sentence.rstrip()),
-            ExtractionMethod.SENTENCE,
-            "multiple citation scopes",
+        scope_start = sentence_start + part.start()
+        scope_end = sentence_start + part.end()
+    raw_scope = text[scope_start:scope_end]
+    scope_start += len(raw_scope) - len(raw_scope.lstrip())
+    scope_end = scope_start + len(raw_scope.strip())
+    scope = text[scope_start:scope_end]
+    method = ExtractionMethod.CLAUSE if in_clause else ExtractionMethod.SENTENCE
+    groups = _marker_groups(
+        text, scope_start, scope_end, [(marker_start, marker_end), *marker_spans]
+    )
+    if len(groups) > 1:
+        # Citations at different places in one sentence: each marker owns the text
+        # since the previous marker; the sentence tail belongs to the last marker.
+        index = next(
+            (
+                i
+                for i, (left, right) in enumerate(groups)
+                if left <= marker_start < right
+            ),
+            len(groups) - 1,
         )
+        segment_start = groups[index - 1][1] if index else scope_start
+        segment_end = scope_end if index == len(groups) - 1 else groups[index][1]
+        segment = text[segment_start:segment_end]
+        claim = segment.lstrip(" ,;:").rstrip()
+        start = segment_start + len(segment) - len(segment.lstrip(" ,;:"))
+        if len(re.findall(r"\w+", _BRACKET_MARKER.sub(" ", claim))) >= 4:
+            return claim, start, start + len(claim), ExtractionMethod.CLAUSE, None
+        # A bare list item ("A [1], B [2] and C [3] are ...") keeps the whole scope.
+        return scope, scope_start, scope_end, method, None
+    if in_clause:
+        return scope, scope_start, scope_end, method, None
     if re.search(
         r",\s+(?:and|but|while|whereas)\s+[^,;]+\b"
         r"(?:is|are|was|were|shows?|increases?|decreases?|causes?|affects?)\b",
@@ -587,6 +642,13 @@ def extract_claim_pairs(
     refs = {item.id: item for item in report.references}
     output: list[ClaimCitationPair] = []
     seen_pairs: set[tuple[str, str]] = set()
+    marker_spans: dict[str, list[tuple[int, int]]] = {}
+    for item in report.mentions:
+        paragraph = paragraphs.get(item.element_id)
+        if paragraph is not None:
+            text = str(paragraph.get("text", ""))[: MAX_CLAIM_CHARS * 8]
+            if (item_span := _marker_span(text, item)) is not None:
+                marker_spans.setdefault(item.element_id, []).append(item_span)
     for mention in report.mentions:
         if mention.status != LINKED or mention.parser_status != PARSED:
             continue
@@ -614,7 +676,9 @@ def extract_claim_pairs(
                 "citation marker span unavailable",
             )
         else:
-            claim, start, end, method, reason = _claim_scope(text, *span)
+            claim, start, end, method, reason = _claim_scope(
+                text, *span, marker_spans.get(mention.element_id, ())
+            )
             if reason and scope_resolver:
                 resolved = _validated_scope(text, scope_resolver(text, mention))
                 if resolved:
