@@ -35,12 +35,19 @@ def test_verdict_metrics_count_accusations_and_manual_review() -> None:
     }
 
 
-def test_v1_fixture_is_ai_consensus_with_disjoint_splits() -> None:
+def test_v1_fixture_is_ai_verified_with_disjoint_splits() -> None:
     fixture = json.loads(_FIXTURE.read_text(encoding="utf-8"))
     meta = fixture["annotation_set"]
-    # AI labels must never be counted as the human gold the production gate needs.
+    # AI labels are never reported as human gold; the set qualifies for the benchmark
+    # gate only through rule v1.1 plus held-out confirmation (spec section 7).
     assert meta["annotation_status"] == "AI_CONSENSUS"
     assert meta["human_gold_pairs"] == 0
+    assert meta["acceptance_rule"].startswith("v1.1")
+    assert meta["heldout_agreement"] == round(
+        sum(p["heldout_verdict"] == p["label"] for p in fixture["pairs"])
+        / len(fixture["pairs"]),
+        4,
+    )
     source_ids = {source["source_id"] for source in fixture["sources"]}
     claims = {"dev": set(), "test": set()}
     for pair in fixture["pairs"]:
