@@ -159,6 +159,14 @@ services:
         condition: service_completed_successfully
       api:
         condition: service_healthy
+      # Only with the `encoder` profile: wait until both models are loaded, so the
+      # first jobs after a deploy do not fall back to keyword retrieval.
+      encoder:
+        condition: service_healthy
+        required: false
+      reranker:
+        condition: service_healthy
+        required: false
     healthcheck:
       test:
         [
@@ -171,22 +179,36 @@ services:
       retries: 5
     networks: [backend]
 
-  # Optional self-hosted text encoder for semantic retrieval (`--profile encoder`).
-  # Point the worker at it with SEMANTIC_ENCODER_URL=http://encoder/v1,
-  # SEMANTIC_ENCODER_MODEL=BAAI/bge-m3 and SEMANTIC_RERANKER_URL=http://reranker.
+  # Self-hosted text encoder for semantic retrieval (`encoder` profile). Deployments
+  # enable it with COMPOSE_PROFILES=encoder in .env plus SEMANTIC_ENCODER_URL=
+  # http://encoder/v1, SEMANTIC_ENCODER_MODEL=BAAI/bge-m3 and SEMANTIC_RERANKER_URL=
+  # http://reranker (see .env.example). On CPU each TEI process holds about 5.5 GB
+  # after warmup, so the pair needs a host with at least 16 GB RAM (an 8 GB Docker VM
+  # OOM-kills them); the first start downloads about 4.5 GB into `encoder_models`.
   # On a T4 GPU use the `turing-1.9` image with USE_FLASH_ATTENTION=False (or
   # --dtype float32): its default fp16 flash path returns NaN vectors/scores.
   encoder:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
     profiles: [encoder]
+    # --max-batch-tokens 2048 (default 16384) keeps warmup within memory: bge-m3
+    # warms up with full-length batches and was OOM-killed at 16384 and 8192.
+    # Inputs stay under it: the client sends at most 8,000 characters and source
+    # passages are at most about 3,400 characters (v1 benchmark corpus).
     command:
       [
         "--model-id", "BAAI/bge-m3",
         "--revision", "5617a9f61b028005a4858fdac845db406aefb181",
         "--auto-truncate",
+        "--max-batch-tokens", "2048",
       ]
     volumes:
       - encoder_models:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20m
+      retries: 4
     networks: [backend]
 
   reranker:
@@ -197,9 +219,19 @@ services:
         "--model-id", "BAAI/bge-reranker-v2-m3",
         "--revision", "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
         "--auto-truncate",
+        "--max-batch-tokens", "2048",
       ]
+    depends_on:
+      encoder:
+        condition: service_healthy
     volumes:
       - encoder_models:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20m
+      retries: 4
     networks: [backend]
 
   frontend:
